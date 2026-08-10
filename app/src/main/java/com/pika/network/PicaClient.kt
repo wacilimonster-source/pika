@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import kotlinx.coroutines.delay
 import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -78,24 +79,46 @@ object PicaClient {
         _api = null
     }
 
-    /** 统一错误处理：400 时抛出服务端 message；401 由拦截器回调登出 */
+    /** 统一错误处理：400 时抛出服务端 message；401 由拦截器回调登出；429 自动切换线路重试一次 */
     suspend fun <T> safeCall(block: suspend () -> ApiResponse<T>): T {
-        try {
-            val response = block()
-            if (response.code != 200) {
-                throw PicaException(response.message)
+        var attempt = 0
+        while (true) {
+            try {
+                val response = block()
+                if (response.code != 200) {
+                    throw PicaException(response.message)
+                }
+                return response.data
+            } catch (e: HttpException) {
+                val code = e.code()
+                if (code == 429 && attempt == 0) {
+                    attempt++
+                    Log.i("PicaClient", "429 rate limited, switching host and retry")
+                    delay(2_000)
+                    switchHost()
+                    continue
+                }
+                val errorBody = e.response()?.errorBody()?.string()
+                val message = try {
+                    json.parseToJsonElement(errorBody.orEmpty())
+                        .jsonObject["message"]?.toString()?.trim('"')
+                        ?: throw Exception()
+                } catch (ex: Exception) {
+                    if (code == 429) "请求过于频繁(429)，请稍后再试"
+                    else "服务端错误(${e.code()})"
+                }
+                throw PicaException(message)
             }
-            return response.data
-        } catch (e: HttpException) {
-            val errorBody = e.response()?.errorBody()?.string()
-            val message = try {
-                json.parseToJsonElement(errorBody.orEmpty())
-                    .jsonObject["message"]?.toString()?.trim('"')
-                    ?: throw Exception()
-            } catch (ex: Exception) {
-                "服务端错误(${e.code()})"
-            }
-            throw PicaException(message)
         }
+    }
+
+    /** 在主备域名间切换（recreate 内部 API 实例） */
+    private fun switchHost() {
+        baseUrl = if (baseUrl == PicaApiHosts.PICACOMIC) {
+            PicaApiHosts.GO2778
+        } else {
+            PicaApiHosts.PICACOMIC
+        }
+        Log.i("PicaClient", "switched host -> $baseUrl")
     }
 }
