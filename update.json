@@ -1,0 +1,5 @@
+{
+  "version": "0.3.0",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/apk/pika-v0.3.0.apk",
+  "notes": "0.3.0\n- 接入禁漫源（源抽象完成）\n- 新增检查更新功能\n- 哔咔浏览 / 搜索 / 详情 / 阅读器"
+}
