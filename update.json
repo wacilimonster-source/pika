@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/apk/pika-v0.3.0.apk",
-  "notes": "0.3.0\n- 接入禁漫源（源抽象完成）\n- 新增检查更新功能\n- 哔咔浏览 / 搜索 / 详情 / 阅读器"
+  "version": "0.3.1",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/apk/pika-v0.3.1.apk",
+  "notes": "0.3.1\n- 修复：登录/请求遇 429 限流时自动切换备用线路重试"
 }
