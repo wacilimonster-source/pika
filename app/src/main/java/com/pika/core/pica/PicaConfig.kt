@@ -6,8 +6,10 @@ package com.pika.core.pica
 object PicaConfig {
     const val API_KEY = "C69BAF41DA5ABD1FFEDC6D2FEA56B"
     const val SECRET_KEY = "~d}\$Q7\$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn"
-    const val NONCE = "4ce7a7aa759b40f794d189a88b84aba8"
 }
+
+/** 每请求随机 nonce（对齐 PicaComic 社区实现，避免静态值与官方客户端差异过大） */
+fun picaNonce(): String = java.util.UUID.randomUUID().toString().replace("-", "")
 
 enum class PicaApi(val host: String) {
     PICACOMIC("https://picaapi.picacomic.com/"),
@@ -51,7 +53,6 @@ fun defaultPicaHeaders(): Map<String, String> = mapOf(
     "app-platform" to "android",
     "app-uuid" to "defaultUuid",
     "app-version" to "2.2.1.3.3.4",
-    "nonce" to PicaConfig.NONCE,
     "app-channel" to "1",
 )
 

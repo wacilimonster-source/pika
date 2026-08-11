@@ -56,6 +56,16 @@ object PicaClient {
     private var _retrofit: Retrofit? = null
     private var _api: PicaApi? = null
 
+    /** 429 冷却时长：命中后进程内暂停请求，避免反复重试加重限流 */
+    private const val RATE_LIMIT_COOLDOWN_MS = 60_000L
+
+    @Volatile
+    private var rateLimitedUntil: Long = 0L
+
+    /** 距 429 冷却结束的毫秒数，>0 表示限流锁定中 */
+    fun rateLimitRemaining(): Long =
+        (rateLimitedUntil - System.currentTimeMillis()).coerceAtLeast(0L)
+
     val api: PicaApi
         get() {
             val existing = _api
@@ -79,10 +89,14 @@ object PicaClient {
         _api = null
     }
 
-    /** 统一错误处理：400 时抛出服务端 message；401 由拦截器回调登出；429 自动切换线路重试一次 */
+    /** 统一错误处理：400 解析服务端 message；401 由拦截器回调登出；429 切换线路重试一次后进入冷却；网络错误退避重试两次 */
     suspend fun <T> safeCall(block: suspend () -> ApiResponse<T>): T {
         var attempt = 0
         while (true) {
+            val cooldown = rateLimitRemaining()
+            if (cooldown > 0) {
+                throw PicaException("请求过于频繁(429)，请 ${(cooldown + 999) / 1000} 秒后再试")
+            }
             try {
                 val response = block()
                 if (response.code != 200) {
@@ -91,12 +105,16 @@ object PicaClient {
                 return response.data
             } catch (e: HttpException) {
                 val code = e.code()
-                if (code == 429 && attempt == 0) {
-                    attempt++
-                    Log.i("PicaClient", "429 rate limited, switching host and retry")
-                    delay(2_000)
-                    switchHost()
-                    continue
+                if (code == 429) {
+                    if (attempt == 0) {
+                        attempt++
+                        Log.i("PicaClient", "429 rate limited, switching host and retry")
+                        delay(2_000)
+                        switchHost()
+                        continue
+                    }
+                    rateLimitedUntil = System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS
+                    throw PicaException("请求过于频繁(429)，请 ${RATE_LIMIT_COOLDOWN_MS / 1000} 秒后再试")
                 }
                 val errorBody = e.response()?.errorBody()?.string()
                 val message = try {
@@ -104,10 +122,18 @@ object PicaClient {
                         .jsonObject["message"]?.toString()?.trim('"')
                         ?: throw Exception()
                 } catch (ex: Exception) {
-                    if (code == 429) "请求过于频繁(429)，请稍后再试"
-                    else "服务端错误(${e.code()})"
+                    "服务端错误(${e.code()})"
                 }
                 throw PicaException(message)
+            } catch (e: IOException) {
+                if (e is PicaException) throw e
+                attempt++
+                if (attempt <= 2) {
+                    Log.i("PicaClient", "network error, retry $attempt: ${e.message}")
+                    delay(1_000L * attempt)
+                    continue
+                }
+                throw PicaException("网络连接失败：${e.message}")
             }
         }
     }

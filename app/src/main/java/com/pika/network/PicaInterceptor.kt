@@ -1,7 +1,7 @@
 package com.pika.network
 
-import com.pika.core.pica.PicaConfig
 import com.pika.core.pica.defaultPicaHeaders
+import com.pika.core.pica.picaNonce
 import com.pika.core.pica.picaSignature
 import com.pika.core.pica.picaTimestamp
 import kotlinx.coroutines.runBlocking
@@ -25,13 +25,15 @@ class PicaInterceptor(
         val query = url.encodedQuery
         val signedUrl = if (query.isNullOrEmpty()) path else "$path?$query"
 
+        val nonce = picaNonce()
         val timestamp = picaTimestamp()
-        val signature = picaSignature(signedUrl, timestamp, PicaConfig.NONCE, method)
+        val signature = picaSignature(signedUrl, timestamp, nonce, method)
         val token = tokenProvider()
 
         val builder = request.newBuilder()
         defaultPicaHeaders().forEach { (k, v) -> builder.header(k, v) }
         builder.header("time", timestamp)
+        builder.header("nonce", nonce)
         builder.header("signature", signature)
         builder.header("image-quality", "original")
         token?.let { builder.header("authorization", it) }
