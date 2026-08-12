@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.pika.network.BcTls
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -35,10 +36,12 @@ object UpdateManager {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .build()
+        BcTls.install()
+        BcTls.applyTo(
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+        ).build()
     }
 
     val currentVersionName: String

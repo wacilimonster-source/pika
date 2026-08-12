@@ -8,7 +8,7 @@ object PicaConfig {
     const val SECRET_KEY = "~d}\$Q7\$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn"
 }
 
-/** 每请求随机 nonce（对齐 PicaComic 社区实现，避免静态值与官方客户端差异过大） */
+/** 每请求随机 nonce */
 fun picaNonce(): String = java.util.UUID.randomUUID().toString().replace("-", "")
 
 enum class PicaApi(val host: String) {
@@ -43,20 +43,20 @@ enum class ComicRankType {
     D30,
 }
 
-/** 默认请求头（不含时间/签名/token 等动态项） */
-fun defaultPicaHeaders(): Map<String, String> = mapOf(
+/** 默认请求头 */
+fun defaultPicaHeaders(appUuid: String): Map<String, String> = mapOf(
     "accept" to "application/vnd.picacomic.com.v1+json",
     "User-Agent" to "okhttp/3.8.1",
     "Content-Type" to "application/json; charset=UTF-8",
     "api-key" to PicaConfig.API_KEY,
-    "app-build-version" to "45",
+    "app-build-version" to "44",
     "app-platform" to "android",
-    "app-uuid" to "defaultUuid",
-    "app-version" to "2.2.1.3.3.4",
+    "app-uuid" to appUuid,
+    "app-version" to "2.2.1.2.3.3",
     "app-channel" to "1",
 )
 
-/** HMAC-SHA256 签名：key = (url + timestamp + nonce + method + apiKey).lowercase() */
+/** HMAC-SHA256 签名 */
 fun picaSignature(url: String, timestamp: String, nonce: String, method: String): String {
     val key = (url + timestamp + nonce + method + PicaConfig.API_KEY).lowercase()
     val mac = javax.crypto.Mac.getInstance("HmacSHA256")

@@ -14,12 +14,13 @@ private object Keys {
     val ACTIVE_SOURCE = stringPreferencesKey("active_source")
     val PICA_TOKEN = stringPreferencesKey("pica_token")
     val PICA_EMAIL = stringPreferencesKey("pica_email")
+    val APP_UUID = stringPreferencesKey("app_uuid")
     const val JM_TOKEN = "jm_token"
     const val JM_BASE = "jm_base"
 }
 
 /**
- * DataStore 封装：当前活动源 / 各源登录态 / 设置项
+ * DataStore 封装：当前活动源 / 各源登录态 / 设置项 / 设备 UUID
  */
 class SourcePrefs private constructor(private val appContext: Context) {
 
@@ -46,6 +47,22 @@ class SourcePrefs private constructor(private val appContext: Context) {
         appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name }
     }
 
+    // ---------- 设备 UUID（持久化，首次生成） ----------
+
+    /** 获取或生成设备 UUID（用于 app-uuid 请求头） */
+    fun getOrCreateAppUuid(): String {
+        val existing = runBlocking {
+            appContext.dataStore.data.first()[Keys.APP_UUID]
+        }
+        if (!existing.isNullOrBlank()) return existing
+
+        val uuid = java.util.UUID.randomUUID().toString()
+        runBlocking {
+            appContext.dataStore.edit { it[Keys.APP_UUID] = uuid }
+        }
+        return uuid
+    }
+
     // ---------- 哔咔登录态 ----------
 
     val picaToken: String?
@@ -70,7 +87,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
         }
     }
 
-    // ---------- 禁漫登录态（M3 使用） ----------
+    // ---------- 禁漫登录态 ----------
 
     val jmToken: String?
         get() = runBlocking {

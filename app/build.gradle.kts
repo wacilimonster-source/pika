@@ -13,8 +13,20 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.2"
+        versionCode = 8
+        versionName = "0.4.1"
+    }
+
+    signingConfigs {
+        // 使用 Android 默认 debug keystore 签名 release，
+        // 与已安装 App 同签名，保证应用内更新可覆盖安装。
+        // 注意：默认 debug keystore 的别名/密码为公开默认值，非保密信息。
+        create("release") {
+            storeFile = file("C:/Users/wacil/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -25,6 +37,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -37,6 +50,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // BouncyCastle 的 JAR 含多版本(Multi-Release)资源，Android 不需要，排除避免打包冲突
+    packaging {
+        resources {
+            excludes += "/META-INF/versions/**"
+        }
     }
 }
 
@@ -60,5 +80,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.coil.compose)
+    // 自定义 TLS：BouncyCastle 纯 Java 栈，绕过 Cloudflare 对 BoringSSL 的指纹拦截
+    implementation(libs.bcprov)
+    implementation(libs.bctls)
+    implementation(libs.bcutil)
     debugImplementation(libs.androidx.ui.tooling)
 }

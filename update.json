@@ -1,5 +1,1 @@
-{
-  "version": "0.3.2",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/apk/pika-v0.3.2.apk",
-  "notes": "0.3.2\n- 修复：登录提示 too many requests（429）的根因处置\n- 每请求随机 nonce，消除静态指纹（对齐 PicaComic 社区实现）\n- 429 命中 60 秒冷却锁定，期间不再发请求直接提示剩余等待秒数，避免反复重试加重限流\n- 连接级网络错误自动退避重试 2 次"
-}
+{"version":"0.4.1","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v0.4.1.apk","notes":"修复登录被 Cloudflare 拦截的问题：哔咔网络层改为 HttpsURLConnection + BouncyCastle TLS，绕过对 OkHttp/BoringSSL 的指纹拦截"}
