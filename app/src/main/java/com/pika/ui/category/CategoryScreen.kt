@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,6 +35,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -62,6 +66,7 @@ import com.pika.ui.browse.ComicGridView
 /**
  * 分类 Tab：以网格展示当前源的全部分类。
  * 点击分类进入该分类的漫画流（[CategoryComicsScreen]）。
+ * 支持排序和显示/隐藏设置。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,15 +77,36 @@ fun CategoryScreen(
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    var sortMode by remember { mutableStateOf(0) } // 0=default, 1=byName
+    var hiddenIds by remember { mutableStateOf(setOf<String>()) }
+    var showSettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeSource) {
         viewModel.loadCategories()
     }
 
+    val displayCategories = remember(categories, sortMode, hiddenIds) {
+        val filtered = categories.filter { it.id !in hiddenIds }
+        when (sortMode) {
+            1 -> filtered.sortedBy { it.title }
+            else -> filtered
+        }
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text("分类") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("分类") },
+                actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
+                    }
+                },
+                windowInsets = WindowInsets(0, 0),
+            )
+        },
     ) { innerPadding ->
-        if (categories.isEmpty()) {
+        if (displayCategories.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -88,7 +114,7 @@ fun CategoryScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "当前源暂无分类",
+                    text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -103,10 +129,22 @@ fun CategoryScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(categories, key = { it.id }) { category ->
+                items(displayCategories, key = { it.id }) { category ->
                     CategoryCard(category = category, onClick = { onCategoryClick(category.id) })
                 }
             }
+        }
+        if (showSettings) {
+            CategoryDisplaySettingsDialog(
+                sortMode = sortMode,
+                categories = categories,
+                hiddenIds = hiddenIds,
+                onSortModeChange = { sortMode = it },
+                onToggleHidden = { id ->
+                    hiddenIds = if (id in hiddenIds) hiddenIds - id else hiddenIds + id
+                },
+                onDismiss = { showSettings = false },
+            )
         }
     }
 }
@@ -133,6 +171,8 @@ fun CategoryComicsScreen(
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
     var showDateDialog by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
+    var showFilter by remember { mutableStateOf(false) }
+    var authorInput by remember { mutableStateOf("") }
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
@@ -156,6 +196,9 @@ fun CategoryComicsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFilter = !showFilter }) {
+                        Icon(Icons.Filled.FilterList, contentDescription = "筛选")
+                    }
                     IconButton(onClick = { showDisplaySettings = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
@@ -179,6 +222,29 @@ fun CategoryComicsScreen(
                         selected = sort == s,
                         onClick = { viewModel.setSort(s) },
                         label = { Text(s.label) },
+                    )
+                }
+            }
+            // 高级筛选（作者）
+            if (showFilter) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = authorInput,
+                        onValueChange = { authorInput = it },
+                        singleLine = true,
+                        label = { Text("作者") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            viewModel.setAuthor(authorInput.trim().ifBlank { null })
+                        },
+                        label = { Text("应用") },
                     )
                 }
             }
@@ -449,6 +515,58 @@ private fun DisplaySettingsDialog(
                             selected = currentSort == s,
                             onClick = { onSortChange(s) },
                             label = { Text(s.label) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("完成") }
+        },
+    )
+}
+
+/** 分类页显示设置：排序 + 显示/隐藏各分类 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryDisplaySettingsDialog(
+    sortMode: Int,
+    categories: List<ComicCategory>,
+    hiddenIds: Set<String>,
+    onSortModeChange: (Int) -> Unit,
+    onToggleHidden: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("分类设置") },
+        text = {
+            Column {
+                Text("排序", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = sortMode == 0,
+                        onClick = { onSortModeChange(0) },
+                        label = { Text("默认") },
+                    )
+                    FilterChip(
+                        selected = sortMode == 1,
+                        onClick = { onSortModeChange(1) },
+                        label = { Text("按名称") },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("显示/隐藏", style = MaterialTheme.typography.labelMedium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    categories.forEach { category ->
+                        FilterChip(
+                            selected = category.id !in hiddenIds,
+                            onClick = { onToggleHidden(category.id) },
+                            label = { Text(category.title) },
                         )
                     }
                 }

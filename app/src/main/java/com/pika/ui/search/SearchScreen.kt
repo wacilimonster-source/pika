@@ -4,8 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,7 +55,6 @@ fun SearchScreen(
     val loading by viewModel.loading.collectAsState()
     val endReached by viewModel.endReached.collectAsState()
     val keyword by viewModel.keyword.collectAsState()
-    val categories by viewModel.categories.collectAsState()
     val showAdvanced by viewModel.showAdvanced.collectAsState()
     var input by remember { mutableStateOf("") }
     var authorInput by remember { mutableStateOf("") }
@@ -65,8 +62,6 @@ fun SearchScreen(
     var uploaderInput by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
-
-    LaunchedEffect(Unit) { viewModel.loadCategories() }
 
     Scaffold(
         topBar = {
@@ -159,18 +154,10 @@ fun SearchScreen(
                 }
                 if (showAdvanced) {
                     AdvancedFilterPanel(
-                        categories = categories,
-                        selectedCategoryIds = viewModel.categoryIds,
                         authorInput = authorInput,
                         teamInput = teamInput,
                         uploaderInput = uploaderInput,
                         tagInput = tagInput,
-                        onCategoryToggle = { id ->
-                            val current = viewModel.categoryIds
-                            viewModel.updateFilter(
-                                categoryIds = if (id in current) current - id else current + id,
-                            )
-                        },
                         onAuthorChange = { authorInput = it },
                         onTeamChange = { teamInput = it },
                         onUploaderChange = { uploaderInput = it },
@@ -212,16 +199,12 @@ fun SearchScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AdvancedFilterPanel(
-    categories: List<com.pika.core.model.ComicCategory>,
-    selectedCategoryIds: Set<String>,
     authorInput: String,
     teamInput: String,
     uploaderInput: String,
     tagInput: String,
-    onCategoryToggle: (String) -> Unit,
     onAuthorChange: (String) -> Unit,
     onTeamChange: (String) -> Unit,
     onUploaderChange: (String) -> Unit,
@@ -234,26 +217,6 @@ private fun AdvancedFilterPanel(
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        if (categories.isNotEmpty()) {
-            Text(
-                text = "分类（可多选）",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(vertical = 4.dp),
-            ) {
-                categories.forEach { category ->
-                    FilterChip(
-                        selected = category.id in selectedCategoryIds,
-                        onClick = { onCategoryToggle(category.id) },
-                        label = { Text(category.title) },
-                    )
-                }
-            }
-        }
         SmallFilterField("作者", authorInput, onAuthorChange)
         SmallFilterField("汉化组", teamInput, onTeamChange)
         SmallFilterField("上传者", uploaderInput, onUploaderChange)
