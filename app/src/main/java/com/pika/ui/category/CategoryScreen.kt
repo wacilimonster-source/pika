@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -365,7 +366,7 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
+                    .height(80.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -373,7 +374,7 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
                     AsyncImage(
                         model = category.coverUrl,
                         contentDescription = category.title,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -386,13 +387,13 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             }
             Text(
                 text = category.title,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                    .padding(vertical = 6.dp, horizontal = 4.dp),
             )
         }
     }
@@ -545,119 +546,6 @@ private fun DisplaySettingsDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) { Text("完成") }
-        },
-    )
-}
-
-/** 分类排序设置：长按拖拽排列 + 点击切换显示/隐藏 */
-@Composable
-private fun CategoryReorderDialog(
-    categories: List<ComicCategory>,
-    currentSettings: com.pika.data.CategorySettings.Settings,
-    onSettingsChange: (com.pika.data.CategorySettings.Settings) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    // 构建有序列表：按 settings.order 排列，未记录的追加到末尾
-    val items = remember(categories, currentSettings) {
-        val orderMap = currentSettings.order.withIndex().associate { (i, id) -> id to i }
-        categories.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
-    }
-    var order by remember { mutableStateOf(items.map { it.id }) }
-    var hidden by remember { mutableStateOf(currentSettings.hidden) }
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("分类排序与显示") },
-        text = {
-            Column {
-                Text(
-                    text = "长按拖拽排序，点击切换显示/隐藏",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 400.dp),
-                ) {
-                    items(order.size, key = { order[it] }) { index ->
-                        val catId = order[index]
-                        val cat = categories.find { it.id == catId }
-                        val isHidden = catId in hidden
-                        val isDragTarget = draggedIndex == index
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .background(
-                                    if (isDragTarget) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isHidden) 0.4f else 0.8f),
-                                )
-                                .pointerInput(index) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = { draggedIndex = index },
-                                        onDragEnd = { draggedIndex = null },
-                                        onDragCancel = { draggedIndex = null },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            val targetIndex = (index + (dragAmount.y / 48.dp.toPx()).toInt())
-                                                .coerceIn(0, order.size - 1)
-                                            if (targetIndex != index) {
-                                                val mutable = order.toMutableList()
-                                                val item = mutable.removeAt(index)
-                                                mutable.add(targetIndex, item)
-                                                order = mutable
-                                                draggedIndex = targetIndex
-                                            }
-                                        },
-                                    )
-                                }
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Filled.DragHandle,
-                                contentDescription = "拖拽",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = cat?.title ?: catId,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                                color = if (isHidden) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                else MaterialTheme.colorScheme.onSurface,
-                            )
-                            Icon(
-                                imageVector = if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = if (isHidden) "隐藏" else "显示",
-                                tint = if (isHidden) MaterialTheme.colorScheme.error.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .clickable {
-                                        hidden = if (catId in hidden) hidden - catId else hidden + catId
-                                    },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = {
-                onSettingsChange(
-                    com.pika.data.CategorySettings.Settings(
-                        order = order,
-                        hidden = hidden,
-                    )
-                )
-                onDismiss()
-            }) { Text("保存") }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }
