@@ -153,11 +153,26 @@ fun MainScreen() {
                 )
             }
             composable("login") {
-                LoginScreen(onLoggedIn = {
-                    navController.navigate("home") {
-                        popUpTo(0) { inclusive = true }
-                    }
-                })
+                LoginScreen(
+                    onLoggedIn = {
+                        navController.navigate("home") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onOpenRegister = {
+                        navController.navigate("register")
+                    },
+                )
+            }
+            composable("register") {
+                com.pika.ui.login.RegisterScreen(
+                    onBack = { navController.popBackStack() },
+                    onLoggedIn = {
+                        navController.navigate("home") {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                )
             }
             composable("settings") {
                 SettingsScreen(onBack = { navController.popBackStack() })

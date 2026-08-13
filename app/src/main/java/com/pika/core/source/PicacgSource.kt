@@ -32,6 +32,26 @@ class PicacgSource : Source {
         SourcePrefs.current().setPicaLogin(token = data.token, email = email)
     }
 
+    override suspend fun register(email: String, password: String, name: String, gender: String) {
+        // 哔咔注册：昵称 + 邮箱 + 密码 + 性别 + 生日（成年校验，生日固定填 18 年前）
+        val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.YEAR, -18)
+        val birthday = "%04d-%02d-%02d".format(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+        PicaClient.safeCall {
+            PicaClient.api.register(
+                com.pika.network.RegisterPayload(
+                    email = email,
+                    password = password,
+                    name = name,
+                    gender = gender,
+                    birthday = birthday,
+                )
+            )
+        }
+        // 注册成功即自动登录，复用登录逻辑保存 token
+        login(email, password)
+    }
+
     override suspend fun logout() {
         SourcePrefs.current().clearPicaLogin()
     }

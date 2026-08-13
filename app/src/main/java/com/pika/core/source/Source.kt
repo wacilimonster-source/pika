@@ -21,6 +21,15 @@ interface Source {
     /** 登录（各源账号体系独立，凭邮箱 + 密码） */
     suspend fun login(email: String, password: String)
 
+    /** 注册（默认源不支持）。注册成功即已登录。 */
+    suspend fun register(
+        email: String,
+        password: String,
+        name: String,
+        gender: String = "m",
+    ): Unit =
+        throw UnsupportedOperationException("当前源不支持注册")
+
     /** 退出登录 */
     suspend fun logout()
 

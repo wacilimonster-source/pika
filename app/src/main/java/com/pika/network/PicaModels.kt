@@ -18,6 +18,15 @@ data class LoginPayload(
 )
 
 @Serializable
+data class RegisterPayload(
+    val email: String,
+    val password: String,
+    val name: String,
+    val gender: String,
+    val birthday: String,
+)
+
+@Serializable
 data class LoginResponse(
     val token: String,
 )

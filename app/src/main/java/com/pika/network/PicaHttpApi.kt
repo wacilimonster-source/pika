@@ -66,6 +66,9 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     override suspend fun login(body: LoginPayload): ApiResponse<LoginResponse> =
         post("auth/sign-in", body)
 
+    override suspend fun register(body: RegisterPayload): ApiResponse<JsonObject> =
+        post("auth/register", body)
+
     override suspend fun categories(): ApiResponse<CategoriesResponse> =
         get("categories")
 

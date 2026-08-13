@@ -27,11 +27,14 @@ import kotlinx.coroutines.launch
 
 /**
  * 登录页：按当前源展示对应登录表单。
- * 哔咔：邮箱 + 密码（auth/sign-in）
+ * 哔咔：邮箱 + 密码（auth/sign-in），附注册入口
  * 禁漫：邮箱 + 密码（v3 sign-in，换取 token）
  */
 @Composable
-fun LoginScreen(onLoggedIn: () -> Unit) {
+fun LoginScreen(
+    onLoggedIn: () -> Unit,
+    onOpenRegister: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
     var email by remember { mutableStateOf("") }
@@ -107,6 +110,16 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 )
             } else {
                 Text("登录")
+            }
+        }
+        if (activeSource == com.pika.core.source.SourceType.PICACG) {
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onOpenRegister,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("注册哔咔账号")
             }
         }
     }

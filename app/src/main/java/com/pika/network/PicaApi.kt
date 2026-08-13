@@ -15,6 +15,9 @@ interface PicaApi {
     @POST("auth/sign-in")
     suspend fun login(@Body body: LoginPayload): ApiResponse<LoginResponse>
 
+    @POST("auth/register")
+    suspend fun register(@Body body: RegisterPayload): ApiResponse<JsonObject>
+
     @GET("categories")
     suspend fun categories(): ApiResponse<CategoriesResponse>
 
