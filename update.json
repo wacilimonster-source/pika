@@ -1,1 +1,1 @@
-{"version":"1.3.6","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.3.6.apk","notes":"v1.3.6 修复：\n1. 拖拽排序重写（改用ID追踪，修复拖拽后索引错乱问题）\n2. 图片URL安全兜底（处理fileServer为空/路径重复static等边界情况）"}
+{"version":"1.3.7","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.3.7.apk","notes":"v1.3.7 修复：\n1. 修复阅读历史为空：RecentRead缺少@Serializable注解导致数据无法序列化存储\n2. 阅读历史封面图修复（之前传空字符串）"}
