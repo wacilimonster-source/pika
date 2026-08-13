@@ -20,6 +20,7 @@ private object ReaderKeys {
 }
 
 /** 最近阅读条目（首页"继续阅读"用） */
+@kotlinx.serialization.Serializable
 data class RecentRead(
     val comicId: String,
     val title: String,

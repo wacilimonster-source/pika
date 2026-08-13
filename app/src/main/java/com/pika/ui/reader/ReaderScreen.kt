@@ -170,7 +170,7 @@ fun ReaderScreen(
     LaunchedEffect(currentPage, pages.size) {
         if (pages.isNotEmpty()) {
             viewModel.saveProgress(currentPage)
-            viewModel.recordRecentRead(epTitle, "", currentPage)
+            viewModel.recordRecentRead(epTitle, viewModel.coverUrl.value, currentPage)
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
