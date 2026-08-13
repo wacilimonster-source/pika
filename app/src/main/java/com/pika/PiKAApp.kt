@@ -3,6 +3,7 @@ package com.pika
 import android.app.Application
 import coil.Coil
 import coil.ImageLoader
+import com.pika.data.CategorySettings
 import com.pika.data.ReaderPrefs
 import com.pika.data.SourcePrefs
 import com.pika.core.source.SourceManager
@@ -14,6 +15,7 @@ class PiKAApp : Application() {
         super.onCreate()
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
+        CategorySettings.init(this)
         com.pika.core.download.DownloadManager.init(this)
         SourceManager.init()
         // 安装 BouncyCastle TLS（绕过 Cloudflare 对 BoringSSL 的指纹拦截）

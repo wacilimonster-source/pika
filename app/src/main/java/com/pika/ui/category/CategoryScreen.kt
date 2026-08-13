@@ -2,6 +2,7 @@ package com.pika.ui.category
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,13 +12,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -29,6 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,7 +76,7 @@ import com.pika.ui.browse.ComicGridView
 /**
  * 分类 Tab：以网格展示当前源的全部分类。
  * 点击分类进入该分类的漫画流（[CategoryComicsScreen]）。
- * 支持排序和显示/隐藏设置。
+ * 支持拖拽排序和显示/隐藏设置，本地持久化保存。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,19 +87,20 @@ fun CategoryScreen(
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val categories by viewModel.categories.collectAsState()
-    var sortMode by remember { mutableStateOf(0) } // 0=default, 1=byName
-    var hiddenIds by remember { mutableStateOf(setOf<String>()) }
     var showSettings by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(com.pika.data.CategorySettings.get()) }
 
     LaunchedEffect(activeSource) {
         viewModel.loadCategories()
     }
 
-    val displayCategories = remember(categories, sortMode, hiddenIds) {
-        val filtered = categories.filter { it.id !in hiddenIds }
-        when (sortMode) {
-            1 -> filtered.sortedBy { it.title }
-            else -> filtered
+    val displayCategories = remember(categories, settings) {
+        val filtered = categories.filter { it.id !in settings.hidden }
+        if (settings.order.isNotEmpty()) {
+            val orderMap = settings.order.withIndex().associate { (i, id) -> id to i }
+            filtered.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
+        } else {
+            filtered
         }
     }
 
@@ -137,13 +146,12 @@ fun CategoryScreen(
             }
         }
         if (showSettings) {
-            CategoryDisplaySettingsDialog(
-                sortMode = sortMode,
+            CategoryReorderDialog(
                 categories = categories,
-                hiddenIds = hiddenIds,
-                onSortModeChange = { sortMode = it },
-                onToggleHidden = { id ->
-                    hiddenIds = if (id in hiddenIds) hiddenIds - id else hiddenIds + id
+                currentSettings = settings,
+                onSettingsChange = { newSettings ->
+                    settings = newSettings
+                    com.pika.data.CategorySettings.save(newSettings)
                 },
                 onDismiss = { showSettings = false },
             )
@@ -541,56 +549,115 @@ private fun DisplaySettingsDialog(
     )
 }
 
-/** 分类页显示设置：排序 + 显示/隐藏各分类 */
-@OptIn(ExperimentalLayoutApi::class)
+/** 分类排序设置：长按拖拽排列 + 点击切换显示/隐藏 */
 @Composable
-private fun CategoryDisplaySettingsDialog(
-    sortMode: Int,
+private fun CategoryReorderDialog(
     categories: List<ComicCategory>,
-    hiddenIds: Set<String>,
-    onSortModeChange: (Int) -> Unit,
-    onToggleHidden: (String) -> Unit,
+    currentSettings: com.pika.data.CategorySettings.Settings,
+    onSettingsChange: (com.pika.data.CategorySettings.Settings) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // 构建有序列表：按 settings.order 排列，未记录的追加到末尾
+    val items = remember(categories, currentSettings) {
+        val orderMap = currentSettings.order.withIndex().associate { (i, id) -> id to i }
+        categories.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
+    }
+    var order by remember { mutableStateOf(items.map { it.id }) }
+    var hidden by remember { mutableStateOf(currentSettings.hidden) }
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("分类设置") },
+        title = { Text("分类排序与显示") },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                Text("排序", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = sortMode == 0,
-                        onClick = { onSortModeChange(0) },
-                        label = { Text("默认") },
-                    )
-                    FilterChip(
-                        selected = sortMode == 1,
-                        onClick = { onSortModeChange(1) },
-                        label = { Text("按名称") },
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("显示/隐藏", style = MaterialTheme.typography.labelMedium)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(top = 4.dp),
+            Column {
+                Text(
+                    text = "长按拖拽排序，点击切换显示/隐藏",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 400.dp),
                 ) {
-                    categories.forEach { category ->
-                        FilterChip(
-                            selected = category.id !in hiddenIds,
-                            onClick = { onToggleHidden(category.id) },
-                            label = { Text(category.title) },
-                        )
+                    items(order.size, key = { order[it] }) { index ->
+                        val catId = order[index]
+                        val cat = categories.find { it.id == catId }
+                        val isHidden = catId in hidden
+                        val isDragTarget = draggedIndex == index
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                                .background(
+                                    if (isDragTarget) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isHidden) 0.4f else 0.8f),
+                                )
+                                .pointerInput(index) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = { draggedIndex = index },
+                                        onDragEnd = { draggedIndex = null },
+                                        onDragCancel = { draggedIndex = null },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val targetIndex = (index + (dragAmount.y / 48.dp.toPx()).toInt())
+                                                .coerceIn(0, order.size - 1)
+                                            if (targetIndex != index) {
+                                                val mutable = order.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(targetIndex, item)
+                                                order = mutable
+                                                draggedIndex = targetIndex
+                                            }
+                                        },
+                                    )
+                                }
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Filled.DragHandle,
+                                contentDescription = "拖拽",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = cat?.title ?: catId,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                                color = if (isHidden) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Icon(
+                                imageVector = if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (isHidden) "隐藏" else "显示",
+                                tint = if (isHidden) MaterialTheme.colorScheme.error.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable {
+                                        hidden = if (catId in hidden) hidden - catId else hidden + catId
+                                    },
+                            )
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("完成") }
+            androidx.compose.material3.TextButton(onClick = {
+                onSettingsChange(
+                    com.pika.data.CategorySettings.Settings(
+                        order = order,
+                        hidden = hidden,
+                    )
+                )
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }
