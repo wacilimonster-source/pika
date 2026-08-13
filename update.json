@@ -1,1 +1,1 @@
-{"version":"1.3.5","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.3.5.apk","notes":"v1.3.5 更新：\n1. 分类设置支持拖拽排序（长按拖动）+ 显示/隐藏，本地持久化保存\n2. 分类卡片布局修复（名称不再遮挡图片）\n3. 漫画缩略图加载增加占位底色和错误提示\n4. 分类详情页筛选支持标签\n5. 最近阅读功能实现"}
+{"version":"1.3.6","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.3.6.apk","notes":"v1.3.6 修复：\n1. 拖拽排序重写（改用ID追踪，修复拖拽后索引错乱问题）\n2. 图片URL安全兜底（处理fileServer为空/路径重复static等边界情况）"}
