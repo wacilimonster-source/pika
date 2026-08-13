@@ -209,6 +209,11 @@ data class SearchPayload(
     val keyword: String,
     val sort: String = ComicSortTypeName.DD,
     val categories: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
+    val author: String? = null,
+    @SerialName("chineseTeam") val chineseTeam: String? = null,
+    val uploader: String? = null,
+    val finish: Boolean? = null,
 )
 
 @Serializable
@@ -330,3 +335,124 @@ object ComicSortTypeName {
     const val LD = "ld"
     const val VD = "vd"
 }
+
+// ---------- 评论 ----------
+
+@Serializable
+data class Comment(
+    @SerialName("_id") val uid: String = "",
+    val content: String = "",
+    @SerialName("_user") val user: Creator? = null,
+    @SerialName("_comic") val comic: String = "",
+    @SerialName("totalComments") val totalComments: Int? = null,
+    @SerialName("isTop") val isTop: Boolean = false,
+    val hide: Boolean = false,
+    @SerialName("created_at") val createdAt: String = "",
+    val id: String? = null,
+    @SerialName("likesCount") val likesCount: Int = 0,
+    @SerialName("commentsCount") val commentsCount: Int = 0,
+    @SerialName("isLiked") val isLiked: Boolean = false,
+)
+
+@Serializable
+data class CommentsData(
+    val docs: List<Comment>,
+    val total: Int = 0,
+    val limit: Int = 0,
+    val page: Int = 0,
+    val pages: Int = 0,
+)
+
+@Serializable
+data class CommentsResponse(
+    val comments: CommentsData,
+)
+
+@Serializable
+data class SubComment(
+    @SerialName("_id") val uid: String = "",
+    val content: String = "",
+    @SerialName("_user") val user: Creator? = null,
+    @SerialName("created_at") val createdAt: String = "",
+    val hide: Boolean = false,
+    val id: String? = null,
+    @SerialName("isLiked") val isLiked: Boolean = false,
+    @SerialName("isTop") val isTop: Boolean = false,
+    @SerialName("likesCount") val likesCount: Int = 0,
+    @SerialName("totalComments") val totalComments: Int? = null,
+    @SerialName("_comic") val comic: String? = null,
+    @SerialName("_parent") val parent: String = "",
+)
+
+@Serializable
+data class SendCommentPayload(
+    val content: String,
+)
+
+// ---------- 我的评论 ----------
+
+@Serializable
+data class PersonalComicRef(
+    @SerialName("_id") val id: String = "",
+    val title: String = "",
+    val author: String = "",
+    val thumb: ImageDetail? = null,
+)
+
+@Serializable
+data class PersonalComment(
+    @SerialName("_id") val uid: String = "",
+    val content: String = "",
+    @SerialName("_user") val user: Creator? = null,
+    @SerialName("_comic") val comic: PersonalComicRef? = null,
+    @SerialName("totalComments") val totalComments: Int? = null,
+    val hide: Boolean = false,
+    @SerialName("created_at") val createdAt: String = "",
+    val id: String? = null,
+    @SerialName("likesCount") val likesCount: Int = 0,
+    @SerialName("commentsCount") val commentsCount: Int = 0,
+    @SerialName("isLiked") val isLiked: Boolean = false,
+)
+
+@Serializable
+data class PersonalCommentsData(
+    val docs: List<PersonalComment>,
+    val pages: Int = 0,
+    val total: Int = 0,
+    val limit: Int = 0,
+    val page: String = "0",
+)
+
+@Serializable
+data class PersonalCommentsResponse(
+    val comments: PersonalCommentsData,
+)
+
+// ---------- 账号 ----------
+
+@Serializable
+data class ForgotPasswordPayload(
+    val email: String,
+)
+
+@Serializable
+data class UpdateProfilePayload(
+    val slogan: String? = null,
+    val name: String? = null,
+)
+
+@Serializable
+data class UpdatePasswordPayload(
+    @SerialName("old_password") val oldPassword: String,
+    @SerialName("new_password") val newPassword: String,
+)
+
+@Serializable
+data class UpdateAvatarPayload(
+    val avatar: String,
+)
+
+@Serializable
+data class UpdateTitlePayload(
+    val title: String,
+)

@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
@@ -69,6 +70,55 @@ interface PicaApi {
 
     @GET("comics/{id}/recommendation")
     suspend fun recommendation(@Path("id") id: String): ApiResponse<RecommendComics>
+
+    // ---------- 评论 ----------
+
+    @GET("comics/{id}/comments")
+    suspend fun comments(
+        @Path("id") id: String,
+        @Query("page") page: Int,
+    ): ApiResponse<CommentsResponse>
+
+    @POST("comics/{id}/comments")
+    suspend fun sendComment(
+        @Path("id") id: String,
+        @Body body: SendCommentPayload,
+    ): ApiResponse<Comment>
+
+    @POST("comments/{id}")
+    suspend fun replyComment(
+        @Path("id") id: String,
+        @Body body: SendCommentPayload,
+    ): ApiResponse<Comment>
+
+    @GET("comments/{id}/childrens")
+    suspend fun commentChildren(
+        @Path("id") id: String,
+        @Query("page") page: Int,
+    ): ApiResponse<CommentsResponse>
+
+    @GET("users/my-comments")
+    suspend fun myComments(@Query("page") page: Int): ApiResponse<PersonalCommentsResponse>
+
+    // ---------- 账号 ----------
+
+    @POST("auth/forgot-password")
+    suspend fun forgotPassword(@Body body: ForgotPasswordPayload): ApiResponse<JsonObject>
+
+    @PUT("users/profile")
+    suspend fun updateProfile(@Body body: UpdateProfilePayload): ApiResponse<JsonObject>
+
+    @PUT("users/password")
+    suspend fun updatePassword(@Body body: UpdatePasswordPayload): ApiResponse<JsonObject>
+
+    @PUT("users/avatar")
+    suspend fun updateAvatar(@Body body: UpdateAvatarPayload): ApiResponse<JsonObject>
+
+    @PUT("users/{id}/title")
+    suspend fun updateTitle(
+        @Path("id") id: String,
+        @Body body: UpdateTitlePayload,
+    ): ApiResponse<JsonObject>
 }
 
 /** 排序/排行查询参数构造 */

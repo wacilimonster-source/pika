@@ -53,7 +53,17 @@ class JmcomicSource : Source {
         )
     }
 
-    override suspend fun search(keyword: String, page: Int): PageResult<ComicSummary> {
+    override suspend fun search(
+        keyword: String,
+        page: Int,
+        sort: ComicSort,
+        categories: List<String>,
+        tags: List<String>,
+        author: String?,
+        chineseTeam: String?,
+        uploader: String?,
+        finished: Boolean?,
+    ): PageResult<ComicSummary> {
         val data = JmClient.search(keyword, page)
         return PageResult(
             items = data.albums.map { it.toSummary() },

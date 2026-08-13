@@ -86,11 +86,30 @@ class PicacgSource : Source {
         )
     }
 
-    override suspend fun search(keyword: String, page: Int): PageResult<ComicSummary> {
+    override suspend fun search(
+        keyword: String,
+        page: Int,
+        sort: ComicSort,
+        categories: List<String>,
+        tags: List<String>,
+        author: String?,
+        chineseTeam: String?,
+        uploader: String?,
+        finished: Boolean?,
+    ): PageResult<ComicSummary> {
         val data = PicaClient.safeCall {
             PicaClient.api.search(
                 page = page,
-                body = SearchPayload(keyword = keyword),
+                body = SearchPayload(
+                    keyword = keyword,
+                    sort = sort.toPicaSort().name.lowercase(),
+                    categories = categories,
+                    tags = tags,
+                    author = author,
+                    chineseTeam = chineseTeam,
+                    uploader = uploader,
+                    finish = finished,
+                ),
             )
         }
         return PageResult(
@@ -166,6 +185,131 @@ class PicacgSource : Source {
             pages = data.comics.pages.coerceAtLeast(1),
         )
     }
+
+    override suspend fun rank(type: String): List<ComicSummary> {
+        val data = PicaClient.safeCall {
+            PicaClient.api.leaderboard(
+                com.pika.network.rankQuery(
+                    when (type) {
+                        "H24" -> com.pika.core.pica.ComicRankType.H24
+                        "D7" -> com.pika.core.pica.ComicRankType.D7
+                        else -> com.pika.core.pica.ComicRankType.D30
+                    }
+                )
+            )
+        }
+        return data.comics.map { it.toSummary() }
+    }
+
+    override suspend fun randomComics(): List<ComicSummary> {
+        val data = PicaClient.safeCall { PicaClient.api.random() }
+        return data.comics.map { it.toSummary() }
+    }
+
+    override suspend fun recommendations(id: String): List<ComicSummary> {
+        val data = PicaClient.safeCall { PicaClient.api.recommendation(id) }
+        return data.comics.map { it.toSummary() }
+    }
+
+    override suspend fun profile(): com.pika.core.model.ComicUser {
+        val data = PicaClient.safeCall { PicaClient.api.profile() }
+        return data.user.toComicUser()
+    }
+
+    // ---------- 评论 ----------
+
+    override suspend fun comments(comicId: String, page: Int): PageResult<com.pika.core.model.ComicComment> {
+        val data = PicaClient.safeCall { PicaClient.api.comments(comicId, page) }
+        return PageResult(
+            items = data.comments.docs.map { it.toComicComment() },
+            page = data.comments.page,
+            pages = data.comments.pages.coerceAtLeast(1),
+        )
+    }
+
+    override suspend fun sendComment(comicId: String, content: String) {
+        PicaClient.safeCall {
+            PicaClient.api.sendComment(
+                comicId,
+                com.pika.network.SendCommentPayload(content = content),
+            )
+        }
+    }
+
+    override suspend fun replyComment(commentId: String, content: String) {
+        PicaClient.safeCall {
+            PicaClient.api.replyComment(
+                commentId,
+                com.pika.network.SendCommentPayload(content = content),
+            )
+        }
+    }
+
+    override suspend fun commentChildren(
+        commentId: String,
+        page: Int,
+    ): PageResult<com.pika.core.model.ComicComment> {
+        val data = PicaClient.safeCall { PicaClient.api.commentChildren(commentId, page) }
+        return PageResult(
+            items = data.comments.docs.map { it.toComicComment() },
+            page = data.comments.page,
+            pages = data.comments.pages.coerceAtLeast(1),
+        )
+    }
+
+    override suspend fun myComments(page: Int): PageResult<com.pika.core.model.MyComicComment> {
+        val data = PicaClient.safeCall { PicaClient.api.myComments(page) }
+        return PageResult(
+            items = data.comments.docs.map { it.toMyComicComment() },
+            page = data.comments.page.toIntOrNull() ?: page,
+            pages = data.comments.pages.coerceAtLeast(1),
+        )
+    }
+
+    // ---------- 账号管理 ----------
+
+    override suspend fun forgotPassword(email: String) {
+        PicaClient.safeCall {
+            PicaClient.api.forgotPassword(
+                com.pika.network.ForgotPasswordPayload(email = email),
+            )
+        }
+    }
+
+    override suspend fun updateSlogan(slogan: String) {
+        PicaClient.safeCall {
+            PicaClient.api.updateProfile(
+                com.pika.network.UpdateProfilePayload(slogan = slogan),
+            )
+        }
+    }
+
+    override suspend fun updatePassword(oldPassword: String, newPassword: String) {
+        PicaClient.safeCall {
+            PicaClient.api.updatePassword(
+                com.pika.network.UpdatePasswordPayload(
+                    oldPassword = oldPassword,
+                    newPassword = newPassword,
+                ),
+            )
+        }
+    }
+
+    override suspend fun updateAvatar(base64: String) {
+        PicaClient.safeCall {
+            PicaClient.api.updateAvatar(
+                com.pika.network.UpdateAvatarPayload(avatar = "data:image/jpeg;base64,$base64"),
+            )
+        }
+    }
+
+    override suspend fun updateTitle(title: String) {
+        val me = profile()
+        if (me.id.isBlank()) throw com.pika.network.PicaException("获取用户信息失败")
+        PicaClient.safeCall {
+            PicaClient.api.updateTitle(me.id, com.pika.network.UpdateTitlePayload(title = title))
+        }
+    }
 }
 
 // ---------- 映射 ----------
@@ -208,4 +352,60 @@ private fun Comic.toDetail() = ComicDetail(
     totalViews = totalViews.toLong(),
     totalLikes = totalLikes.toLong(),
     commentsCount = commentsCount.toLong(),
+)
+
+// ---------- 评论/用户映射 ----------
+
+private fun com.pika.network.RecommendComic.toSummary() = ComicSummary(
+    id = id,
+    title = title,
+    author = author,
+    coverUrl = thumb?.directUrl,
+    finished = finished,
+    totalLikes = likesCount.toLong(),
+)
+
+private fun com.pika.network.Creator.toComicUser() = com.pika.core.model.ComicUser(
+    id = id,
+    name = name,
+    avatarUrl = avatar?.directUrl,
+    level = level,
+    exp = exp,
+    title = title,
+    slogan = slogan ?: "",
+)
+
+private fun com.pika.network.User.toComicUser() = com.pika.core.model.ComicUser(
+    id = id,
+    name = name,
+    avatarUrl = avatar?.directUrl,
+    level = level,
+    exp = exp,
+    title = title,
+    slogan = slogan,
+    email = email,
+    gender = gender,
+    birthday = birthday,
+    characters = characters,
+    createdAt = createdAt,
+)
+
+private fun com.pika.network.Comment.toComicComment() = com.pika.core.model.ComicComment(
+    id = uid,
+    content = content,
+    user = user?.toComicUser(),
+    createdAt = createdAt,
+    likesCount = likesCount,
+    isLiked = isLiked,
+    commentsCount = commentsCount,
+    isTop = isTop,
+)
+
+private fun com.pika.network.PersonalComment.toMyComicComment() = com.pika.core.model.MyComicComment(
+    id = uid,
+    content = content,
+    comicId = comic?.id ?: "",
+    comicTitle = comic?.title ?: "",
+    createdAt = createdAt,
+    likesCount = likesCount,
 )

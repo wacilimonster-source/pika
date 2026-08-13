@@ -28,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.BrowseViewModel
 import com.pika.ui.browse.ComicGridView
+import kotlinx.coroutines.launch
 
 /**
  * 首页：更新横幅 + 继续阅读 + 当前源内容流（分类 Tab + 漫画网格）。
@@ -45,6 +47,7 @@ import com.pika.ui.browse.ComicGridView
 fun HomeScreen(
     onComicClick: (String) -> Unit = {},
     onResumeReading: (String, Int) -> Unit = { _, _ -> },
+    onOpenRank: () -> Unit = {},
     viewModel: BrowseViewModel = viewModel(),
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
@@ -54,6 +57,7 @@ fun HomeScreen(
     val endReached by viewModel.endReached.collectAsState()
     val error by viewModel.error.collectAsState()
     val listState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
 
@@ -94,11 +98,42 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             Column {
-                Text(
-                    text = "PiKA · ${activeSource.displayName}",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(16.dp),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                ) {
+                    Text(
+                        text = "PiKA · ${activeSource.displayName}",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "随便看看",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable {
+                                scope.launch {
+                                    try {
+                                        val random = SourceManager.current().randomComics()
+                                        random.firstOrNull()?.let { onComicClick(it.id) }
+                                    } catch (e: Exception) {
+                                        // 随机失败忽略
+                                    }
+                                }
+                            }
+                            .padding(4.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "排行榜",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(onClick = onOpenRank)
+                            .padding(4.dp),
+                    )
+                }
                 // 更新横幅
                 if (updateInfo != null) {
                     Row(

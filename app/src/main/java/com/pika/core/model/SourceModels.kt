@@ -94,3 +94,41 @@ data class ComicDateRange(
         return afterFrom && beforeTo
     }
 }
+
+/** 用户（评论者 / 本人资料） */
+data class ComicUser(
+    val id: String = "",
+    val name: String = "",
+    val avatarUrl: String? = null,
+    val level: Int = 0,
+    val exp: Int = 0,
+    val title: String = "",
+    val slogan: String = "",
+    val email: String = "",
+    val gender: String = "",
+    val birthday: String = "",
+    val characters: List<String> = emptyList(),
+    val createdAt: String = "",
+)
+
+/** 漫画评论 */
+data class ComicComment(
+    val id: String,
+    val content: String,
+    val user: ComicUser? = null,
+    val createdAt: String = "",
+    val likesCount: Int = 0,
+    val isLiked: Boolean = false,
+    val commentsCount: Int = 0,
+    val isTop: Boolean = false,
+)
+
+/** 我的评论 */
+data class MyComicComment(
+    val id: String,
+    val content: String,
+    val comicId: String = "",
+    val comicTitle: String = "",
+    val createdAt: String = "",
+    val likesCount: Int = 0,
+)

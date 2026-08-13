@@ -63,6 +63,16 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         return parseResponse(resp)
     }
 
+    private suspend inline fun <reified T, reified B> put(
+        path: String,
+        body: B,
+    ): ApiResponse<T> {
+        val bodyJson = json.encodeToString(serializer<B>(), body)
+        val resp = engine.executeAsync("PUT", path, emptyMap(), bodyJson)
+        if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
+        return parseResponse(resp)
+    }
+
     override suspend fun login(body: LoginPayload): ApiResponse<LoginResponse> =
         post("auth/sign-in", body)
 
@@ -114,4 +124,34 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
 
     override suspend fun recommendation(id: String): ApiResponse<RecommendComics> =
         get("comics/$id/recommendation")
+
+    override suspend fun comments(id: String, page: Int): ApiResponse<CommentsResponse> =
+        get("comics/$id/comments", mapOf("page" to page.toString()))
+
+    override suspend fun sendComment(id: String, body: SendCommentPayload): ApiResponse<Comment> =
+        post("comics/$id/comments", body)
+
+    override suspend fun replyComment(id: String, body: SendCommentPayload): ApiResponse<Comment> =
+        post("comments/$id", body)
+
+    override suspend fun commentChildren(id: String, page: Int): ApiResponse<CommentsResponse> =
+        get("comments/$id/childrens", mapOf("page" to page.toString()))
+
+    override suspend fun myComments(page: Int): ApiResponse<PersonalCommentsResponse> =
+        get("users/my-comments", mapOf("page" to page.toString()))
+
+    override suspend fun forgotPassword(body: ForgotPasswordPayload): ApiResponse<JsonObject> =
+        post("auth/forgot-password", body)
+
+    override suspend fun updateProfile(body: UpdateProfilePayload): ApiResponse<JsonObject> =
+        put("users/profile", body)
+
+    override suspend fun updatePassword(body: UpdatePasswordPayload): ApiResponse<JsonObject> =
+        put("users/password", body)
+
+    override suspend fun updateAvatar(body: UpdateAvatarPayload): ApiResponse<JsonObject> =
+        put("users/avatar", body)
+
+    override suspend fun updateTitle(id: String, body: UpdateTitlePayload): ApiResponse<JsonObject> =
+        put("users/$id/title", body)
 }

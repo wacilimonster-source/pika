@@ -1,5 +1,6 @@
 package com.pika.ui.login
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,7 @@ import kotlinx.coroutines.launch
 fun LoginScreen(
     onLoggedIn: () -> Unit,
     onOpenRegister: () -> Unit = {},
+    onOpenForgotPassword: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
@@ -121,6 +123,13 @@ fun LoginScreen(
             ) {
                 Text("注册哔咔账号")
             }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "忘记密码？",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable(onClick = onOpenForgotPassword),
+            )
         }
     }
 }

@@ -109,6 +109,17 @@ fun MainScreen() {
                     onResumeReading = { id, order ->
                         navController.navigate("reader/${Uri.encode(id)}/$order")
                     },
+                    onOpenRank = {
+                        navController.navigate("rank")
+                    },
+                )
+            }
+            composable("rank") {
+                com.pika.ui.rank.RankScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}")
+                    },
                 )
             }
             composable("category") {
@@ -136,6 +147,23 @@ fun MainScreen() {
                     onOpenReader = { comicId, order ->
                         navController.navigate("reader/${Uri.encode(comicId)}/$order")
                     },
+                    onOpenProfile = { navController.navigate("profile") },
+                    onOpenMyComments = { navController.navigate("my-comments") },
+                )
+            }
+            composable("profile") {
+                com.pika.ui.profile.ProfileScreen(
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable("my-comments") {
+                com.pika.ui.comments.MyCommentsScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}") {
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
             composable("downloads") {
@@ -162,6 +190,14 @@ fun MainScreen() {
                     onOpenRegister = {
                         navController.navigate("register")
                     },
+                    onOpenForgotPassword = {
+                        navController.navigate("forgot-password")
+                    },
+                )
+            }
+            composable("forgot-password") {
+                com.pika.ui.login.ForgotPasswordScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("register") {
@@ -208,6 +244,11 @@ fun MainScreen() {
                     },
                     onOpenAuthor = { author ->
                         navController.navigate("author/${Uri.encode(author)}")
+                    },
+                    onComicClick = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}") {
+                            launchSingleTop = true
+                        }
                     },
                 )
             }
