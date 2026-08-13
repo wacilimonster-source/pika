@@ -68,11 +68,8 @@ fun HomeScreen(
     val recentReads = remember {
         mutableStateOf(com.pika.data.ReaderPrefs.current().recentReads())
     }
-    LaunchedEffect(Unit) {
-        while (true) {
-            recentReads.value = com.pika.data.ReaderPrefs.current().recentReads()
-            kotlinx.coroutines.delay(3_000)
-        }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        recentReads.value = com.pika.data.ReaderPrefs.current().recentReads()
     }
 
     LaunchedEffect(activeSource) {

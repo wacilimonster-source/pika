@@ -366,6 +366,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { old = it },
                     label = { Text("旧密码") },
                     singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -373,6 +374,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { new = it },
                     label = { Text("新密码（至少 8 位）") },
                     singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -380,6 +382,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { confirm = it },
                     label = { Text("确认新密码") },
                     singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let {
