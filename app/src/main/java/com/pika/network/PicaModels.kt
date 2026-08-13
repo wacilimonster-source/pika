@@ -48,10 +48,17 @@ data class ImageDetail(
 
     /** 直连地址 */
     val directUrl: String
-        get() = if (fileServer.contains("static")) {
-            "$fileServer/$normalizedPath"
-        } else {
-            "$fileServer/static/$normalizedPath"
+        get() {
+            val fs = fileServer.trimEnd('/')
+            if (fs.isBlank()) return ""
+            val p = normalizedPath
+            return if (p.startsWith("static/")) {
+                "$fs/$p"
+            } else if (fs.contains("static")) {
+                "$fs/$p"
+            } else {
+                "$fs/static/$p"
+            }
         }
 
     /** web 代理地址 */

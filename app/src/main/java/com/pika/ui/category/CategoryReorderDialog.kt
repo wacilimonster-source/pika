@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Visibility
@@ -48,10 +48,15 @@ fun CategoryReorderDialog(
         val orderMap = currentSettings.order.withIndex().associate { (i, id) -> id to i }
         categories.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
     }
+    // 使用 Pair(id, title) 便于显示
     var order by remember { mutableStateOf(items.map { it.id to it.title }) }
     var hidden by remember { mutableStateOf(currentSettings.hidden) }
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-    var overIndex by remember { mutableStateOf<Int?>(null) }
+    // 追踪正在拖拽的项的 ID
+    var draggedId by remember { mutableStateOf<String?>(null) }
+    // 拖拽偏移量（像素）
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    // 当前悬浮的目标索引
+    var hoverIndex by remember { mutableStateOf<Int?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -67,15 +72,16 @@ fun CategoryReorderDialog(
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 400.dp),
                 ) {
-                    itemsIndexed(order, key = { _, item -> item.first }) { index, (catId, catTitle) ->
+                    items(order.size) { index ->
+                        val (catId, catTitle) = order[index]
                         val isHidden = catId in hidden
-                        val isDragged = draggedIndex == index
-                        val isOver = overIndex == index && draggedIndex != null && draggedIndex != index
+                        val isDragged = draggedId == catId
+                        val isHover = hoverIndex == index && draggedId != null && draggedId != catId
 
                         val bgColor by animateColorAsState(
                             targetValue = when {
                                 isDragged -> MaterialTheme.colorScheme.primaryContainer
-                                isOver -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                isHover -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                 isHidden -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                 else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
                             },
@@ -91,39 +97,49 @@ fun CategoryReorderDialog(
                                         scaleX = 1.03f
                                         scaleY = 1.03f
                                         shadowElevation = 8f
+                                        translationY = dragOffsetY
                                     }
                                 }
                                 .background(bgColor)
-                                .pointerInput(index) {
+                                .pointerInput(catId) {
                                     detectDragGesturesAfterLongPress(
-                                        onDragStart = { draggedIndex = index },
+                                        onDragStart = {
+                                            draggedId = catId
+                                            dragOffsetY = 0f
+                                        },
                                         onDragEnd = {
-                                            val from = draggedIndex
-                                            val to = overIndex
-                                            if (from != null && to != null && from != to) {
-                                                val mutable = order.toMutableList()
-                                                val item = mutable.removeAt(from)
-                                                mutable.add(to, item)
-                                                order = mutable
+                                            // 执行交换
+                                            val fromId = draggedId
+                                            val toIdx = hoverIndex
+                                            if (fromId != null && toIdx != null) {
+                                                val fromIdx = order.indexOfFirst { it.first == fromId }
+                                                if (fromIdx >= 0 && fromIdx != toIdx) {
+                                                    val mutable = order.toMutableList()
+                                                    val item = mutable.removeAt(fromIdx)
+                                                    mutable.add(toIdx, item)
+                                                    order = mutable
+                                                }
                                             }
-                                            draggedIndex = null
-                                            overIndex = null
+                                            draggedId = null
+                                            dragOffsetY = 0f
+                                            hoverIndex = null
                                         },
                                         onDragCancel = {
-                                            draggedIndex = null
-                                            overIndex = null
+                                            draggedId = null
+                                            dragOffsetY = 0f
+                                            hoverIndex = null
                                         },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
+                                            dragOffsetY += dragAmount.y
+                                            // 计算当前拖拽到的目标位置
+                                            val currentId = draggedId ?: return@detectDragGesturesAfterLongPress
+                                            val currentIdx = order.indexOfFirst { it.first == currentId }
+                                            if (currentIdx < 0) return@detectDragGesturesAfterLongPress
                                             val itemHeight = 48.dp.toPx()
-                                            val delta = (dragAmount.y / itemHeight).roundToInt()
-                                            if (delta != 0) {
-                                                val current = draggedIndex ?: index
-                                                val target = (current + delta).coerceIn(0, order.size - 1)
-                                                if (target != current) {
-                                                    overIndex = target
-                                                }
-                                            }
+                                            val targetIdx = (currentIdx + (dragOffsetY / itemHeight).roundToInt())
+                                                .coerceIn(0, order.size - 1)
+                                            hoverIndex = targetIdx
                                         },
                                     )
                                 }
