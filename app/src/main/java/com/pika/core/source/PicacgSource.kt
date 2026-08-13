@@ -352,6 +352,8 @@ private fun Comic.toDetail() = ComicDetail(
     totalViews = totalViews.toLong(),
     totalLikes = totalLikes.toLong(),
     commentsCount = commentsCount.toLong(),
+    updatedAt = updatedAt,
+    createdAt = createdAt,
 )
 
 // ---------- 评论/用户映射 ----------

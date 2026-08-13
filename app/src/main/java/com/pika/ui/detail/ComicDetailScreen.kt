@@ -554,6 +554,18 @@ private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (comic.updatedAt.isNotBlank() || comic.createdAt.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = buildString {
+                        if (comic.updatedAt.isNotBlank()) append("更新 ${comic.updatedAt.take(10)}")
+                        if (comic.updatedAt.isNotBlank() && comic.createdAt.isNotBlank()) append(" · ")
+                        if (comic.createdAt.isNotBlank()) append("上传 ${comic.createdAt.take(10)}")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = comic.categories.joinToString(" / "),

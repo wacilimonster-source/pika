@@ -39,6 +39,8 @@ data class ComicDetail(
     val totalViews: Long = 0,
     val totalLikes: Long = 0,
     val commentsCount: Long = 0,
+    val updatedAt: String = "",
+    val createdAt: String = "",
 )
 
 /** 章节 */

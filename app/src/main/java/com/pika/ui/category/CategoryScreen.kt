@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -34,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -124,7 +126,6 @@ fun CategoryComicsScreen(
     val endReached by viewModel.endReached.collectAsState()
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
-    val status by viewModel.status.collectAsState()
     val dateRange by viewModel.dateRange.collectAsState()
     val listState = rememberLazyGridState()
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
@@ -159,6 +160,7 @@ fun CategoryComicsScreen(
                         Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
                 },
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->
@@ -177,19 +179,6 @@ fun CategoryComicsScreen(
                         selected = sort == s,
                         onClick = { viewModel.setSort(s) },
                         label = { Text(s.label) },
-                    )
-                }
-            }
-            // 连载状态筛选
-            LazyRow(
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(ComicStatus.entries.toList(), key = { it.name }) { st ->
-                    FilterChip(
-                        selected = status == st,
-                        onClick = { viewModel.setStatus(st) },
-                        label = { Text(st.label) },
                     )
                 }
             }
@@ -230,10 +219,8 @@ fun CategoryComicsScreen(
             if (showDisplaySettings) {
                 DisplaySettingsDialog(
                     currentSort = sort,
-                    currentStatus = status,
                     supportedSorts = supportedSorts,
                     onSortChange = { viewModel.setSort(it) },
-                    onStatusChange = { viewModel.setStatus(it) },
                     onDismiss = { showDisplaySettings = false },
                 )
             }
@@ -439,14 +426,12 @@ private fun DateRangeDialog(
     )
 }
 
-/** 显示设置弹窗：排序方式 + 连载状态 */
+/** 显示设置弹窗：排序方式 */
 @Composable
 private fun DisplaySettingsDialog(
     currentSort: ComicSort,
-    currentStatus: ComicStatus,
     supportedSorts: List<ComicSort>,
     onSortChange: (ComicSort) -> Unit,
-    onStatusChange: (ComicStatus) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -464,20 +449,6 @@ private fun DisplaySettingsDialog(
                             selected = currentSort == s,
                             onClick = { onSortChange(s) },
                             label = { Text(s.label) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("连载状态", style = MaterialTheme.typography.labelMedium)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(vertical = 4.dp),
-                ) {
-                    items(ComicStatus.entries.toList(), key = { it.name }) { st ->
-                        FilterChip(
-                            selected = currentStatus == st,
-                            onClick = { onStatusChange(st) },
-                            label = { Text(st.label) },
                         )
                     }
                 }

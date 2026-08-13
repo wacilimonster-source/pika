@@ -1,7 +1,6 @@
 package com.pika.ui.mine
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,9 +40,6 @@ import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.launch
 
-/**
- * 我的：账号资料（当前源登录态）/ 收藏 / 我的评论 / 下载 / 设置。
- */
 @Composable
 fun MineScreen(
     onOpenSettings: () -> Unit = {},
@@ -57,13 +53,17 @@ fun MineScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
     var user by remember { mutableStateOf<ComicUser?>(null) }
+    var profileLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(loggedIn) {
         if (loggedIn) {
+            profileLoading = true
             try {
                 user = SourceManager.current().profile()
             } catch (e: Exception) {
-                // 资料加载失败忽略
+                // ignore
+            } finally {
+                profileLoading = false
             }
         } else {
             user = null
@@ -81,7 +81,16 @@ fun MineScreen(
         )
         Spacer(Modifier.height(16.dp))
         Card(colors = CardDefaults.cardColors()) {
-            if (loggedIn && user != null) {
+            if (loggedIn && profileLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else if (loggedIn && user != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -112,7 +121,7 @@ fun MineScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "Lv.${user?.level ?: 0} · ${user?.title ?: ""} · 数据源 ${activeSource.displayName}",
+                            text = "Lv.${user?.level ?: 0} · ${user?.title ?: ""}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
