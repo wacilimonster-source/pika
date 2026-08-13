@@ -4,6 +4,7 @@ import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicPage
+import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.PageResult
 import com.pika.data.SourcePrefs
@@ -35,7 +36,10 @@ class JmcomicSource : Source {
             .map { ComicCategory(id = it.title, title = it.name.ifBlank { it.title }, coverUrl = it.cover) }
     }
 
-    override suspend fun browse(page: Int, category: String?): PageResult<ComicSummary> {
+    /** 禁漫列表接口不支持服务端排序，仅客户端按喜欢/观看数重排 */
+    override val supportedSorts: List<ComicSort> = listOf(ComicSort.LD, ComicSort.VD)
+
+    override suspend fun browse(page: Int, category: String?, sort: ComicSort): PageResult<ComicSummary> {
         val data = JmClient.commendList(page = page, category = category)
         return PageResult(
             items = data.albums.map { it.toSummary() },

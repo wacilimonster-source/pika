@@ -4,6 +4,7 @@ import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicPage
+import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.PageResult
 import com.pika.data.SourcePrefs
@@ -42,9 +43,9 @@ class PicacgSource : Source {
             .map { it.toComicCategory() }
     }
 
-    override suspend fun browse(page: Int, category: String?): PageResult<ComicSummary> {
+    override suspend fun browse(page: Int, category: String?, sort: ComicSort): PageResult<ComicSummary> {
         val data = PicaClient.safeCall {
-            PicaClient.api.comics(comicsQuery(page = page, category = category))
+            PicaClient.api.comics(comicsQuery(page = page, category = category, sort = sort.toPicaSort()))
         }
         return PageResult(
             items = data.comics.docs.map { it.toSummary() },
@@ -136,6 +137,13 @@ class PicacgSource : Source {
 }
 
 // ---------- 映射 ----------
+
+private fun ComicSort.toPicaSort(): com.pika.core.pica.ComicSortType = when (this) {
+    ComicSort.DD -> com.pika.core.pica.ComicSortType.DD
+    ComicSort.DA -> com.pika.core.pica.ComicSortType.DA
+    ComicSort.LD -> com.pika.core.pica.ComicSortType.LD
+    ComicSort.VD -> com.pika.core.pica.ComicSortType.VD
+}
 
 private fun Category.toComicCategory() = ComicCategory(
     id = title,

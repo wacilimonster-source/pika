@@ -4,6 +4,7 @@ import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicPage
+import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.PageResult
 
@@ -27,7 +28,11 @@ interface Source {
     suspend fun categories(): List<ComicCategory>
 
     /** 内容流（categorie 为空表示全部 / 源默认流） */
-    suspend fun browse(page: Int, category: String?): PageResult<ComicSummary>
+    suspend fun browse(page: Int, category: String?, sort: ComicSort = ComicSort.DD): PageResult<ComicSummary>
+
+    /** 当前源支持的排序方式（不在列表内的排序会回退到默认） */
+    val supportedSorts: List<ComicSort>
+        get() = ComicSort.entries.toList()
 
     /** 关键词搜索 */
     suspend fun search(keyword: String, page: Int): PageResult<ComicSummary>

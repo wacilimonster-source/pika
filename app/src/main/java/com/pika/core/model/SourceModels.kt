@@ -58,3 +58,18 @@ data class PageResult<T>(
     val page: Int = 1,
     val pages: Int = 1,
 )
+
+/** 排序方式（哔咔服务端排序；禁漫由客户端对已加载列表重排） */
+enum class ComicSort(val label: String) {
+    DD("新到旧"),
+    DA("旧到新"),
+    LD("最多喜欢"),
+    VD("最多观看"),
+}
+
+/** 连载状态筛选 */
+enum class ComicStatus(val label: String) {
+    ALL("全部"),
+    FINISHED("已完结"),
+    ONGOING("连载中"),
+}
