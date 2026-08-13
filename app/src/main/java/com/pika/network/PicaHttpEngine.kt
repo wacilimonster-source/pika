@@ -7,7 +7,6 @@ import com.pika.core.pica.picaSignature
 import com.pika.core.pica.picaTimestamp
 import com.pika.data.SourcePrefs
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -35,7 +34,7 @@ class PicaHttpEngine(
 
     /** 同步执行请求，返回原始响应字节。 */
     @Throws(IOException::class)
-    fun execute(
+    suspend fun execute(
         method: String,
         path: String,
         query: Map<String, String> = emptyMap(),
@@ -52,7 +51,7 @@ class PicaHttpEngine(
         executeInternal(method, path, query, bodyJson)
     }
 
-    private fun executeInternal(
+    private suspend fun executeInternal(
         method: String,
         path: String,
         query: Map<String, String>,
@@ -120,7 +119,7 @@ class PicaHttpEngine(
         }
 
         if (code == 401) {
-            runBlocking { onUnauthorized() }
+            onUnauthorized()
         }
 
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream

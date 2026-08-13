@@ -4,7 +4,6 @@ import android.util.Log
 import com.pika.data.SourcePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.runBlocking
 
 /**
  * 单一活动源管理器：设置页切换，全局生效。
@@ -29,8 +28,9 @@ object SourceManager {
         Log.d("SourceManager", "active source: ${_activeSource.value}")
     }
 
-    fun switch(type: SourceType) {
-        runBlocking { SourcePrefs.current().setActiveSource(type) }
+    /** 切换数据源（suspend，调用方需在协程中） */
+    suspend fun switch(type: SourceType) {
+        SourcePrefs.current().setActiveSource(type)
         _activeSource.value = type
     }
 
@@ -40,8 +40,9 @@ object SourceManager {
 
     fun picaToken(): String? = SourcePrefs.current().picaToken
 
-    fun onUnauthorized() {
-        runBlocking { sources.getValue(_activeSource.value).logout() }
+    /** 401 处理（suspend，由 PicaHttpEngine 在 IO 协程中调用） */
+    suspend fun onUnauthorized() {
+        sources.getValue(_activeSource.value).logout()
         _loggedOut.value = true
     }
 

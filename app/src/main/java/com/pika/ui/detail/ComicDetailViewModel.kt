@@ -109,7 +109,7 @@ class ComicDetailViewModel : ViewModel() {
             coverUrl = comic?.coverUrl ?: "",
             order = chapter.order,
             epTitle = chapter.title,
-            pageCount = _comic.value?.epsCount ?: 1,
+            pageCount = comic?.pagesCount ?: _comic.value?.pagesCount ?: 1,
         )
     }
 
@@ -127,7 +127,7 @@ class ComicDetailViewModel : ViewModel() {
         if (comicId.isEmpty()) return
         viewModelScope.launch {
             try {
-                val ok = SourceManager.current().favourite(comicId, true)
+                val ok = SourceManager.current().favourite(comicId, !_favourited.value)
                 if (ok) {
                     _favourited.value = !_favourited.value
                 }

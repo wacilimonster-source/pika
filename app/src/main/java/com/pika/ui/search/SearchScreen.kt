@@ -56,6 +56,7 @@ fun SearchScreen(
     val endReached by viewModel.endReached.collectAsState()
     val keyword by viewModel.keyword.collectAsState()
     val showAdvanced by viewModel.showAdvanced.collectAsState()
+    val currentSort by viewModel.sort.collectAsState()
     var input by remember { mutableStateOf("") }
     var authorInput by remember { mutableStateOf("") }
     var teamInput by remember { mutableStateOf("") }
@@ -118,28 +119,28 @@ fun SearchScreen(
                 ) {
                     item {
                         FilterChip(
-                            selected = viewModel.sort == ComicSort.DD,
+                            selected = currentSort == ComicSort.DD,
                             onClick = { viewModel.updateFilter(sort = ComicSort.DD) },
                             label = { Text("新到旧") },
                         )
                     }
                     item {
                         FilterChip(
-                            selected = viewModel.sort == ComicSort.DA,
+                            selected = currentSort == ComicSort.DA,
                             onClick = { viewModel.updateFilter(sort = ComicSort.DA) },
                             label = { Text("旧到新") },
                         )
                     }
                     item {
                         FilterChip(
-                            selected = viewModel.sort == ComicSort.LD,
+                            selected = currentSort == ComicSort.LD,
                             onClick = { viewModel.updateFilter(sort = ComicSort.LD) },
                             label = { Text("最多喜欢") },
                         )
                     }
                     item {
                         FilterChip(
-                            selected = viewModel.sort == ComicSort.VD,
+                            selected = currentSort == ComicSort.VD,
                             onClick = { viewModel.updateFilter(sort = ComicSort.VD) },
                             label = { Text("最多观看") },
                         )

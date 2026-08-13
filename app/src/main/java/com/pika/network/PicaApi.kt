@@ -141,7 +141,7 @@ fun comicsQuery(
 }
 
 fun rankQuery(type: ComicRankType): Map<String, String> = mapOf(
-    "tt" to type.name,
+    "tt" to type.name.lowercase(),
     "ct" to "VC",
 )
 

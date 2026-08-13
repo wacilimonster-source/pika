@@ -56,6 +56,7 @@ fun SettingsScreen(
     onBack: (() -> Unit)? = null,
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
+    val scope = rememberCoroutineScope()
     var jmBase by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(false) }
 
@@ -102,7 +103,7 @@ fun SettingsScreen(
                     trailingContent = {
                         RadioButton(
                             selected = type == activeSource,
-                            onClick = { SourceManager.switch(type) },
+                            onClick = { scope.launch { SourceManager.switch(type) } },
                         )
                     },
                     modifier = Modifier.padding(horizontal = 8.dp),

@@ -11,8 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 搜索 VM：热搜词 + 关键词分页搜索（当前源）。
- * 支持高级筛选：排序 / 分类 / 标签 / 作者 / 汉化组 / 上传者 / 完结状态。
+ * 搜索 VM：关键词分页搜索（当前源）。
+ * 支持高级筛选：排序 / 标签 / 作者 / 汉化组 / 上传者。
  */
 class SearchViewModel : ViewModel() {
 
@@ -31,24 +31,21 @@ class SearchViewModel : ViewModel() {
     private val _keyword = MutableStateFlow("")
     val keyword: StateFlow<String> = _keyword
 
-    private val _categories = MutableStateFlow<List<ComicCategory>>(emptyList())
-    val categories: StateFlow<List<ComicCategory>> = _categories
+    // ---- 筛选状态（StateFlow，Compose 可观察） ----
+    private val _sort = MutableStateFlow(ComicSort.DD)
+    val sort: StateFlow<ComicSort> = _sort
 
-    // ---- 筛选状态 ----
-    var sort: ComicSort = ComicSort.DD
-        private set
-    var categoryIds: Set<String> = emptySet()
-        private set
-    var tags: Set<String> = emptySet()
-        private set
-    var author: String? = null
-        private set
-    var chineseTeam: String? = null
-        private set
-    var uploader: String? = null
-        private set
-    var finished: Boolean? = null
-        private set
+    private val _tags = MutableStateFlow<Set<String>>(emptySet())
+    val tags: StateFlow<Set<String>> = _tags
+
+    private val _author = MutableStateFlow<String?>(null)
+    val author: StateFlow<String?> = _author
+
+    private val _chineseTeam = MutableStateFlow<String?>(null)
+    val chineseTeam: StateFlow<String?> = _chineseTeam
+
+    private val _uploader = MutableStateFlow<String?>(null)
+    val uploader: StateFlow<String?> = _uploader
 
     private val _showAdvanced = MutableStateFlow(false)
     val showAdvanced: StateFlow<Boolean> = _showAdvanced
@@ -71,44 +68,27 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    fun loadCategories() {
-        if (_categories.value.isNotEmpty()) return
-        viewModelScope.launch {
-            try {
-                _categories.value = SourceManager.current().categories()
-            } catch (e: Exception) {
-                // 分类加载失败忽略
-            }
-        }
-    }
-
     fun updateFilter(
-        sort: ComicSort = this.sort,
-        categoryIds: Set<String> = this.categoryIds,
-        tags: Set<String> = this.tags,
-        author: String? = this.author,
-        chineseTeam: String? = this.chineseTeam,
-        uploader: String? = this.uploader,
-        finished: Boolean? = this.finished,
+        sort: ComicSort = _sort.value,
+        tags: Set<String> = _tags.value,
+        author: String? = _author.value,
+        chineseTeam: String? = _chineseTeam.value,
+        uploader: String? = _uploader.value,
     ) {
-        this.sort = sort
-        this.categoryIds = categoryIds
-        this.tags = tags
-        this.author = author
-        this.chineseTeam = chineseTeam
-        this.uploader = uploader
-        this.finished = finished
+        _sort.value = sort
+        _tags.value = tags
+        _author.value = author
+        _chineseTeam.value = chineseTeam
+        _uploader.value = uploader
         if (_keyword.value.isNotBlank()) search(_keyword.value, page = 1)
     }
 
     fun resetFilters() = updateFilter(
         sort = ComicSort.DD,
-        categoryIds = emptySet(),
         tags = emptySet(),
         author = null,
         chineseTeam = null,
         uploader = null,
-        finished = null,
     )
 
     /** 完全重置搜索状态（清空结果 + 筛选 + 关键词） */
@@ -128,13 +108,11 @@ class SearchViewModel : ViewModel() {
                 val result = SourceManager.current().search(
                     keyword = keyword,
                     page = page,
-                    sort = sort,
-                    categories = categoryIds.toList(),
-                    tags = tags.toList(),
-                    author = author,
-                    chineseTeam = chineseTeam,
-                    uploader = uploader,
-                    finished = finished,
+                    sort = _sort.value,
+                    tags = _tags.value.toList(),
+                    author = _author.value,
+                    chineseTeam = _chineseTeam.value,
+                    uploader = _uploader.value,
                 )
                 _comics.value = if (page == 1) result.items else _comics.value + result.items
                 _endReached.value = page >= result.pages

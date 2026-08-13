@@ -25,14 +25,10 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     }
 
     private inline fun <reified T> parseResponse(resp: PicaHttpEngine.RawResponse): ApiResponse<T> {
-        try {
-            return json.decodeFromString(
-                ApiResponse.serializer(serializer()),
-                resp.bodyString
-            )
-        } finally {
-            resp.close()
-        }
+        return json.decodeFromString(
+            ApiResponse.serializer(serializer()),
+            resp.bodyString
+        )
     }
 
     private suspend inline fun <reified T> get(
@@ -40,8 +36,12 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         query: Map<String, String> = emptyMap(),
     ): ApiResponse<T> {
         val resp = engine.executeAsync("GET", path, query)
-        if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-        return parseResponse(resp)
+        try {
+            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
+            return parseResponse(resp)
+        } finally {
+            resp.close()
+        }
     }
 
     private suspend inline fun <reified T, reified B> post(
@@ -51,16 +51,24 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     ): ApiResponse<T> {
         val bodyJson = json.encodeToString(serializer<B>(), body)
         val resp = engine.executeAsync("POST", path, query, bodyJson)
-        if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-        return parseResponse(resp)
+        try {
+            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
+            return parseResponse(resp)
+        } finally {
+            resp.close()
+        }
     }
 
     private suspend inline fun <reified T> postEmpty(
         path: String,
     ): ApiResponse<T> {
         val resp = engine.executeAsync("POST", path, emptyMap(), "{}")
-        if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-        return parseResponse(resp)
+        try {
+            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
+            return parseResponse(resp)
+        } finally {
+            resp.close()
+        }
     }
 
     private suspend inline fun <reified T, reified B> put(
@@ -69,8 +77,12 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     ): ApiResponse<T> {
         val bodyJson = json.encodeToString(serializer<B>(), body)
         val resp = engine.executeAsync("PUT", path, emptyMap(), bodyJson)
-        if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-        return parseResponse(resp)
+        try {
+            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
+            return parseResponse(resp)
+        } finally {
+            resp.close()
+        }
     }
 
     override suspend fun login(body: LoginPayload): ApiResponse<LoginResponse> =

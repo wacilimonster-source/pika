@@ -10,6 +10,7 @@ import com.pika.core.model.ComicPage
 import com.pika.core.source.SourceManager
 import com.pika.data.ReaderPrefs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -40,12 +41,15 @@ class ReaderViewModel : ViewModel() {
 
     private var loadedKey: String = ""
 
+    private var loadJob: Job? = null
+
     fun load(context: Context, comicId: String, order: Int) {
         if (loadedKey == "$comicId:$order" && _pages.value.isNotEmpty()) return
+        loadJob?.cancel()
         loadedKey = "$comicId:$order"
         this.comicId = comicId
         this.currentOrder = order
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             _loading.value = true
             try {
                 withContext(Dispatchers.IO) {
@@ -134,7 +138,13 @@ class ReaderViewModel : ViewModel() {
 
     /** 清除当前加载状态（退出阅读器时避免陈旧数据）。 */
     fun clear() {
+        loadJob?.cancel()
+        loadJob = null
         loadedKey = ""
         pendingRestorePage = -1
+        _pages.value = emptyList()
+        _chapters.value = emptyList()
+        _epTitle.value = ""
+        _loading.value = false
     }
 }

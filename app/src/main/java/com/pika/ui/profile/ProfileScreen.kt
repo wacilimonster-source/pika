@@ -49,6 +49,8 @@ import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /**
  * 个人资料页：头像 / 昵称 / 等级 / 简介；支持修改简介、称号、头像、密码。
@@ -85,7 +87,9 @@ fun ProfileScreen(
                             SourceManager.current().updateAvatar(
                                 android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
                             )
-                            avatarBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            avatarBitmap = withContext(Dispatchers.IO) {
+                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            }
                             error = "头像更新成功"
                         } finally {
                             loading = false

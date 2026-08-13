@@ -261,7 +261,7 @@ class PicacgSource : Source {
         val data = PicaClient.safeCall { PicaClient.api.myComments(page) }
         return PageResult(
             items = data.comments.docs.map { it.toMyComicComment() },
-            page = data.comments.page.toIntOrNull() ?: page,
+            page = data.comments.page,
             pages = data.comments.pages.coerceAtLeast(1),
         )
     }

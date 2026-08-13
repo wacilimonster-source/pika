@@ -426,7 +426,7 @@ data class PersonalCommentsData(
     val pages: Int = 0,
     val total: Int = 0,
     val limit: Int = 0,
-    val page: String = "0",
+    val page: Int = 0,
 )
 
 @Serializable
