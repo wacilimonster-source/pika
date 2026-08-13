@@ -63,6 +63,7 @@ fun SearchScreen(
     var uploaderInput by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     Scaffold(
         topBar = {
@@ -83,6 +84,7 @@ fun SearchScreen(
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier
                                 .clickable {
+                                    focusManager.clearFocus()
                                     input = ""
                                     authorInput = ""
                                     teamInput = ""
@@ -107,6 +109,7 @@ fun SearchScreen(
                     placeholder = { Text("搜索漫画 / 作者 / 标签") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
+                        focusManager.clearFocus()
                         viewModel.search(input.trim(), page = 1)
                     }),
                     modifier = Modifier

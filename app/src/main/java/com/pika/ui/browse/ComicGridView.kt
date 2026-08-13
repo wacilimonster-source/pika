@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -66,10 +67,14 @@ fun ComicGridView(
     }
 
     LaunchedEffect(listState, endReached, loading) {
-        val layoutInfo = listState.layoutInfo
-        val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        if (!loading && !endReached && lastVisible >= layoutInfo.totalItemsCount - 4) {
-            onLoadMore()
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible >= layoutInfo.totalItemsCount - 4
+        }.collect { shouldLoad ->
+            if (shouldLoad && !loading && !endReached) {
+                onLoadMore()
+            }
         }
     }
 }
