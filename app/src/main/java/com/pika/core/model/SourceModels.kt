@@ -13,6 +13,8 @@ data class ComicSummary(
     val finished: Boolean = false,
     val totalViews: Long = 0,
     val totalLikes: Long = 0,
+    /** 更新时间（"yyyy-MM-dd..." ISO 前缀，用于日期范围筛选；源不支持时为空） */
+    val updatedAt: String = "",
 )
 
 /** 分类 */
@@ -72,4 +74,23 @@ enum class ComicStatus(val label: String) {
     ALL("全部"),
     FINISHED("已完结"),
     ONGOING("连载中"),
+}
+
+/** 更新日期范围（年/月，含起止）；哔咔服务端无日期查询参数，客户端按更新时间过滤已加载数据 */
+data class ComicDateRange(
+    val fromYear: Int,
+    val fromMonth: Int,
+    val toYear: Int,
+    val toMonth: Int,
+) {
+    fun label(): String = "$fromYear-${fromMonth.toString().padStart(2, '0')} ~ $toYear-${toMonth.toString().padStart(2, '0')}"
+
+    fun matches(updatedAt: String): Boolean {
+        if (updatedAt.length < 7) return false
+        val year = updatedAt.substring(0, 4).toIntOrNull() ?: return false
+        val month = updatedAt.substring(5, 7).toIntOrNull() ?: return false
+        val afterFrom = year > fromYear || (year == fromYear && month >= fromMonth)
+        val beforeTo = year < toYear || (year == toYear && month <= toMonth)
+        return afterFrom && beforeTo
+    }
 }

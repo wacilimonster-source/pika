@@ -78,6 +78,7 @@ data class Doc(
     val id: String? = null,
     @SerialName("likesCount") val likesCount: Int = 0,
     val tags: List<String> = emptyList(),
+    @SerialName("updated_at") val updatedAt: String = "",
 ) {
     val comicId: String get() = thumb?.let { id ?: uid } ?: uid
 }
@@ -233,6 +234,7 @@ data class SearchComic(
         id = uid,
         likesCount = likesCount,
         tags = tags,
+        updatedAt = updatedAt,
     )
 }
 

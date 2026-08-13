@@ -43,9 +43,21 @@ class PicacgSource : Source {
             .map { it.toComicCategory() }
     }
 
-    override suspend fun browse(page: Int, category: String?, sort: ComicSort): PageResult<ComicSummary> {
+    override suspend fun browse(
+        page: Int,
+        category: String?,
+        sort: ComicSort,
+        author: String?,
+    ): PageResult<ComicSummary> {
         val data = PicaClient.safeCall {
-            PicaClient.api.comics(comicsQuery(page = page, category = category, sort = sort.toPicaSort()))
+            PicaClient.api.comics(
+                comicsQuery(
+                    page = page,
+                    category = category,
+                    sort = sort.toPicaSort(),
+                    author = author,
+                )
+            )
         }
         return PageResult(
             items = data.comics.docs.map { it.toSummary() },
@@ -159,12 +171,13 @@ private fun Doc.toSummary() = ComicSummary(
     finished = finished,
     totalViews = totalViews.toLong(),
     totalLikes = (totalLikes ?: likesCount).toLong(),
+    updatedAt = updatedAt,
 )
 
 private fun Comic.toDetail() = ComicDetail(
     id = id,
     title = title,
-    author = author ?: "",
+    author = author?.takeIf { it.isNotBlank() } ?: creator?.name ?: "",
     description = description,
     coverUrl = thumb?.directUrl,
     categories = categories,

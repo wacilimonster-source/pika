@@ -39,7 +39,12 @@ class JmcomicSource : Source {
     /** 禁漫列表接口不支持服务端排序，仅客户端按喜欢/观看数重排 */
     override val supportedSorts: List<ComicSort> = listOf(ComicSort.LD, ComicSort.VD)
 
-    override suspend fun browse(page: Int, category: String?, sort: ComicSort): PageResult<ComicSummary> {
+    override suspend fun browse(
+        page: Int,
+        category: String?,
+        sort: ComicSort,
+        author: String?,
+    ): PageResult<ComicSummary> {
         val data = JmClient.commendList(page = page, category = category)
         return PageResult(
             items = data.albums.map { it.toSummary() },

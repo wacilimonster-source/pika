@@ -24,11 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -64,8 +66,16 @@ fun WebtoonSplitPage(
 
     // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
     var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
+    // 解码像素上限：单张位图高度封顶（约 4 倍屏高），防超长图整图解码 OOM 闪退；
+    // 超出的部分按比例缩略，分割渲染仍完整展示，仅清晰度略降。
     val painter = rememberAsyncImagePainter(
-        model = if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick",
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            .size(coil.size.Size(
+                width = Int.MAX_VALUE,
+                height = MAX_DECODE_HEIGHT_PX,
+            ))
+            .build(),
     )
     // Coil 2.7 的 painter.state 是快照属性（getter 读内部 mutableStateOf），读取即订阅重组
     val state = painter.state
@@ -183,9 +193,12 @@ private fun PageImage(
     }
 }
 
-/** 计算单页应切分为多少屏（超出一屏 1.4 倍才切）。 */
+/** 计算单页应切分为多少屏（超出一屏 1.4 倍才切；上限 6 屏防位图过大）。 */
 internal fun computeSliceCount(imageHeightRatio: Float, viewportAspect: Float): Int {
     if (imageHeightRatio <= 0f || viewportAspect <= 0f) return 1
     val raw = imageHeightRatio / viewportAspect
-    return if (raw <= 1.4f) 1 else ceil(raw).toInt().coerceAtLeast(1)
+    return if (raw <= 1.4f) 1 else ceil(raw).toInt().coerceIn(1, 6)
 }
+
+/** 单张位图解码高度上限（px）：1080 宽 × 8192 高 ≈ 35MB，避免超长图 OOM */
+private const val MAX_DECODE_HEIGHT_PX = 8192

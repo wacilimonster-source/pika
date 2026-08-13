@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -18,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +36,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -116,10 +123,12 @@ fun CategoryComicsScreen(
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val status by viewModel.status.collectAsState()
+    val dateRange by viewModel.dateRange.collectAsState()
     val listState = rememberLazyGridState()
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
+    var showDateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
@@ -175,6 +184,40 @@ fun CategoryComicsScreen(
                         label = { Text(st.label) },
                     )
                 }
+            }
+            // 更新日期范围筛选
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilterChip(
+                    selected = dateRange != null,
+                    onClick = { showDateDialog = true },
+                    label = { Text(if (dateRange != null) dateRange!!.label() else "日期范围") },
+                )
+                if (dateRange != null) {
+                    Text(
+                        text = "按更新时间筛选（需联网翻页加载）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (showDateDialog) {
+                DateRangeDialog(
+                    current = dateRange,
+                    onConfirm = { range ->
+                        viewModel.setDateRange(range)
+                        showDateDialog = false
+                    },
+                    onClear = {
+                        viewModel.setDateRange(null)
+                        showDateDialog = false
+                    },
+                    onDismiss = { showDateDialog = false },
+                )
             }
             if (error != null && comics.isEmpty()) {
                 Box(
@@ -259,4 +302,121 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             )
         }
     }
+}
+
+/** 更新日期范围选择：年份 + 起止月份。服务端无日期查询，实际按客户端过滤。 */
+@Composable
+private fun DateRangeDialog(
+    current: com.pika.core.model.ComicDateRange?,
+    onConfirm: (com.pika.core.model.ComicDateRange) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+    val init = current ?: com.pika.core.model.ComicDateRange(
+        fromYear = currentYear - 1,
+        fromMonth = 1,
+        toYear = currentYear,
+        toMonth = 12,
+    )
+    var fromYear by remember { mutableStateOf(init.fromYear) }
+    var fromMonth by remember { mutableStateOf(init.fromMonth) }
+    var toYear by remember { mutableStateOf(init.toYear) }
+    var toMonth by remember { mutableStateOf(init.toMonth) }
+    val minYear = 2010
+    val valid = fromYear < toYear || (fromYear == toYear && fromMonth <= toMonth)
+
+    @Composable
+    fun YearPicker(label: String, year: Int, onChange: (Int) -> Unit) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+            IconButton(onClick = { onChange((year - 1).coerceAtLeast(minYear)) }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一年")
+            }
+            Text(
+                text = "$year 年",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            IconButton(onClick = { onChange((year + 1).coerceAtMost(currentYear)) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一年")
+            }
+        }
+    }
+
+    @Composable
+    fun MonthRow(label: String, month: Int, onChange: (Int) -> Unit) {
+        Column {
+            Text(
+                text = "$label（${(if (label == "从") fromYear else toYear)} 年）",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items((1..12).toList(), key = { it }) { m ->
+                    FilterChip(
+                        selected = month == m,
+                        onClick = { onChange(m) },
+                        label = { Text("${m}月") },
+                    )
+                }
+            }
+        }
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("更新日期范围") },
+        text = {
+            Column {
+                Text(
+                    text = "按更新时间过滤已加载的漫画（需联网自动翻页，较早数据可能覆盖不全）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                YearPicker("起始", fromYear) { fromYear = it }
+                MonthRow("从", fromMonth) { fromMonth = it }
+                Spacer(Modifier.height(6.dp))
+                YearPicker("结束", toYear) { toYear = it }
+                MonthRow("到", toMonth) { toMonth = it }
+                if (!valid) {
+                    Text(
+                        text = "起始不能晚于结束",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    onConfirm(
+                        com.pika.core.model.ComicDateRange(
+                            fromYear = fromYear,
+                            fromMonth = fromMonth,
+                            toYear = toYear,
+                            toMonth = toMonth,
+                        )
+                    )
+                },
+                enabled = valid,
+            ) { Text("确定") }
+        },
+        dismissButton = {
+            Row {
+                if (current != null) {
+                    androidx.compose.material3.TextButton(onClick = onClear) { Text("清除") }
+                }
+                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        },
+    )
 }

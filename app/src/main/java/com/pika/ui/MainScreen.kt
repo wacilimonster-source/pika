@@ -1,5 +1,6 @@
-package com.pika.ui
+﻿package com.pika.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -26,6 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.pika.core.source.SourceManager
+import com.pika.ui.author.AuthorComicsScreen
 import com.pika.ui.category.CategoryComicsScreen
 import com.pika.ui.category.CategoryScreen
 import com.pika.ui.detail.ComicDetailScreen
@@ -42,12 +44,12 @@ private data class TabItem(
     val icon: ImageVector,
 )
 
-/** 底部导航：首页 / 分类 / 搜索 / 我的（设置入口收敛在"我的"页内） */
+/** 搴曢儴瀵艰埅锛氶椤?/ 鍒嗙被 / 鎼滅储 / 鎴戠殑锛堣缃叆鍙ｆ敹鏁涘湪"鎴戠殑"椤靛唴锛?*/
 private val tabs = listOf(
-    TabItem("home", "首页", Icons.Filled.Home),
-    TabItem("category", "分类", Icons.AutoMirrored.Filled.List),
-    TabItem("search", "搜索", Icons.Filled.Search),
-    TabItem("mine", "我的", Icons.Filled.Person),
+    TabItem("home", "棣栭〉", Icons.Filled.Home),
+    TabItem("category", "鍒嗙被", Icons.AutoMirrored.Filled.List),
+    TabItem("search", "鎼滅储", Icons.Filled.Search),
+    TabItem("mine", "鎴戠殑", Icons.Filled.Person),
 )
 
 @Composable
@@ -58,7 +60,7 @@ fun MainScreen() {
     val activeSource by SourceManager.activeSource.collectAsState()
     val loggedOut by SourceManager.loggedOut.collectAsState()
 
-    // 当前源未登录 / 收到 401 登出事件 → 跳登录页
+    // 褰撳墠婧愭湭鐧诲綍 / 鏀跺埌 401 鐧诲嚭浜嬩欢 鈫?璺崇櫥褰曢〉
     LaunchedEffect(activeSource, loggedOut) {
         val needLogin = !SourceManager.current().isLoggedIn
         if (needLogin) {
@@ -102,28 +104,28 @@ fun MainScreen() {
             composable("home") {
                 HomeScreen(
                     onComicClick = { id ->
-                        navController.navigate("comic/$id")
+                        navController.navigate("comic/${Uri.encode(id)}")
                     },
                     onResumeReading = { id, order ->
-                        navController.navigate("reader/$id/$order")
+                        navController.navigate("reader/${Uri.encode(id)}/$order")
                     },
                 )
             }
             composable("category") {
                 CategoryScreen(
                     onCategoryClick = { id ->
-                        navController.navigate("category/$id")
+                        navController.navigate("category/${Uri.encode(id)}")
                     },
                     onComicClick = { id ->
-                        navController.navigate("comic/$id")
+                        navController.navigate("comic/${Uri.encode(id)}")
                     },
                 )
             }
             composable("search") {
                 SearchScreen(
-                    // 底部 Tab：不显示返回按钮
+                    // 搴曢儴 Tab锛氫笉鏄剧ず杩斿洖鎸夐挳
                     onBack = null,
-                    onComicClick = { id -> navController.navigate("comic/$id") },
+                    onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
                 )
             }
             composable("mine") {
@@ -132,7 +134,7 @@ fun MainScreen() {
                     onOpenDownloads = { navController.navigate("downloads") },
                     onOpenFavourites = { navController.navigate("favourites") },
                     onOpenReader = { comicId, order ->
-                        navController.navigate("reader/$comicId/$order")
+                        navController.navigate("reader/${Uri.encode(comicId)}/$order")
                     },
                 )
             }
@@ -140,14 +142,14 @@ fun MainScreen() {
                 com.pika.ui.download.DownloadScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id, order ->
-                        navController.navigate("reader/$id/$order")
+                        navController.navigate("reader/${Uri.encode(id)}/$order")
                     },
                 )
             }
             composable("favourites") {
                 com.pika.ui.favourite.FavouriteScreen(
                     onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate("comic/$id") },
+                    onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
                 )
             }
             composable("login") {
@@ -172,7 +174,7 @@ fun MainScreen() {
                     categoryId = categoryId,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
-                        navController.navigate("comic/$id")
+                        navController.navigate("comic/${Uri.encode(id)}")
                     },
                 )
             }
@@ -187,7 +189,25 @@ fun MainScreen() {
                     comicId = comicId,
                     onBack = { navController.popBackStack() },
                     onOpenReader = { id, order ->
-                        navController.navigate("reader/$id/$order")
+                        navController.navigate("reader/${Uri.encode(id)}/$order")
+                    },
+                    onOpenAuthor = { author ->
+                        navController.navigate("author/${Uri.encode(author)}")
+                    },
+                )
+            }
+            composable(
+                "author/{author}",
+                arguments = listOf(
+                    navArgument("author") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val author = entry.arguments?.getString("author") ?: return@composable
+                AuthorComicsScreen(
+                    author = author,
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}")
                     },
                 )
             }

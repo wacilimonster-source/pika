@@ -27,8 +27,13 @@ interface Source {
     /** 分类列表（可能为空，表示不支持分类） */
     suspend fun categories(): List<ComicCategory>
 
-    /** 内容流（categorie 为空表示全部 / 源默认流） */
-    suspend fun browse(page: Int, category: String?, sort: ComicSort = ComicSort.DD): PageResult<ComicSummary>
+    /** 内容流（categorie 为空表示全部 / 源默认流；author 非空时按作者筛选） */
+    suspend fun browse(
+        page: Int,
+        category: String?,
+        sort: ComicSort = ComicSort.DD,
+        author: String? = null,
+    ): PageResult<ComicSummary>
 
     /** 当前源支持的排序方式（不在列表内的排序会回退到默认） */
     val supportedSorts: List<ComicSort>

@@ -3,6 +3,7 @@ package com.pika.ui.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicCategory
+import com.pika.core.model.ComicDateRange
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.model.ComicSummary
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
 /**
  * 首页浏览 VM：分类 + 内容流（分页）。
  * 走 SourceManager 当前源，源切换后自动重载。
- * 支持排序（哔咔服务端 / 禁漫客户端重排）与连载状态筛选（客户端过滤 + 自动补页）。
+ * 支持排序（哔咔服务端 / 禁漫客户端重排）、连载状态筛选与更新日期范围筛选
+ * （均为客户端过滤 + 自动补页）。
  */
 class BrowseViewModel : ViewModel() {
 
@@ -39,6 +41,12 @@ class BrowseViewModel : ViewModel() {
     private val _status = MutableStateFlow(ComicStatus.ALL)
     val status: StateFlow<ComicStatus> = _status
 
+    private val _author = MutableStateFlow<String?>(null)
+    val author: StateFlow<String?> = _author
+
+    private val _dateRange = MutableStateFlow<ComicDateRange?>(null)
+    val dateRange: StateFlow<ComicDateRange?> = _dateRange
+
     /** 已拉取的原始数据（未过滤/未重排），供筛选与排序使用 */
     private val rawItems = mutableListOf<ComicSummary>()
 
@@ -50,10 +58,10 @@ class BrowseViewModel : ViewModel() {
     var currentPage: Int = 1
         private set
 
-    /** 状态筛选下，单次加载至少补到该数量后停止翻页 */
     private companion object {
         const val FILL_TARGET = 24
         const val MAX_FILL_PAGES = 30
+        const val MAX_FILL_PAGES_DATE = 90
     }
 
     fun loadCategories() {
@@ -74,12 +82,14 @@ class BrowseViewModel : ViewModel() {
             _error.value = null
             try {
                 var p = page.coerceAtLeast(1)
+                val maxFill = if (_dateRange.value != null) MAX_FILL_PAGES_DATE else MAX_FILL_PAGES
                 while (true) {
                     if (token != loadToken) return@launch
                     val result = SourceManager.current().browse(
                         page = p,
                         category = this@BrowseViewModel.category,
                         sort = _sort.value,
+                        author = _author.value,
                     )
                     if (token != loadToken) return@launch
                     if (p <= 1) rawItems.clear()
@@ -87,7 +97,7 @@ class BrowseViewModel : ViewModel() {
                     currentPage = p
                     _endReached.value = p >= result.pages
                     applyFilterAndSort()
-                    if (_endReached.value || _comics.value.size >= FILL_TARGET || p - page >= MAX_FILL_PAGES) break
+                    if (_endReached.value || _comics.value.size >= FILL_TARGET || p - page >= maxFill) break
                     p++
                 }
             } catch (e: Exception) {
@@ -112,6 +122,18 @@ class BrowseViewModel : ViewModel() {
         reload()
     }
 
+    fun setDateRange(range: ComicDateRange?) {
+        if (_dateRange.value == range) return
+        _dateRange.value = range
+        reload()
+    }
+
+    fun setAuthor(author: String?) {
+        if (_author.value == author) return
+        _author.value = author
+        reload()
+    }
+
     private fun reload() {
         rawItems.clear()
         _comics.value = emptyList()
@@ -121,14 +143,15 @@ class BrowseViewModel : ViewModel() {
         loadComics(page = 1, category = category)
     }
 
-    /** 状态筛选（客户端）→ 排序（禁漫客户端重排；哔咔服务端已排好无需再动） */
+    /** 状态筛选 + 日期范围（客户端）→ 排序（禁漫客户端重排；哔咔服务端已排好无需再动） */
     private fun applyFilterAndSort() {
+        val dateRange = _dateRange.value
         val filtered = rawItems.filter {
             when (_status.value) {
                 ComicStatus.ALL -> true
                 ComicStatus.FINISHED -> it.finished
                 ComicStatus.ONGOING -> !it.finished
-            }
+            } && (dateRange == null || dateRange.matches(it.updatedAt))
         }
         val sorted = when (_sort.value) {
             ComicSort.LD -> filtered.sortedByDescending { it.totalLikes }

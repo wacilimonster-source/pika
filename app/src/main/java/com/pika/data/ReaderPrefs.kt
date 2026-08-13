@@ -50,9 +50,11 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     data class Progress(val order: Int, val pageIndex: Int)
 
     fun lastProgress(comicId: String): Progress? {
-        val raw = runBlocking {
-            appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)]
-        } ?: return null
+        val raw = runCatching {
+            runBlocking {
+                appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)]
+            }
+        }.getOrNull() ?: return null
         val parts = raw.split(":")
         if (parts.size != 2) return null
         val order = parts[0].toIntOrNull() ?: return null
@@ -68,26 +70,34 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
     /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
     var readerMode: Int
-        get() = runBlocking {
-            appContext.readerDataStore.data.first()[intPreferencesKey(ReaderKeys.READER_MODE)] ?: 0
-        }
-        set(value) {
+        get() = runCatching {
             runBlocking {
-                appContext.readerDataStore.edit {
-                    it[intPreferencesKey(ReaderKeys.READER_MODE)] = value
+                appContext.readerDataStore.data.first()[intPreferencesKey(ReaderKeys.READER_MODE)]
+            }
+        }.getOrNull() ?: 0
+        set(value) {
+            runCatching {
+                runBlocking {
+                    appContext.readerDataStore.edit {
+                        it[intPreferencesKey(ReaderKeys.READER_MODE)] = value
+                    }
                 }
             }
         }
 
     /** 阅读亮度（1.0 为原亮度，越小越暗） */
     var brightness: Float
-        get() = runBlocking {
-            appContext.readerDataStore.data.first()[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] ?: 1.0f
-        }
-        set(value) {
+        get() = runCatching {
             runBlocking {
-                appContext.readerDataStore.edit {
-                    it[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] = value.coerceIn(0.2f, 1.0f)
+                appContext.readerDataStore.data.first()[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
+            }
+        }.getOrNull() ?: 1.0f
+        set(value) {
+            runCatching {
+                runBlocking {
+                    appContext.readerDataStore.edit {
+                        it[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] = value.coerceIn(0.2f, 1.0f)
+                    }
                 }
             }
         }
@@ -95,14 +105,16 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     // ── 最近阅读（首页"继续阅读"） ─────────────────────────────────────────
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
-    fun recentReads(): List<RecentRead> = runBlocking {
-        val raw = appContext.readerDataStore.data.first()
-            .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
-        if (raw.isNullOrBlank()) return@runBlocking emptyList()
-        runCatching {
-            json.decodeFromString<List<RecentRead>>(raw)
-        }.getOrDefault(emptyList())
-    }
+    fun recentReads(): List<RecentRead> = runCatching {
+        runBlocking {
+            val raw = appContext.readerDataStore.data.first()
+                .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
+            if (raw.isNullOrBlank()) return@runBlocking emptyList()
+            runCatching {
+                json.decodeFromString<List<RecentRead>>(raw)
+            }.getOrDefault(emptyList())
+        }
+    }.getOrDefault(emptyList())
 
     /** 记录/刷新最近阅读（最近 6 条，按时间倒序） */
     suspend fun recordRecentRead(

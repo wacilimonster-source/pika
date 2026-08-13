@@ -93,20 +93,24 @@ class ReaderViewModel : ViewModel() {
     fun saveProgress(pageIndex: Int) {
         if (_pages.value.isEmpty()) return
         viewModelScope.launch {
-            ReaderPrefs.current().saveProgress(comicId, currentOrder, pageIndex.coerceAtLeast(0))
+            runCatching {
+                ReaderPrefs.current().saveProgress(comicId, currentOrder, pageIndex.coerceAtLeast(0))
+            }
         }
     }
 
     /** 记录最近阅读条目（首页"继续阅读"用）。 */
     fun recordRecentRead(title: String, coverUrl: String, pageIndex: Int) {
         viewModelScope.launch {
-            ReaderPrefs.current().recordRecentRead(
-                comicId = comicId,
-                title = title.ifBlank { "第 $currentOrder 话" },
-                coverUrl = coverUrl,
-                order = currentOrder,
-                pageIndex = pageIndex.coerceAtLeast(0),
-            )
+            runCatching {
+                ReaderPrefs.current().recordRecentRead(
+                    comicId = comicId,
+                    title = title.ifBlank { "第 $currentOrder 话" },
+                    coverUrl = coverUrl,
+                    order = currentOrder,
+                    pageIndex = pageIndex.coerceAtLeast(0),
+                )
+            }
         }
     }
 

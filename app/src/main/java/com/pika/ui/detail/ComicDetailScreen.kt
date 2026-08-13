@@ -56,6 +56,7 @@ fun ComicDetailScreen(
     comicId: String,
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
+    onOpenAuthor: (String) -> Unit = {},
     viewModel: ComicDetailViewModel = viewModel(),
 ) {
     val comic by viewModel.comic.collectAsState()
@@ -104,7 +105,7 @@ fun ComicDetailScreen(
             val c = comic
             if (c != null) {
                 item {
-                    ComicHeader(comic = c)
+                    ComicHeader(comic = c, onOpenAuthor = onOpenAuthor)
                 }
                 item {
                     Row(
@@ -202,7 +203,7 @@ fun ComicDetailScreen(
 }
 
 @Composable
-private fun ComicHeader(comic: ComicDetail) {
+private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,11 +229,23 @@ private fun ComicHeader(comic: ComicDetail) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = comic.author,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (comic.author.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onOpenAuthor(comic.author) },
+                ) {
+                    Text(
+                        text = comic.author,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "  查看作品 ›",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = "${if (comic.finished) "已完结" else "连载中"} · ${comic.pagesCount}P · ${comic.epsCount} 话",

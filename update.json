@@ -1,1 +1,1 @@
-{"version":"1.1.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.1.0.apk","notes":"v1.1.0 更新：\n1. 分类页新增排序：哔咔支持 新到旧/旧到新/最多喜欢/最多观看（服务端排序），禁漫支持按喜欢/观看数排序（客户端重排）\n2. 分类页新增连载状态筛选：全部/已完结/连载中，筛选后自动补页加载\n3. 修复首页选分类后「加载更多」误拉全部分类的问题\n4. 快速切换排序/筛选不再出现列表错乱（并发防护）"} 
+{"version":"1.2.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.2.0.apk","notes":"v1.2.0 更新：\n1. 修复分类→详情→阅读器闪退（进度存储异常防护、超长图 OOM 防护、导航参数编码、全局崩溃日志）\n2. 详情页显示作者信息，点击「查看作品」可浏览作者全部作品（哔咔源）\n3. 分类页新增更新日期范围筛选（选择年份+起止月份，按更新时间过滤，自动补页）\n4. 新应用图标"}
