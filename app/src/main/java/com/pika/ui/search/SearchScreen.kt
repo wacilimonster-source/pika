@@ -41,7 +41,8 @@ import com.pika.ui.browse.ComicGridView
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
-    onBack: () -> Unit,
+    /** 传入则显示顶栏返回按钮；作为底部 Tab 时传 null 隐藏。 */
+    onBack: (() -> Unit)? = null,
     onComicClick: (String) -> Unit = {},
     viewModel: SearchViewModel = viewModel(),
 ) {
@@ -60,8 +61,10 @@ fun SearchScreen(
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
                     }
                 },
             )

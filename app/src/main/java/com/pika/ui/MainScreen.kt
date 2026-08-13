@@ -2,9 +2,10 @@ package com.pika.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,6 +26,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.pika.core.source.SourceManager
+import com.pika.ui.category.CategoryComicsScreen
+import com.pika.ui.category.CategoryScreen
 import com.pika.ui.detail.ComicDetailScreen
 import com.pika.ui.home.HomeScreen
 import com.pika.ui.login.LoginScreen
@@ -39,10 +42,12 @@ private data class TabItem(
     val icon: ImageVector,
 )
 
+/** 底部导航：首页 / 分类 / 搜索 / 我的（设置入口收敛在"我的"页内） */
 private val tabs = listOf(
     TabItem("home", "首页", Icons.Filled.Home),
+    TabItem("category", "分类", Icons.AutoMirrored.Filled.List),
+    TabItem("search", "搜索", Icons.Filled.Search),
     TabItem("mine", "我的", Icons.Filled.Person),
-    TabItem("settings", "设置", Icons.Filled.Settings),
 )
 
 @Composable
@@ -95,16 +100,56 @@ fun MainScreen() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable("home") {
-                HomeScreen(onComicClick = { id ->
-                    navController.navigate("comic/$id")
-                })
+                HomeScreen(
+                    onComicClick = { id ->
+                        navController.navigate("comic/$id")
+                    },
+                    onResumeReading = { id, order ->
+                        navController.navigate("reader/$id/$order")
+                    },
+                )
+            }
+            composable("category") {
+                CategoryScreen(
+                    onCategoryClick = { id ->
+                        navController.navigate("category/$id")
+                    },
+                    onComicClick = { id ->
+                        navController.navigate("comic/$id")
+                    },
+                )
+            }
+            composable("search") {
+                SearchScreen(
+                    // 底部 Tab：不显示返回按钮
+                    onBack = null,
+                    onComicClick = { id -> navController.navigate("comic/$id") },
+                )
             }
             composable("mine") {
                 MineScreen(
-                    onSearch = { navController.navigate("search") },
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenDownloads = { navController.navigate("downloads") },
+                    onOpenFavourites = { navController.navigate("favourites") },
+                    onOpenReader = { comicId, order ->
+                        navController.navigate("reader/$comicId/$order")
+                    },
                 )
             }
-            composable("settings") { SettingsScreen() }
+            composable("downloads") {
+                com.pika.ui.download.DownloadScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id, order ->
+                        navController.navigate("reader/$id/$order")
+                    },
+                )
+            }
+            composable("favourites") {
+                com.pika.ui.favourite.FavouriteScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id -> navController.navigate("comic/$id") },
+                )
+            }
             composable("login") {
                 LoginScreen(onLoggedIn = {
                     navController.navigate("home") {
@@ -112,10 +157,23 @@ fun MainScreen() {
                     }
                 })
             }
-            composable("search") {
-                SearchScreen(
+            composable("settings") {
+                SettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(
+                "category/{categoryId}",
+                arguments = listOf(
+                    navArgument("categoryId") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val categoryId: String? = entry.arguments?.getString("categoryId")
+                if (categoryId == null) return@composable
+                CategoryComicsScreen(
+                    categoryId = categoryId,
                     onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate("comic/$id") },
+                    onComicClick = { id ->
+                        navController.navigate("comic/$id")
+                    },
                 )
             }
             composable(

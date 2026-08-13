@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-/** 漫画详情 VM：基本信息 + 章节列表（当前源） */
+/** 漫画详情 VM：基本信息 + 章节列表（当前源）+ 章节下载入口 */
 class ComicDetailViewModel : ViewModel() {
 
     private val _comic = MutableStateFlow<ComicDetail?>(null)
@@ -42,6 +42,48 @@ class ComicDetailViewModel : ViewModel() {
                 // 章节失败保留已有数据
             } finally {
                 _loading.value = false
+            }
+        }
+    }
+
+    /** 章节是否已下载（有本地文件） */
+    fun isDownloaded(comicId: String, chapter: ComicChapter): Boolean =
+        com.pika.core.download.DownloadManager.isDownloaded(comicId, chapter.order)
+
+    /** 下载指定章节（入队，由 DownloadManager 调度） */
+    fun downloadChapter(comicId: String, comic: ComicDetail?, chapter: ComicChapter) {
+        com.pika.core.download.DownloadManager.enqueue(
+            comicId = comicId,
+            comicTitle = comic?.title ?: comicId,
+            coverUrl = comic?.coverUrl ?: "",
+            order = chapter.order,
+            epTitle = chapter.title,
+            pageCount = _comic.value?.epsCount ?: 1,
+        )
+    }
+
+    // ── 收藏 ──────────────────────────────────────────────────────────────
+    private var favouriteSupported: Boolean = true
+    private val _favourited = MutableStateFlow(false)
+    val favourited: StateFlow<Boolean> = _favourited
+
+    /** 当前源是否支持收藏 */
+    fun canFavourite(): Boolean = favouriteSupported
+
+    /** 收藏 / 取消收藏（切换） */
+    fun favourite() {
+        val comicId = loadedComicId
+        if (comicId.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val ok = SourceManager.current().favourite(comicId, true)
+                if (ok) {
+                    _favourited.value = !_favourited.value
+                }
+            } catch (e: UnsupportedOperationException) {
+                favouriteSupported = false
+            } catch (e: Exception) {
+                // 收藏失败静默
             }
         }
     }

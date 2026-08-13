@@ -43,4 +43,12 @@ interface Source {
 
     /** 某章全部图片页 */
     suspend fun chapterPages(comicId: String, order: Int): List<ComicPage>
+
+    /** 收藏 / 取消收藏（默认源不支持） */
+    suspend fun favourite(comicId: String, add: Boolean): Boolean =
+        throw UnsupportedOperationException("当前源不支持收藏")
+
+    /** 收藏列表（分页；默认源不支持） */
+    suspend fun favourites(page: Int): PageResult<ComicSummary> =
+        throw UnsupportedOperationException("当前源不支持收藏")
 }

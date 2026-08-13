@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -26,6 +27,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -45,7 +49,7 @@ import coil.compose.AsyncImage
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
 
-/** 漫画详情：封面 + 信息 + 简介 + 章节列表 */
+/** 漫画详情：封面 + 信息 + 简介 + 章节列表（含下载入口） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComicDetailScreen(
@@ -57,6 +61,7 @@ fun ComicDetailScreen(
     val comic by viewModel.comic.collectAsState()
     val chapters by viewModel.chapters.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val favourited by viewModel.favourited.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(comicId) {
@@ -70,6 +75,22 @@ fun ComicDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    // 收藏（当前源支持时可用）
+                    if (viewModel.canFavourite()) {
+                        IconButton(onClick = { viewModel.favourite() }) {
+                            Icon(
+                                imageVector = if (favourited) {
+                                    Icons.Filled.Favorite
+                                } else {
+                                    Icons.Outlined.FavoriteBorder
+                                },
+                                contentDescription = "收藏",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 },
             )
@@ -151,7 +172,12 @@ fun ComicDetailScreen(
                     )
                 }
                 items(chapters, key = { it.id }) { chapter ->
-                    ChapterRow(chapter, onClick = { onOpenReader(comicId, chapter.order) })
+                    ChapterRow(
+                        chapter = chapter,
+                        onClick = { onOpenReader(comicId, chapter.order) },
+                        onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
+                        downloaded = viewModel.isDownloaded(comicId, chapter),
+                    )
                 }
                 if (loading && chapters.isEmpty()) {
                     item {
@@ -230,7 +256,12 @@ private fun ComicHeader(comic: ComicDetail) {
 }
 
 @Composable
-private fun ChapterRow(chapter: ComicChapter, onClick: () -> Unit) {
+private fun ChapterRow(
+    chapter: ComicChapter,
+    onClick: () -> Unit,
+    onDownload: () -> Unit,
+    downloaded: Boolean,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -245,6 +276,22 @@ private fun ChapterRow(chapter: ComicChapter, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (downloaded) {
+            Text(
+                text = "已下载",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
+        IconButton(onClick = onDownload) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = if (downloaded) "重新下载" else "下载",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 }

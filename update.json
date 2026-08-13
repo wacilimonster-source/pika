@@ -1,1 +1,1 @@
-{"version":"0.4.1","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v0.4.1.apk","notes":"修复登录被 Cloudflare 拦截的问题：哔咔网络层改为 HttpsURLConnection + BouncyCastle TLS，绕过对 OkHttp/BoringSSL 的指纹拦截"}
+{"version":"1.0.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.0.0.apk","notes":"v1.0.0 大版本更新：\n1. 底部导航升级为 首页/分类/搜索/我的 四栏，设置收纳进「我的」\n2. 阅读器重构：新增条漫滚动流（超长图自动分割多屏）、横滑翻页+双击放大、边缘轻触翻页、阅读亮度调节、本地进度自动保存与续读、前后页预加载\n3. 全新下载体系：章节下载、下载管理页（进度/速度/存储占用/失败重试/删除）、离线阅读\n4. 首页：继续阅读、更新提醒横幅\n5. 收藏功能（哔咔账号同步）"}

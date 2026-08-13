@@ -115,6 +115,24 @@ class PicacgSource : Source {
         }
         return out
     }
+
+    override suspend fun favourite(comicId: String, add: Boolean): Boolean {
+        val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
+        return resp.action.isNotBlank()
+    }
+
+    override suspend fun favourites(page: Int): PageResult<ComicSummary> {
+        val data = PicaClient.safeCall {
+            PicaClient.api.favourites(
+                com.pika.network.favouriteQuery(page, com.pika.core.pica.ComicSortType.DD),
+            )
+        }
+        return PageResult(
+            items = data.comics.docs.map { it.toSummary() },
+            page = data.comics.page,
+            pages = data.comics.pages.coerceAtLeast(1),
+        )
+    }
 }
 
 // ---------- 映射 ----------

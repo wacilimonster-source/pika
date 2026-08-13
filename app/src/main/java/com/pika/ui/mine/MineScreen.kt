@@ -29,10 +29,15 @@ import com.pika.core.source.SourceManager
 import kotlinx.coroutines.launch
 
 /**
- * 我的：账号（当前源登录态）/ 收藏 / 历史 / 下载 / 签到。
+ * 我的：账号（当前源登录态）/ 下载 / 设置 / 签到。
  */
 @Composable
-fun MineScreen(onSearch: () -> Unit = {}) {
+fun MineScreen(
+    onOpenSettings: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+    onOpenFavourites: () -> Unit = {},
+    onOpenReader: (String, Int) -> Unit = { _, _ -> },
+) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
@@ -62,11 +67,11 @@ fun MineScreen(onSearch: () -> Unit = {}) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        MenuRow("搜索", onClick = onSearch)
-        MenuRow("收藏") {}
+        MenuRow("收藏", onClick = onOpenFavourites)
         MenuRow("阅读历史") {}
-        MenuRow("下载") {}
+        MenuRow("下载", onClick = onOpenDownloads)
         MenuRow("每日签到") {}
+        MenuRow("设置", onClick = onOpenSettings)
         if (loggedIn) {
             MenuRow("退出登录") {
                 scope.launch {

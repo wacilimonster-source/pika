@@ -4,8 +4,11 @@ import android.util.Log
 import okhttp3.OkHttpClient
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.SecureRandom
 import java.security.Security
+import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
@@ -69,5 +72,18 @@ object BcTls {
     /** 供 Coil 图片加载使用（同样走 BC TLS，避免漫画图片被 Cloudflare 拦截） */
     val imageLoaderClient: OkHttpClient by lazy {
         applyTo(OkHttpClient.Builder()).build()
+    }
+
+    /**
+     * 为 HttpURLConnection 挂上 BC TLS（下载器用）。
+     * 主机名校验保留 HttpsURLConnection 默认行为；BC TLS 不可用时回退平台默认。
+     */
+    fun openConnection(url: URL): HttpURLConnection {
+        val conn = url.openConnection() as HttpURLConnection
+        val sf = sslSocketFactory
+        if (url.protocol == "https" && sf != null) {
+            (conn as HttpsURLConnection).sslSocketFactory = sf
+        }
+        return conn
     }
 }
