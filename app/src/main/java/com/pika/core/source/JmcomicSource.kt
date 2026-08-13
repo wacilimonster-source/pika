@@ -44,6 +44,7 @@ class JmcomicSource : Source {
         category: String?,
         sort: ComicSort,
         author: String?,
+        tag: String?,
     ): PageResult<ComicSummary> {
         val data = JmClient.commendList(page = page, category = category)
         return PageResult(

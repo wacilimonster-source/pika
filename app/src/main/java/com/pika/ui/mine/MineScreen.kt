@@ -48,6 +48,7 @@ fun MineScreen(
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     onOpenProfile: () -> Unit = {},
     onOpenMyComments: () -> Unit = {},
+    onOpenRecentReads: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
@@ -147,7 +148,7 @@ fun MineScreen(
         Spacer(Modifier.height(16.dp))
         MenuRow("收藏", onClick = onOpenFavourites)
         MenuRow("我的评论", onClick = onOpenMyComments)
-        MenuRow("阅读历史") {}
+        MenuRow("阅读历史", onClick = onOpenRecentReads)
         MenuRow("下载", onClick = onOpenDownloads)
         MenuRow("设置", onClick = onOpenSettings)
         if (loggedIn) {

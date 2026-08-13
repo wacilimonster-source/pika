@@ -146,6 +146,7 @@ fun MainScreen() {
                     },
                     onOpenProfile = { navController.navigate("profile") },
                     onOpenMyComments = { navController.navigate("my-comments") },
+                    onOpenRecentReads = { navController.navigate("recent-reads") },
                 )
             }
             composable("profile") {
@@ -160,6 +161,14 @@ fun MainScreen() {
                         navController.navigate("comic/${Uri.encode(id)}") {
                             launchSingleTop = true
                         }
+                    },
+                )
+            }
+            composable("recent-reads") {
+                com.pika.ui.history.RecentReadsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReader = { id, order ->
+                        navController.navigate("reader/${Uri.encode(id)}/$order")
                     },
                 )
             }

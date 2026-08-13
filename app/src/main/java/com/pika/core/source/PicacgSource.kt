@@ -68,6 +68,7 @@ class PicacgSource : Source {
         category: String?,
         sort: ComicSort,
         author: String?,
+        tag: String?,
     ): PageResult<ComicSummary> {
         val data = PicaClient.safeCall {
             PicaClient.api.comics(
@@ -76,6 +77,7 @@ class PicacgSource : Source {
                     category = category,
                     sort = sort.toPicaSort(),
                     author = author,
+                    tag = tag,
                 )
             )
         }

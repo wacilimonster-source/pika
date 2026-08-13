@@ -45,6 +45,7 @@ interface Source {
         category: String?,
         sort: ComicSort = ComicSort.DD,
         author: String? = null,
+        tag: String? = null,
     ): PageResult<ComicSummary>
 
     /** 当前源支持的排序方式（不在列表内的排序会回退到默认） */

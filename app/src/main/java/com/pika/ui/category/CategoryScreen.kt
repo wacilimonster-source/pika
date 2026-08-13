@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -173,6 +175,7 @@ fun CategoryComicsScreen(
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
     var authorInput by remember { mutableStateOf("") }
+    var tagInput by remember { mutableStateOf("") }
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
@@ -227,24 +230,36 @@ fun CategoryComicsScreen(
             }
             // 高级筛选（作者）
             if (showFilter) {
-                Row(
+                Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    OutlinedTextField(
-                        value = authorInput,
-                        onValueChange = { authorInput = it },
-                        singleLine = true,
-                        label = { Text("作者") },
-                        modifier = Modifier.weight(1f),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = authorInput,
+                            onValueChange = { authorInput = it },
+                            singleLine = true,
+                            label = { Text("作者") },
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = tagInput,
+                            onValueChange = { tagInput = it },
+                            singleLine = true,
+                            label = { Text("标签") },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     FilterChip(
                         selected = false,
                         onClick = {
                             viewModel.setAuthor(authorInput.trim().ifBlank { null })
+                            viewModel.setTag(tagInput.trim().ifBlank { null })
                         },
-                        label = { Text("应用") },
+                        label = { Text("应用筛选") },
                     )
                 }
             }
@@ -541,7 +556,9 @@ private fun CategoryDisplaySettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text("分类设置") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 Text("排序", style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(

@@ -47,6 +47,9 @@ class BrowseViewModel : ViewModel() {
     private val _author = MutableStateFlow<String?>(null)
     val author: StateFlow<String?> = _author
 
+    private val _tag = MutableStateFlow<String?>(null)
+    val tag: StateFlow<String?> = _tag
+
     private val _dateRange = MutableStateFlow<ComicDateRange?>(null)
     val dateRange: StateFlow<ComicDateRange?> = _dateRange
 
@@ -93,6 +96,7 @@ class BrowseViewModel : ViewModel() {
                         category = this@BrowseViewModel.category,
                         sort = _sort.value,
                         author = _author.value,
+                        tag = _tag.value,
                     )
                     if (token != loadToken) return@launch
                     if (p <= 1) rawItems.clear()
@@ -147,6 +151,12 @@ class BrowseViewModel : ViewModel() {
     fun setAuthor(author: String?) {
         if (_author.value == author) return
         _author.value = author
+        reload()
+    }
+
+    fun setTag(tag: String?) {
+        if (_tag.value == tag) return
+        _tag.value = tag
         reload()
     }
 
