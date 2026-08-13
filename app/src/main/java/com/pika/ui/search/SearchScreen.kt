@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -43,16 +44,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
 
-/** 搜索页：输入框 + 热搜词 + 高级筛选 + 结果网格 */
+/** 搜索页：输入框 + 排序筛选 + 高级筛选（可滚动）+ 结果网格 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
-    /** 传入则显示顶栏返回按钮；作为底部 Tab 时传 null 隐藏。 */
     onBack: (() -> Unit)? = null,
     onComicClick: (String) -> Unit = {},
     viewModel: SearchViewModel = viewModel(),
 ) {
-    val hotWords by viewModel.hotWords.collectAsState()
     val comics by viewModel.comics.collectAsState()
     val loading by viewModel.loading.collectAsState()
     val endReached by viewModel.endReached.collectAsState()
@@ -66,10 +65,7 @@ fun SearchScreen(
     var tagInput by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
 
-    LaunchedEffect(Unit) {
-        viewModel.loadHotWords()
-        viewModel.loadCategories()
-    }
+    LaunchedEffect(Unit) { viewModel.loadCategories() }
 
     Scaffold(
         topBar = {
@@ -80,6 +76,25 @@ fun SearchScreen(
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
+                    }
+                },
+                actions = {
+                    if (comics.isNotEmpty() || keyword.isNotBlank()) {
+                        Text(
+                            text = "重置",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier
+                                .clickable {
+                                    input = ""
+                                    authorInput = ""
+                                    teamInput = ""
+                                    uploaderInput = ""
+                                    tagInput = ""
+                                    viewModel.resetAll()
+                                }
+                                .padding(12.dp),
+                        )
                     }
                 },
             )
@@ -134,27 +149,6 @@ fun SearchScreen(
                     }
                     item {
                         FilterChip(
-                            selected = viewModel.finished == null,
-                            onClick = { viewModel.updateFilter(finished = null) },
-                            label = { Text("全部状态") },
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = viewModel.finished == true,
-                            onClick = { viewModel.updateFilter(finished = true) },
-                            label = { Text("已完结") },
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = viewModel.finished == false,
-                            onClick = { viewModel.updateFilter(finished = false) },
-                            label = { Text("连载中") },
-                        )
-                    }
-                    item {
-                        FilterChip(
                             selected = showAdvanced,
                             onClick = { viewModel.toggleAdvanced() },
                             label = { Text(if (showAdvanced) "收起筛选" else "更多筛选") },
@@ -187,36 +181,13 @@ fun SearchScreen(
                                 tags = tagInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
                             )
                         },
-                        onReset = {
-                            authorInput = ""
-                            teamInput = ""
-                            uploaderInput = ""
-                            tagInput = ""
-                            viewModel.resetFilters()
-                        },
                     )
                 }
                 if (comics.isEmpty()) {
-                    if (!loading) {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(hotWords) { word ->
-                                SuggestionChip(
-                                    onClick = {
-                                        input = word
-                                        viewModel.search(word, page = 1)
-                                    },
-                                    label = { Text(word) },
-                                )
-                            }
-                        }
-                    }
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = when {
-                                loading -> "搜索中…"
+                                loading -> "搜索中..."
                                 keyword.isBlank() -> "输入关键词开始搜索"
                                 else -> "没有更多结果"
                             },
@@ -254,12 +225,12 @@ private fun AdvancedFilterPanel(
     onUploaderChange: (String) -> Unit,
     onTagChange: (String) -> Unit,
     onApply: () -> Unit,
-    onReset: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .verticalScroll(rememberScrollState()),
     ) {
         if (categories.isNotEmpty()) {
             Text(
@@ -285,10 +256,12 @@ private fun AdvancedFilterPanel(
         SmallFilterField("汉化组", teamInput, onTeamChange)
         SmallFilterField("上传者", uploaderInput, onUploaderChange)
         SmallFilterField("标签（逗号分隔）", tagInput, onTagChange)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SuggestionChip(onClick = onApply, label = { Text("应用筛选") })
-            SuggestionChip(onClick = onReset, label = { Text("重置") })
-        }
+        FilterChip(
+            selected = false,
+            onClick = onApply,
+            label = { Text("应用筛选") },
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

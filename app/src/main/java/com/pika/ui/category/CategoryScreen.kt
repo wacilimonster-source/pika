@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -129,6 +131,7 @@ fun CategoryComicsScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
     var showDateDialog by remember { mutableStateOf(false) }
+    var showDisplaySettings by remember { mutableStateOf(false) }
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
@@ -149,6 +152,11 @@ fun CategoryComicsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showDisplaySettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
                 },
             )
@@ -217,6 +225,16 @@ fun CategoryComicsScreen(
                         showDateDialog = false
                     },
                     onDismiss = { showDateDialog = false },
+                )
+            }
+            if (showDisplaySettings) {
+                DisplaySettingsDialog(
+                    currentSort = sort,
+                    currentStatus = status,
+                    supportedSorts = supportedSorts,
+                    onSortChange = { viewModel.setSort(it) },
+                    onStatusChange = { viewModel.setStatus(it) },
+                    onDismiss = { showDisplaySettings = false },
                 )
             }
             if (error != null && comics.isEmpty()) {
@@ -417,6 +435,56 @@ private fun DateRangeDialog(
                 }
                 androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
             }
+        },
+    )
+}
+
+/** 显示设置弹窗：排序方式 + 连载状态 */
+@Composable
+private fun DisplaySettingsDialog(
+    currentSort: ComicSort,
+    currentStatus: ComicStatus,
+    supportedSorts: List<ComicSort>,
+    onSortChange: (ComicSort) -> Unit,
+    onStatusChange: (ComicStatus) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("显示设置") },
+        text = {
+            Column {
+                Text("排序方式", style = MaterialTheme.typography.labelMedium)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                ) {
+                    items(supportedSorts, key = { it.name }) { s ->
+                        FilterChip(
+                            selected = currentSort == s,
+                            onClick = { onSortChange(s) },
+                            label = { Text(s.label) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("连载状态", style = MaterialTheme.typography.labelMedium)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                ) {
+                    items(ComicStatus.entries.toList(), key = { it.name }) { st ->
+                        FilterChip(
+                            selected = currentStatus == st,
+                            onClick = { onStatusChange(st) },
+                            label = { Text(st.label) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("完成") }
         },
     )
 }

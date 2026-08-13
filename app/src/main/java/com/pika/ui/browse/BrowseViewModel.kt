@@ -17,6 +17,9 @@ import kotlinx.coroutines.launch
  * 走 SourceManager 当前源，源切换后自动重载。
  * 支持排序（哔咔服务端 / 禁漫客户端重排）、连载状态筛选与更新日期范围筛选
  * （均为客户端过滤 + 自动补页）。
+ *
+ * 缓存优化：rawItems 在切换排序/状态/日期范围时保留，避免重新请求网络。
+ * 仅在切换分类或源时清空重载。
  */
 class BrowseViewModel : ViewModel() {
 
@@ -113,18 +116,31 @@ class BrowseViewModel : ViewModel() {
     fun setSort(sort: ComicSort) {
         if (_sort.value == sort) return
         _sort.value = sort
+        // 缓存命中：直接用已有 rawItems 重滤，不重新请求网络
+        if (rawItems.isNotEmpty()) {
+            applyFilterAndSort()
+            return
+        }
         reload()
     }
 
     fun setStatus(status: ComicStatus) {
         if (_status.value == status) return
         _status.value = status
+        if (rawItems.isNotEmpty()) {
+            applyFilterAndSort()
+            return
+        }
         reload()
     }
 
     fun setDateRange(range: ComicDateRange?) {
         if (_dateRange.value == range) return
         _dateRange.value = range
+        if (rawItems.isNotEmpty()) {
+            applyFilterAndSort()
+            return
+        }
         reload()
     }
 

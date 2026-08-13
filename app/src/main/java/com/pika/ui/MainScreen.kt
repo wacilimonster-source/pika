@@ -44,12 +44,11 @@ private data class TabItem(
     val icon: ImageVector,
 )
 
-/** 搴曢儴瀵艰埅锛氶椤?/ 鍒嗙被 / 鎼滅储 / 鎴戠殑锛堣缃叆鍙ｆ敹鏁涘湪"鎴戠殑"椤靛唴锛?*/
 private val tabs = listOf(
-    TabItem("home", "棣栭〉", Icons.Filled.Home),
-    TabItem("category", "鍒嗙被", Icons.AutoMirrored.Filled.List),
-    TabItem("search", "鎼滅储", Icons.Filled.Search),
-    TabItem("mine", "鎴戠殑", Icons.Filled.Person),
+    TabItem("home", "首页", Icons.Filled.Home),
+    TabItem("category", "分类", Icons.AutoMirrored.Filled.List),
+    TabItem("search", "搜索", Icons.Filled.Search),
+    TabItem("mine", "我的", Icons.Filled.Person),
 )
 
 @Composable
@@ -60,7 +59,6 @@ fun MainScreen() {
     val activeSource by SourceManager.activeSource.collectAsState()
     val loggedOut by SourceManager.loggedOut.collectAsState()
 
-    // 褰撳墠婧愭湭鐧诲綍 / 鏀跺埌 401 鐧诲嚭浜嬩欢 鈫?璺崇櫥褰曢〉
     LaunchedEffect(activeSource, loggedOut) {
         val needLogin = !SourceManager.current().isLoggedIn
         if (needLogin) {
@@ -134,7 +132,6 @@ fun MainScreen() {
             }
             composable("search") {
                 SearchScreen(
-                    // 搴曢儴 Tab锛氫笉鏄剧ず杩斿洖鎸夐挳
                     onBack = null,
                     onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
                 )

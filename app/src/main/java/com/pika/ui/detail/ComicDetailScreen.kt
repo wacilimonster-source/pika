@@ -20,15 +20,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,7 +63,7 @@ import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
 
-/** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（含发表/回复/楼中楼） */
+/** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComicDetailScreen(
@@ -84,8 +88,7 @@ fun ComicDetailScreen(
     val loadingSubIds by viewModel.loadingSubIds.collectAsState()
     val replyingTo by viewModel.replyingTo.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
-    var commentInput by remember { mutableStateOf("") }
-    var inputError by remember { mutableStateOf<String?>(null) }
+    var showCommentDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(comicId) {
         viewModel.load(comicId)
@@ -117,26 +120,11 @@ fun ComicDetailScreen(
                 },
             )
         },
-        bottomBar = {
+        floatingActionButton = {
             if (viewModel.commentSupported && comic != null) {
-                CommentInputBar(
-                    replyingTo = replyingTo,
-                    input = commentInput,
-                    sending = sending,
-                    onInputChange = { commentInput = it },
-                    onCancelReply = { viewModel.setReplyingTo(null) },
-                    onSend = {
-                        val name = replyingTo?.let { "回复" } ?: ""
-                        viewModel.send(commentInput.trim(), onSent = { err ->
-                            if (err == null) {
-                                commentInput = ""
-                                inputError = null
-                            } else {
-                                inputError = err
-                            }
-                        })
-                    },
-                )
+                FloatingActionButton(onClick = { showCommentDialog = true }) {
+                    Icon(Icons.Filled.Comment, contentDescription = "写评论")
+                }
             }
         },
     ) { innerPadding ->
@@ -227,7 +215,7 @@ fun ComicDetailScreen(
                     item {
                         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Text(
-                                "加载章节中…",
+                                "加载章节中...",
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(12.dp),
                             )
@@ -274,7 +262,7 @@ fun ComicDetailScreen(
                     if (comments.isEmpty() && !commentLoading) {
                         item {
                             Text(
-                                text = "暂无评论，快来抢沙发",
+                                text = "暂无评论，点击右下角按钮来抢沙发",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -289,7 +277,6 @@ fun ComicDetailScreen(
                             replying = replyingTo == comment.id,
                             onReply = { viewModel.setReplyingTo(comment.id) },
                             onToggleSub = { viewModel.toggleSubComments(comment.id) },
-                            onLoadMoreSub = {},
                         )
                     }
                     if (commentLoading) {
@@ -317,57 +304,79 @@ fun ComicDetailScreen(
             } else {
                 item {
                     Box(Modifier.fillMaxSize().padding(top = 160.dp), contentAlignment = Alignment.TopCenter) {
-                        Text("加载中…", style = MaterialTheme.typography.bodyMedium)
+                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         }
     }
+
+    if (showCommentDialog && viewModel.commentSupported) {
+        CommentDialog(
+            replyingTo = replyingTo,
+            sending = sending,
+            onSend = { content ->
+                viewModel.send(content, onSent = { err ->
+                    showCommentDialog = false
+                })
+            },
+            onCancelReply = { viewModel.setReplyingTo(null) },
+            onDismiss = {
+                showCommentDialog = false
+                viewModel.setReplyingTo(null)
+            },
+        )
+    }
 }
 
 @Composable
-private fun CommentInputBar(
+private fun CommentDialog(
     replyingTo: String?,
-    input: String,
     sending: Boolean,
-    onInputChange: (String) -> Unit,
+    onSend: (String) -> Unit,
     onCancelReply: () -> Unit,
-    onSend: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        if (replyingTo != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "回复中，点击取消",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(onClick = onCancelReply),
+    var input by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (replyingTo != null) "回复评论" else "写评论") },
+        text = {
+            Column {
+                if (replyingTo != null) {
+                    Text(
+                        text = "点击此处取消回复",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(onClick = onCancelReply)
+                            .padding(bottom = 8.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("说点什么...") },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                singleLine = true,
-                placeholder = { Text(if (replyingTo != null) "回复评论…" else "说点什么…") },
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onSend, enabled = !sending && input.isNotBlank()) {
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSend(input.trim()) },
+                enabled = !sending && input.isNotBlank(),
+            ) {
                 if (sending) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Filled.Send, contentDescription = "发送")
+                    Text("发送")
                 }
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @Composable
@@ -378,7 +387,6 @@ private fun CommentItem(
     replying: Boolean,
     onReply: () -> Unit,
     onToggleSub: () -> Unit,
-    onLoadMoreSub: () -> Unit,
 ) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row {
@@ -528,7 +536,7 @@ private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        text = "  查看作品 ›",
+                        text = "  查看作品 >",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )

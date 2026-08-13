@@ -111,6 +111,14 @@ class SearchViewModel : ViewModel() {
         finished = null,
     )
 
+    /** 完全重置搜索状态（清空结果 + 筛选 + 关键词） */
+    fun resetAll() {
+        resetFilters()
+        _keyword.value = ""
+        _comics.value = emptyList()
+        _endReached.value = false
+    }
+
     fun search(keyword: String, page: Int) {
         if (_loading.value) return
         viewModelScope.launch {
