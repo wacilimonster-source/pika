@@ -45,6 +45,7 @@ fun MineScreen(
     onOpenSettings: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
     onOpenFavourites: () -> Unit = {},
+    onOpenAuthorFavourites: () -> Unit = {},
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     onOpenProfile: () -> Unit = {},
     onOpenMyComments: () -> Unit = {},
@@ -147,6 +148,7 @@ fun MineScreen(
         }
         Spacer(Modifier.height(16.dp))
         MenuRow("收藏", onClick = onOpenFavourites)
+        MenuRow("收藏的作者", onClick = onOpenAuthorFavourites)
         MenuRow("我的评论", onClick = onOpenMyComments)
         MenuRow("阅读历史", onClick = onOpenRecentReads)
         MenuRow("下载", onClick = onOpenDownloads)

@@ -94,6 +94,16 @@ object DownloadManager {
         return dir.listFiles()?.any { it.name.startsWith("page_") && it.length() > 0 } == true
     }
 
+    /** 某漫画的全部任务（按章节号排序） */
+    fun comicTasks(comicId: String): List<TaskRuntime> =
+        _tasks.value.filter { it.task.comicId == comicId }.sortedBy { it.task.order }
+
+    /** 某漫画的下载进度摘要（已完成章数 / 总章数） */
+    fun comicProgress(comicId: String): Pair<Int, Int> {
+        val list = comicTasks(comicId)
+        return list.count { it.isFinished } to list.size
+    }
+
     // ── 任务管理 ──────────────────────────────────────────────────────────
     fun enqueue(
         comicId: String,
@@ -122,6 +132,56 @@ object DownloadManager {
                 }
                 _tasks.value = list
                 persist()
+            }
+            pump()
+        }
+    }
+
+    /** 批量入队整本漫画：一次加锁写入全部章节任务，跳过已下载章节 */
+    fun enqueueAll(
+        comicId: String,
+        comicTitle: String,
+        coverUrl: String,
+        chapters: List<Pair<Int, String>>,
+    ) {
+        if (chapters.isEmpty()) return
+        scope.launch {
+            mutex.withLock {
+                val list = _tasks.value.toMutableList()
+                var changed = false
+                for ((order, epTitle) in chapters) {
+                    if (isDownloaded(comicId, order)) continue
+                    val key = "$comicId#$order"
+                    val idx = list.indexOfFirst { it.key == key }
+                    if (idx >= 0) {
+                        val old = list[idx]
+                        if (old.isFinished) continue
+                        list[idx] = old.copy(
+                            task = old.task.copy(epTitle = epTitle),
+                            status = DlStatus.PENDING,
+                            error = "",
+                        )
+                        changed = true
+                    } else {
+                        list.add(
+                            TaskRuntime(
+                                DownloadTask(
+                                    comicId = comicId,
+                                    comicTitle = comicTitle,
+                                    coverUrl = coverUrl,
+                                    order = order,
+                                    epTitle = epTitle,
+                                    pageCount = 0,
+                                ),
+                            )
+                        )
+                        changed = true
+                    }
+                }
+                if (changed) {
+                    _tasks.value = list
+                    persist()
+                }
             }
             pump()
         }
@@ -179,6 +239,17 @@ object DownloadManager {
             val t = task.task
             try {
                 val pages = SourceManager.current().chapterPages(t.comicId, t.order)
+                // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
+                if (t.pageCount != pages.size) {
+                    mutex.withLock {
+                        _tasks.value = _tasks.value.map {
+                            if (it.key == key) {
+                                it.copy(task = it.task.copy(pageCount = pages.size))
+                            } else it
+                        }
+                        persist()
+                    }
+                }
                 val dir = chapterDir(t.comicId, t.order)
                 dir.mkdirs()
                 var bytes = 0L

@@ -1,1 +1,1 @@
-{"version":"1.3.7","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.3.7.apk","notes":"v1.3.7 修复：\n1. 修复阅读历史为空：RecentRead缺少@Serializable注解导致数据无法序列化存储\n2. 阅读历史封面图修复（之前传空字符串）"}
+{"version":"1.4.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.4.0.apk","notes":"v1.4.0 新增：\n1. 整本漫画下载：详情页一键下载全部章节，下载页按漫画分组显示进度\n2. 收藏作者：作者页右上角收藏，我的页面可查看，长按取消\n3. 页码式分页：分类/搜索列表支持 1 2 3 直接跳页\n4. 评论按钮移至评论区右上角\n5. 修复详情页/作者页顶部空白"}

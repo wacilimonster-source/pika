@@ -57,6 +57,7 @@ fun SearchScreen(
     val keyword by viewModel.keyword.collectAsState()
     val showAdvanced by viewModel.showAdvanced.collectAsState()
     val currentSort by viewModel.sort.collectAsState()
+    val totalPages by viewModel.totalPages.collectAsState()
     var input by remember { mutableStateOf("") }
     var authorInput by remember { mutableStateOf("") }
     var teamInput by remember { mutableStateOf("") }
@@ -189,14 +190,22 @@ fun SearchScreen(
                         )
                     }
                 } else {
-                    ComicGridView(
-                        comics = comics,
-                        loading = loading,
-                        endReached = endReached,
-                        listState = listState,
-                        onLoadMore = { viewModel.search(keyword, page = viewModel.currentPage + 1) },
-                        onComicClick = onComicClick,
-                    )
+                    Column(Modifier.fillMaxSize()) {
+                        com.pika.ui.browse.PaginationBar(
+                            currentPage = viewModel.currentPage,
+                            totalPages = totalPages,
+                            onPageChange = { viewModel.search(keyword, page = it) },
+                        )
+                        ComicGridView(
+                            comics = comics,
+                            loading = loading,
+                            endReached = endReached,
+                            listState = listState,
+                            onLoadMore = {},
+                            onComicClick = onComicClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }

@@ -53,6 +53,9 @@ class BrowseViewModel : ViewModel() {
     private val _dateRange = MutableStateFlow<ComicDateRange?>(null)
     val dateRange: StateFlow<ComicDateRange?> = _dateRange
 
+    private val _totalPages = MutableStateFlow(1)
+    val totalPages: StateFlow<Int> = _totalPages
+
     /** 已拉取的原始数据（未过滤/未重排），供筛选与排序使用 */
     private val rawItems = mutableListOf<ComicSummary>()
 
@@ -66,7 +69,6 @@ class BrowseViewModel : ViewModel() {
 
     private companion object {
         const val FILL_TARGET = 24
-        const val MAX_FILL_PAGES = 30
         const val MAX_FILL_PAGES_DATE = 90
     }
 
@@ -82,13 +84,19 @@ class BrowseViewModel : ViewModel() {
 
     fun loadComics(page: Int, category: String? = null) {
         if (page <= 1) this.category = category
+        jumpToPage(page)
+    }
+
+    /** 跳转到指定页：无日期筛选时严格单页；有日期筛选时从该页起向前扫描补足 */
+    fun jumpToPage(page: Int) {
         val token = ++loadToken
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
                 var p = page.coerceAtLeast(1)
-                val maxFill = if (_dateRange.value != null) MAX_FILL_PAGES_DATE else MAX_FILL_PAGES
+                rawItems.clear()
+                val maxFill = if (_dateRange.value != null) MAX_FILL_PAGES_DATE else 1
                 while (true) {
                     if (token != loadToken) return@launch
                     val result = SourceManager.current().browse(
@@ -99,16 +107,16 @@ class BrowseViewModel : ViewModel() {
                         tag = _tag.value,
                     )
                     if (token != loadToken) return@launch
-                    if (p <= 1) rawItems.clear()
                     rawItems += result.items
                     currentPage = p
+                    _totalPages.value = result.pages.coerceAtLeast(1)
                     _endReached.value = p >= result.pages
                     applyFilterAndSort()
                     if (_endReached.value || _comics.value.size >= FILL_TARGET || p - page >= maxFill) break
                     p++
                 }
             } catch (e: Exception) {
-                if (token == loadToken && page == 1 && _comics.value.isEmpty()) {
+                if (token == loadToken && _comics.value.isEmpty()) {
                     _error.value = e.message ?: "加载失败"
                 }
             } finally {

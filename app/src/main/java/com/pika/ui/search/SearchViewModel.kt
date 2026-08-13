@@ -50,6 +50,9 @@ class SearchViewModel : ViewModel() {
     private val _showAdvanced = MutableStateFlow(false)
     val showAdvanced: StateFlow<Boolean> = _showAdvanced
 
+    private val _totalPages = MutableStateFlow(1)
+    val totalPages: StateFlow<Int> = _totalPages
+
     var currentPage: Int = 1
         private set
 
@@ -97,6 +100,7 @@ class SearchViewModel : ViewModel() {
         _keyword.value = ""
         _comics.value = emptyList()
         _endReached.value = false
+        _totalPages.value = 1
     }
 
     fun search(keyword: String, page: Int) {
@@ -114,7 +118,8 @@ class SearchViewModel : ViewModel() {
                     chineseTeam = _chineseTeam.value,
                     uploader = _uploader.value,
                 )
-                _comics.value = if (page == 1) result.items else _comics.value + result.items
+                _comics.value = result.items
+                _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = page >= result.pages
                 currentPage = page
             } catch (e: Exception) {

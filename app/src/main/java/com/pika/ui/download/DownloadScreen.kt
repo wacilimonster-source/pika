@@ -20,10 +20,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,6 +37,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -135,24 +141,131 @@ fun DownloadScreen(
                     }
                 }
             } else {
+                // 按漫画分组：漫画头卡片 + 展开的章节行
+                val grouped = tasks
+                    .groupBy { it.task.comicId }
+                    .entries
+                    .sortedByDescending { it.value.maxOfOrNull { t -> t.task.createdAt } ?: 0L }
+                var expandedComic by remember { mutableStateOf<Set<String>>(emptySet()) }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(tasks, key = { it.key }) { runtime ->
-                        DownloadTaskRow(
-                            runtime = runtime,
-                            onClick = {
-                                if (runtime.isFinished) {
-                                    onComicClick(runtime.task.comicId, runtime.task.order)
+                    items(grouped, key = { it.key }) { (comicId, comicTasks) ->
+                        val expanded = comicId in expandedComic
+                        ComicGroupCard(
+                            comicId = comicId,
+                            tasks = comicTasks,
+                            expanded = expanded,
+                            onToggle = {
+                                expandedComic = if (expanded) {
+                                    expandedComic - comicId
+                                } else {
+                                    expandedComic + comicId
                                 }
                             },
-                            onRetry = { DownloadManager.retry(runtime.key) },
-                            onDelete = { DownloadManager.remove(runtime.key) },
+                            onChapterClick = { order ->
+                                if (comicTasks.any { t -> t.isFinished && t.task.order == order }) {
+                                    onComicClick(comicId, order)
+                                }
+                            },
+                            onRetry = { DownloadManager.retry(it) },
+                            onDelete = { DownloadManager.remove(it) },
+                            onDeleteAll = { comicTasks.forEach { t -> DownloadManager.remove(t.key) } },
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComicGroupCard(
+    comicId: String,
+    tasks: List<TaskRuntime>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onChapterClick: (Int) -> Unit,
+    onRetry: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onDeleteAll: () -> Unit,
+) {
+    val first = tasks.first()
+    val task = first.task
+    val done = tasks.count { it.isFinished }
+    val downloading = tasks.count { it.status == DlStatus.DOWNLOADING || it.status == DlStatus.PENDING }
+    val bytes = tasks.sumOf { it.totalBytes }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = task.coverUrl,
+                contentDescription = task.comicTitle,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.comicTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = buildString {
+                        append("$done/${tasks.size} 章完成")
+                        if (downloading > 0) append(" · $downloading 章下载中")
+                        append(" · ${formatBytes(bytes)}")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp),
+                )
+            }
+            IconButton(onClick = onDeleteAll) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "删除整本",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onToggle) {
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (expanded) {
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+            tasks.sortedBy { it.task.order }.forEach { runtime ->
+                DownloadTaskRow(
+                    runtime = runtime,
+                    onClick = { onChapterClick(runtime.task.order) },
+                    onRetry = { onRetry(runtime.key) },
+                    onDelete = { onDelete(runtime.key) },
+                )
             }
         }
     }
@@ -166,103 +279,82 @@ private fun DownloadTaskRow(
     onDelete: () -> Unit,
 ) {
     val task = runtime.task
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            .clickable(onClick = onClick)
+            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AsyncImage(
-                model = task.coverUrl,
-                contentDescription = task.comicTitle,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = task.epTitle.ifBlank { "第 ${task.order} 话" },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.comicTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = task.epTitle.ifBlank { "第 ${task.order} 话" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(6.dp))
-                when (runtime.status) {
-                    DlStatus.DOWNLOADING, DlStatus.PENDING -> {
-                        LinearProgressIndicator(
-                            progress = { runtime.progress / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = buildString {
-                                append("${runtime.progress}% · ${runtime.downloadedPages}/${task.pageCount} 页")
-                                append(" · ${formatBytes(runtime.totalBytes)}")
-                                if (runtime.bytesPerSecond > 0) {
-                                    append(" · ${formatBytes(runtime.bytesPerSecond)}/s")
-                                }
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    DlStatus.COMPLETED -> {
-                        Text(
-                            text = "已完成 · ${task.pageCount} 页 · ${formatBytes(runtime.totalBytes)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-
-                    DlStatus.FAILED -> {
-                        Text(
-                            text = "失败：${runtime.error.ifBlank { "网络错误" }}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-
-                    else -> {}
-                }
-            }
-            if (runtime.status == DlStatus.FAILED) {
-                IconButton(onClick = onRetry) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = "重试",
-                        tint = MaterialTheme.colorScheme.primary,
+            Spacer(Modifier.height(4.dp))
+            when (runtime.status) {
+                DlStatus.DOWNLOADING, DlStatus.PENDING -> {
+                    LinearProgressIndicator(
+                        progress = { runtime.progress / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = buildString {
+                            append("${runtime.progress}% · ${runtime.downloadedPages}/${task.pageCount} 页")
+                            append(" · ${formatBytes(runtime.totalBytes)}")
+                            if (runtime.bytesPerSecond > 0) {
+                                append(" · ${formatBytes(runtime.bytesPerSecond)}/s")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                DlStatus.COMPLETED -> {
+                    Text(
+                        text = "已完成 · ${task.pageCount} 页 · ${formatBytes(runtime.totalBytes)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                DlStatus.FAILED -> {
+                    Text(
+                        text = "失败：${runtime.error.ifBlank { "网络错误" }}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                else -> {}
             }
-            IconButton(onClick = onDelete) {
+        }
+        if (runtime.status == DlStatus.FAILED) {
+            IconButton(onClick = onRetry) {
                 Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Icons.Filled.Refresh,
+                    contentDescription = "重试",
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = "删除",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
+    HorizontalDivider(Modifier.padding(start = 16.dp))
 }
 
 /** 人类可读体积 */

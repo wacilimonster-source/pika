@@ -113,6 +113,16 @@ class ComicDetailViewModel : ViewModel() {
         )
     }
 
+    /** 下载整本漫画（跳过已下载章节） */
+    fun downloadAll(comicId: String, comic: ComicDetail?, chapters: List<ComicChapter>) {
+        com.pika.core.download.DownloadManager.enqueueAll(
+            comicId = comicId,
+            comicTitle = comic?.title ?: comicId,
+            coverUrl = comic?.coverUrl ?: "",
+            chapters = chapters.map { it.order to it.title },
+        )
+    }
+
     // ── 收藏 ──────────────────────────────────────────────────────────────
     private var favouriteSupported: Boolean = true
     private val _favourited = MutableStateFlow(false)

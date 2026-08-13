@@ -176,6 +176,7 @@ fun CategoryComicsScreen(
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val dateRange by viewModel.dateRange.collectAsState()
+    val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
@@ -345,9 +346,15 @@ fun CategoryComicsScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = { viewModel.loadComics(page = viewModel.currentPage + 1, category = categoryId) },
+                    onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
+                )
+                com.pika.ui.browse.PaginationBar(
+                    currentPage = viewModel.currentPage,
+                    totalPages = totalPages,
+                    onPageChange = { viewModel.jumpToPage(it) },
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
         }

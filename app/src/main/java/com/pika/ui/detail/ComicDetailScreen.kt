@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,7 +32,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +89,7 @@ fun ComicDetailScreen(
     val replyingTo by viewModel.replyingTo.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
+    val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
 
     LaunchedEffect(comicId) {
         viewModel.load(comicId)
@@ -118,14 +119,8 @@ fun ComicDetailScreen(
                         }
                     }
                 },
+                windowInsets = WindowInsets(0, 0),
             )
-        },
-        floatingActionButton = {
-            if (viewModel.commentSupported && comic != null) {
-                FloatingActionButton(onClick = { showCommentDialog = true }) {
-                    Icon(Icons.Filled.Comment, contentDescription = "写评论")
-                }
-            }
         },
     ) { innerPadding ->
         LazyColumn(
@@ -149,9 +144,18 @@ fun ComicDetailScreen(
                         )
                         { Text("开始阅读") }
                         OutlinedButton(
-                            onClick = { onOpenReader(comicId, 1) },
+                            onClick = { viewModel.downloadAll(comicId, comic, chapters) },
+                            enabled = chapters.isNotEmpty(),
                         )
-                        { Text("从第 1 话") }
+                        {
+                            Icon(
+                                Icons.Filled.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("下载整本")
+                        }
                     }
                 }
                 item {
@@ -197,11 +201,28 @@ fun ComicDetailScreen(
                 }
                 item {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text(
-                        text = "章节（${c.epsCount}）",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "章节（${c.epsCount}）",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val done = downloadTasks.count {
+                            it.task.comicId == comicId && it.isFinished
+                        }
+                        if (done > 0) {
+                            Text(
+                                text = "已下载 $done/${chapters.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 }
                 items(chapters, key = { it.id }) { chapter ->
                     ChapterRow(
@@ -243,11 +264,21 @@ fun ComicDetailScreen(
                 if (viewModel.commentSupported) {
                     item {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            text = "评论（${c.commentsCount}）",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "评论（${c.commentsCount}）",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { showCommentDialog = true }) {
+                                Text("发布评论")
+                            }
+                        }
                     }
                     commentError?.let { err ->
                         item {

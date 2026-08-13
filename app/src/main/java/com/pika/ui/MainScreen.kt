@@ -141,6 +141,7 @@ fun MainScreen() {
                     onOpenSettings = { navController.navigate("settings") },
                     onOpenDownloads = { navController.navigate("downloads") },
                     onOpenFavourites = { navController.navigate("favourites") },
+                    onOpenAuthorFavourites = { navController.navigate("author-favourites") },
                     onOpenReader = { comicId, order ->
                         navController.navigate("reader/${Uri.encode(comicId)}/$order")
                     },
@@ -184,6 +185,14 @@ fun MainScreen() {
                 com.pika.ui.favourite.FavouriteScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
+                )
+            }
+            composable("author-favourites") {
+                com.pika.ui.author.AuthorFavouritesScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenAuthor = { author ->
+                        navController.navigate("author/${Uri.encode(author)}")
+                    },
                 )
             }
             composable("login") {

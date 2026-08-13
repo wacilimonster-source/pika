@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
@@ -11,6 +12,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -23,7 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +74,12 @@ fun AuthorComicsScreen(
 
     val unsupported = activeSource == com.pika.core.source.SourceType.JMCOMIC
 
+    // 收藏状态（本地）
+    var favourited by remember { mutableStateOf(com.pika.data.AuthorFavourites.contains(author)) }
+    LaunchedEffect(author) {
+        favourited = com.pika.data.AuthorFavourites.contains(author)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -78,6 +89,30 @@ fun AuthorComicsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    IconButton(onClick = {
+                        if (favourited) {
+                            com.pika.data.AuthorFavourites.remove(author)
+                        } else {
+                            com.pika.data.AuthorFavourites.add(
+                                author = author,
+                                coverUrl = comics.firstOrNull()?.coverUrl.orEmpty(),
+                            )
+                        }
+                        favourited = !favourited
+                    }) {
+                        Icon(
+                            imageVector = if (favourited) {
+                                Icons.Filled.Favorite
+                            } else {
+                                Icons.Outlined.FavoriteBorder
+                            },
+                            contentDescription = if (favourited) "取消收藏作者" else "收藏作者",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->
