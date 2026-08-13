@@ -3,7 +3,6 @@ package com.pika.ui.browse
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicCategory
-import com.pika.core.model.ComicDateRange
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.model.ComicSummary
@@ -50,9 +49,6 @@ class BrowseViewModel : ViewModel() {
     private val _tag = MutableStateFlow<String?>(null)
     val tag: StateFlow<String?> = _tag
 
-    private val _dateRange = MutableStateFlow<ComicDateRange?>(null)
-    val dateRange: StateFlow<ComicDateRange?> = _dateRange
-
     private val _totalPages = MutableStateFlow(1)
     val totalPages: StateFlow<Int> = _totalPages
 
@@ -66,11 +62,6 @@ class BrowseViewModel : ViewModel() {
 
     var currentPage: Int = 1
         private set
-
-    private companion object {
-        const val FILL_TARGET = 24
-        const val MAX_FILL_PAGES_DATE = 90
-    }
 
     fun loadCategories() {
         viewModelScope.launch {
@@ -87,34 +78,29 @@ class BrowseViewModel : ViewModel() {
         jumpToPage(page)
     }
 
-    /** 跳转到指定页：无日期筛选时严格单页；有日期筛选时从该页起向前扫描补足 */
+    /** 跳转到指定页（严格单页） */
     fun jumpToPage(page: Int) {
         val token = ++loadToken
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
-                var p = page.coerceAtLeast(1)
+                val p = page.coerceAtLeast(1)
                 rawItems.clear()
-                val maxFill = if (_dateRange.value != null) MAX_FILL_PAGES_DATE else 1
-                while (true) {
-                    if (token != loadToken) return@launch
-                    val result = SourceManager.current().browse(
-                        page = p,
-                        category = this@BrowseViewModel.category,
-                        sort = _sort.value,
-                        author = _author.value,
-                        tag = _tag.value,
-                    )
-                    if (token != loadToken) return@launch
-                    rawItems += result.items
-                    currentPage = p
-                    _totalPages.value = result.pages.coerceAtLeast(1)
-                    _endReached.value = p >= result.pages
-                    applyFilterAndSort()
-                    if (_endReached.value || _comics.value.size >= FILL_TARGET || p - page >= maxFill) break
-                    p++
-                }
+                if (token != loadToken) return@launch
+                val result = SourceManager.current().browse(
+                    page = p,
+                    category = this@BrowseViewModel.category,
+                    sort = _sort.value,
+                    author = _author.value,
+                    tag = _tag.value,
+                )
+                if (token != loadToken) return@launch
+                rawItems += result.items
+                currentPage = p
+                _totalPages.value = result.pages.coerceAtLeast(1)
+                _endReached.value = p >= result.pages
+                applyFilterAndSort()
             } catch (e: Exception) {
                 if (token == loadToken && _comics.value.isEmpty()) {
                     _error.value = e.message ?: "加载失败"
@@ -146,16 +132,6 @@ class BrowseViewModel : ViewModel() {
         reload()
     }
 
-    fun setDateRange(range: ComicDateRange?) {
-        if (_dateRange.value == range) return
-        _dateRange.value = range
-        if (rawItems.isNotEmpty()) {
-            applyFilterAndSort()
-            return
-        }
-        reload()
-    }
-
     fun setAuthor(author: String?) {
         if (_author.value == author) return
         _author.value = author
@@ -177,20 +153,20 @@ class BrowseViewModel : ViewModel() {
         loadComics(page = 1, category = category)
     }
 
-    /** 状态筛选 + 日期范围（客户端）→ 排序（禁漫客户端重排；哔咔服务端已排好无需再动） */
+    /** 状态筛选（客户端）→ 排序（禁漫客户端重排；哔咔按 updatedAt 字符串重排以支持 DA/DD 切换） */
     private fun applyFilterAndSort() {
-        val dateRange = _dateRange.value
         val filtered = rawItems.filter {
             when (_status.value) {
                 ComicStatus.ALL -> true
                 ComicStatus.FINISHED -> it.finished
                 ComicStatus.ONGOING -> !it.finished
-            } && (dateRange == null || dateRange.matches(it.updatedAt))
+            }
         }
         val sorted = when (_sort.value) {
+            ComicSort.DD -> filtered.sortedByDescending { it.updatedAt }
+            ComicSort.DA -> filtered.sortedBy { it.updatedAt }
             ComicSort.LD -> filtered.sortedByDescending { it.totalLikes }
             ComicSort.VD -> filtered.sortedByDescending { it.totalViews }
-            else -> filtered
         }
         _comics.value = sorted
     }

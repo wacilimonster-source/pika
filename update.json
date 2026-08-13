@@ -1,1 +1,1 @@
-{"version":"1.4.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.4.0.apk","notes":"v1.4.0 新增：\n1. 整本漫画下载：详情页一键下载全部章节，下载页按漫画分组显示进度\n2. 收藏作者：作者页右上角收藏，我的页面可查看，长按取消\n3. 页码式分页：分类/搜索列表支持 1 2 3 直接跳页\n4. 评论按钮移至评论区右上角\n5. 修复详情页/作者页顶部空白"}
+{"version":"1.4.1","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.4.1.apk","notes":"v1.4.1 修复与优化：\n1. 修复作者页/分类页新旧排序切换不生效\n2. 移除分类日期范围筛选\n3. 搜索简化：仅保留标签筛选，且修复标签筛选不触发搜索的问题\n4. 分页条改紧凑版并移至底部，新增输入页码直接跳转"}

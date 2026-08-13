@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 搜索 VM：关键词分页搜索（当前源）。
- * 支持高级筛选：排序 / 标签 / 作者 / 汉化组 / 上传者。
+ * 支持筛选：排序 / 标签。
  */
 class SearchViewModel : ViewModel() {
 
@@ -38,27 +38,11 @@ class SearchViewModel : ViewModel() {
     private val _tags = MutableStateFlow<Set<String>>(emptySet())
     val tags: StateFlow<Set<String>> = _tags
 
-    private val _author = MutableStateFlow<String?>(null)
-    val author: StateFlow<String?> = _author
-
-    private val _chineseTeam = MutableStateFlow<String?>(null)
-    val chineseTeam: StateFlow<String?> = _chineseTeam
-
-    private val _uploader = MutableStateFlow<String?>(null)
-    val uploader: StateFlow<String?> = _uploader
-
-    private val _showAdvanced = MutableStateFlow(false)
-    val showAdvanced: StateFlow<Boolean> = _showAdvanced
-
     private val _totalPages = MutableStateFlow(1)
     val totalPages: StateFlow<Int> = _totalPages
 
     var currentPage: Int = 1
         private set
-
-    fun toggleAdvanced() {
-        _showAdvanced.value = !_showAdvanced.value
-    }
 
     fun loadHotWords() {
         if (_hotWords.value.isNotEmpty()) return
@@ -74,24 +58,16 @@ class SearchViewModel : ViewModel() {
     fun updateFilter(
         sort: ComicSort = _sort.value,
         tags: Set<String> = _tags.value,
-        author: String? = _author.value,
-        chineseTeam: String? = _chineseTeam.value,
-        uploader: String? = _uploader.value,
     ) {
         _sort.value = sort
         _tags.value = tags
-        _author.value = author
-        _chineseTeam.value = chineseTeam
-        _uploader.value = uploader
-        if (_keyword.value.isNotBlank()) search(_keyword.value, page = 1)
+        // 关键词为空时仅按标签筛选（标签搜索不依赖关键词）
+        search(_keyword.value, page = 1)
     }
 
     fun resetFilters() = updateFilter(
         sort = ComicSort.DD,
         tags = emptySet(),
-        author = null,
-        chineseTeam = null,
-        uploader = null,
     )
 
     /** 完全重置搜索状态（清空结果 + 筛选 + 关键词） */
@@ -114,9 +90,6 @@ class SearchViewModel : ViewModel() {
                     page = page,
                     sort = _sort.value,
                     tags = _tags.value.toList(),
-                    author = _author.value,
-                    chineseTeam = _chineseTeam.value,
-                    uploader = _uploader.value,
                 )
                 _comics.value = result.items
                 _totalPages.value = result.pages.coerceAtLeast(1)

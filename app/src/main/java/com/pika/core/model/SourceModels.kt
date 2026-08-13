@@ -78,25 +78,6 @@ enum class ComicStatus(val label: String) {
     ONGOING("连载中"),
 }
 
-/** 更新日期范围（年/月，含起止）；哔咔服务端无日期查询参数，客户端按更新时间过滤已加载数据 */
-data class ComicDateRange(
-    val fromYear: Int,
-    val fromMonth: Int,
-    val toYear: Int,
-    val toMonth: Int,
-) {
-    fun label(): String = "$fromYear-${fromMonth.toString().padStart(2, '0')} ~ $toYear-${toMonth.toString().padStart(2, '0')}"
-
-    fun matches(updatedAt: String): Boolean {
-        if (updatedAt.length < 7) return false
-        val year = updatedAt.substring(0, 4).toIntOrNull() ?: return false
-        val month = updatedAt.substring(5, 7).toIntOrNull() ?: return false
-        val afterFrom = year > fromYear || (year == fromYear && month >= fromMonth)
-        val beforeTo = year < toYear || (year == toYear && month <= toMonth)
-        return afterFrom && beforeTo
-    }
-}
-
 /** 用户（评论者 / 本人资料） */
 data class ComicUser(
     val id: String = "",

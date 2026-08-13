@@ -43,7 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
 
-/** 搜索页：输入框 + 排序筛选 + 高级筛选（可滚动）+ 结果网格 */
+/** 搜索页：输入框 + 排序筛选 + 标签筛选 + 结果网格 + 底部页码分页 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -55,13 +55,10 @@ fun SearchScreen(
     val loading by viewModel.loading.collectAsState()
     val endReached by viewModel.endReached.collectAsState()
     val keyword by viewModel.keyword.collectAsState()
-    val showAdvanced by viewModel.showAdvanced.collectAsState()
     val currentSort by viewModel.sort.collectAsState()
+    val tags by viewModel.tags.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     var input by remember { mutableStateOf("") }
-    var authorInput by remember { mutableStateOf("") }
-    var teamInput by remember { mutableStateOf("") }
-    var uploaderInput by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -87,9 +84,6 @@ fun SearchScreen(
                                 .clickable {
                                     focusManager.clearFocus()
                                     input = ""
-                                    authorInput = ""
-                                    teamInput = ""
-                                    uploaderInput = ""
                                     tagInput = ""
                                     viewModel.resetAll()
                                 }
@@ -107,7 +101,7 @@ fun SearchScreen(
                     value = input,
                     onValueChange = { input = it },
                     singleLine = true,
-                    placeholder = { Text("搜索漫画 / 作者 / 标签") },
+                    placeholder = { Text("搜索漫画 / 标签") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
                         focusManager.clearFocus()
@@ -149,32 +143,34 @@ fun SearchScreen(
                             label = { Text("最多观看") },
                         )
                     }
-                    item {
-                        FilterChip(
-                            selected = showAdvanced,
-                            onClick = { viewModel.toggleAdvanced() },
-                            label = { Text(if (showAdvanced) "收起筛选" else "更多筛选") },
-                        )
-                    }
                 }
-                if (showAdvanced) {
-                    AdvancedFilterPanel(
-                        authorInput = authorInput,
-                        teamInput = teamInput,
-                        uploaderInput = uploaderInput,
-                        tagInput = tagInput,
-                        onAuthorChange = { authorInput = it },
-                        onTeamChange = { teamInput = it },
-                        onUploaderChange = { uploaderInput = it },
-                        onTagChange = { tagInput = it },
-                        onApply = {
-                            viewModel.updateFilter(
-                                author = authorInput.trim().ifBlank { null },
-                                chineseTeam = teamInput.trim().ifBlank { null },
-                                uploader = uploaderInput.trim().ifBlank { null },
-                                tags = tagInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-                            )
+                // 标签筛选（可输入多个，逗号分隔）
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = tagInput,
+                        onValueChange = { tagInput = it },
+                        singleLine = true,
+                        placeholder = { Text(if (tags.isEmpty()) "标签（逗号分隔，如：校园,热血）" else "标签：${tags.joinToString(",")}") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            focusManager.clearFocus()
+                            applyTagFilter(tagInput, viewModel)
+                        }),
+                        modifier = Modifier.weight(1f),
+                    )
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            focusManager.clearFocus()
+                            applyTagFilter(tagInput, viewModel)
                         },
+                        label = { Text("应用标签") },
                     )
                 }
                 if (comics.isEmpty()) {
@@ -182,7 +178,7 @@ fun SearchScreen(
                         Text(
                             text = when {
                                 loading -> "搜索中..."
-                                keyword.isBlank() -> "输入关键词开始搜索"
+                                keyword.isBlank() && tags.isEmpty() -> "输入关键词或标签开始搜索"
                                 else -> "没有更多结果"
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -191,11 +187,6 @@ fun SearchScreen(
                     }
                 } else {
                     Column(Modifier.fillMaxSize()) {
-                        com.pika.ui.browse.PaginationBar(
-                            currentPage = viewModel.currentPage,
-                            totalPages = totalPages,
-                            onPageChange = { viewModel.search(keyword, page = it) },
-                        )
                         ComicGridView(
                             comics = comics,
                             loading = loading,
@@ -205,6 +196,11 @@ fun SearchScreen(
                             onComicClick = onComicClick,
                             modifier = Modifier.weight(1f),
                         )
+                        com.pika.ui.browse.PaginationBar(
+                            currentPage = viewModel.currentPage,
+                            totalPages = totalPages,
+                            onPageChange = { viewModel.search(keyword, page = it) },
+                        )
                     }
                 }
             }
@@ -212,50 +208,8 @@ fun SearchScreen(
     }
 }
 
-@Composable
-private fun AdvancedFilterPanel(
-    authorInput: String,
-    teamInput: String,
-    uploaderInput: String,
-    tagInput: String,
-    onAuthorChange: (String) -> Unit,
-    onTeamChange: (String) -> Unit,
-    onUploaderChange: (String) -> Unit,
-    onTagChange: (String) -> Unit,
-    onApply: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        SmallFilterField("作者", authorInput, onAuthorChange)
-        SmallFilterField("汉化组", teamInput, onTeamChange)
-        SmallFilterField("上传者", uploaderInput, onUploaderChange)
-        SmallFilterField("标签（逗号分隔）", tagInput, onTagChange)
-        FilterChip(
-            selected = false,
-            onClick = onApply,
-            label = { Text("应用筛选") },
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
-}
-
-@Composable
-private fun SmallFilterField(
-    label: String,
-    value: String,
-    onChange: (String) -> Unit,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        singleLine = true,
-        label = { Text(label) },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
+private fun applyTagFilter(tagInput: String, viewModel: SearchViewModel) {
+    viewModel.updateFilter(
+        tags = tagInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
     )
 }

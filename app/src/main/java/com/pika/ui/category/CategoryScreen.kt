@@ -175,13 +175,11 @@ fun CategoryComicsScreen(
     val endReached by viewModel.endReached.collectAsState()
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
-    val dateRange by viewModel.dateRange.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
-    var showDateDialog by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
     var authorInput by remember { mutableStateOf("") }
@@ -272,40 +270,6 @@ fun CategoryComicsScreen(
                         label = { Text("应用筛选") },
                     )
                 }
-            }
-            // 更新日期范围筛选
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilterChip(
-                    selected = dateRange != null,
-                    onClick = { showDateDialog = true },
-                    label = { Text(if (dateRange != null) dateRange!!.label() else "日期范围") },
-                )
-                if (dateRange != null) {
-                    Text(
-                        text = "按更新时间筛选（需联网翻页加载）",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            if (showDateDialog) {
-                DateRangeDialog(
-                    current = dateRange,
-                    onConfirm = { range ->
-                        viewModel.setDateRange(range)
-                        showDateDialog = false
-                    },
-                    onClear = {
-                        viewModel.setDateRange(null)
-                        showDateDialog = false
-                    },
-                    onDismiss = { showDateDialog = false },
-                )
             }
             if (showDisplaySettings) {
                 DisplaySettingsDialog(
@@ -404,123 +368,6 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             )
         }
     }
-}
-
-/** 更新日期范围选择：年份 + 起止月份。服务端无日期查询，实际按客户端过滤。 */
-@Composable
-private fun DateRangeDialog(
-    current: com.pika.core.model.ComicDateRange?,
-    onConfirm: (com.pika.core.model.ComicDateRange) -> Unit,
-    onClear: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-    val init = current ?: com.pika.core.model.ComicDateRange(
-        fromYear = currentYear - 1,
-        fromMonth = 1,
-        toYear = currentYear,
-        toMonth = 12,
-    )
-    var fromYear by remember { mutableStateOf(init.fromYear) }
-    var fromMonth by remember { mutableStateOf(init.fromMonth) }
-    var toYear by remember { mutableStateOf(init.toYear) }
-    var toMonth by remember { mutableStateOf(init.toMonth) }
-    val minYear = 2010
-    val valid = fromYear < toYear || (fromYear == toYear && fromMonth <= toMonth)
-
-    @Composable
-    fun YearPicker(label: String, year: Int, onChange: (Int) -> Unit) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
-            IconButton(onClick = { onChange((year - 1).coerceAtLeast(minYear)) }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一年")
-            }
-            Text(
-                text = "$year 年",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
-            IconButton(onClick = { onChange((year + 1).coerceAtMost(currentYear)) }) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一年")
-            }
-        }
-    }
-
-    @Composable
-    fun MonthRow(label: String, month: Int, onChange: (Int) -> Unit) {
-        Column {
-            Text(
-                text = "$label（${(if (label == "从") fromYear else toYear)} 年）",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items((1..12).toList(), key = { it }) { m ->
-                    FilterChip(
-                        selected = month == m,
-                        onClick = { onChange(m) },
-                        label = { Text("${m}月") },
-                    )
-                }
-            }
-        }
-    }
-
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("更新日期范围") },
-        text = {
-            Column {
-                Text(
-                    text = "按更新时间过滤已加载的漫画（需联网自动翻页，较早数据可能覆盖不全）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                YearPicker("起始", fromYear) { fromYear = it }
-                MonthRow("从", fromMonth) { fromMonth = it }
-                Spacer(Modifier.height(6.dp))
-                YearPicker("结束", toYear) { toYear = it }
-                MonthRow("到", toMonth) { toMonth = it }
-                if (!valid) {
-                    Text(
-                        text = "起始不能晚于结束",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(
-                onClick = {
-                    onConfirm(
-                        com.pika.core.model.ComicDateRange(
-                            fromYear = fromYear,
-                            fromMonth = fromMonth,
-                            toYear = toYear,
-                            toMonth = toMonth,
-                        )
-                    )
-                },
-                enabled = valid,
-            ) { Text("确定") }
-        },
-        dismissButton = {
-            Row {
-                if (current != null) {
-                    androidx.compose.material3.TextButton(onClick = onClear) { Text("清除") }
-                }
-                androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") }
-            }
-        },
-    )
 }
 
 /** 显示设置弹窗：排序方式 */
