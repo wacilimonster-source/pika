@@ -24,6 +24,12 @@ data class RegisterPayload(
     val name: String,
     val gender: String,
     val birthday: String,
+    @SerialName("question1") val question1: String = "1",
+    @SerialName("question2") val question2: String = "2",
+    @SerialName("question3") val question3: String = "3",
+    @SerialName("answer1") val answer1: String = "4",
+    @SerialName("answer2") val answer2: String = "5",
+    @SerialName("answer3") val answer3: String = "6",
 )
 
 @Serializable
