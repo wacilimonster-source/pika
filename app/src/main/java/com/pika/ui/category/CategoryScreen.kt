@@ -180,7 +180,6 @@ fun CategoryComicsScreen(
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
-    var showDisplaySettings by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
     var authorInput by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
@@ -209,9 +208,6 @@ fun CategoryComicsScreen(
                 actions = {
                     IconButton(onClick = { showFilter = !showFilter }) {
                         Icon(Icons.Filled.FilterList, contentDescription = "筛选")
-                    }
-                    IconButton(onClick = { showDisplaySettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
                 },
                 windowInsets = WindowInsets(0, 0),
@@ -270,14 +266,6 @@ fun CategoryComicsScreen(
                         label = { Text("应用筛选") },
                     )
                 }
-            }
-            if (showDisplaySettings) {
-                DisplaySettingsDialog(
-                    currentSort = sort,
-                    supportedSorts = supportedSorts,
-                    onSortChange = { viewModel.setSort(it) },
-                    onDismiss = { showDisplaySettings = false },
-                )
             }
             if (error != null && comics.isEmpty()) {
                 Box(
@@ -368,38 +356,4 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             )
         }
     }
-}
-
-/** 显示设置弹窗：排序方式 */
-@Composable
-private fun DisplaySettingsDialog(
-    currentSort: ComicSort,
-    supportedSorts: List<ComicSort>,
-    onSortChange: (ComicSort) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("显示设置") },
-        text = {
-            Column {
-                Text("排序方式", style = MaterialTheme.typography.labelMedium)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(vertical = 4.dp),
-                ) {
-                    items(supportedSorts, key = { it.name }) { s ->
-                        FilterChip(
-                            selected = currentSort == s,
-                            onClick = { onSortChange(s) },
-                            label = { Text(s.label) },
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("完成") }
-        },
-    )
 }

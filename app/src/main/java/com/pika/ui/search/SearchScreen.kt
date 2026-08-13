@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyRow
@@ -19,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -74,23 +76,6 @@ fun SearchScreen(
                         }
                     }
                 },
-                actions = {
-                    if (comics.isNotEmpty() || keyword.isNotBlank()) {
-                        Text(
-                            text = "重置",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier
-                                .clickable {
-                                    focusManager.clearFocus()
-                                    input = ""
-                                    tagInput = ""
-                                    viewModel.resetAll()
-                                }
-                                .padding(12.dp),
-                        )
-                    }
-                },
                 windowInsets = WindowInsets(0, 0),
             )
         },
@@ -107,6 +92,21 @@ fun SearchScreen(
                         focusManager.clearFocus()
                         viewModel.search(input.trim(), page = 1)
                     }),
+                    trailingIcon = {
+                        if (input.isNotBlank() || keyword.isNotBlank() || tags.isNotEmpty()) {
+                            IconButton(onClick = {
+                                focusManager.clearFocus()
+                                input = ""
+                                tagInput = ""
+                                viewModel.resetAll()
+                            }) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "重置",
+                                )
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -144,7 +144,7 @@ fun SearchScreen(
                         )
                     }
                 }
-                // 标签筛选（可输入多个，逗号分隔）
+                // 标签筛选（可输入多个，逗号分隔；紧凑单行）
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -156,21 +156,26 @@ fun SearchScreen(
                         value = tagInput,
                         onValueChange = { tagInput = it },
                         singleLine = true,
-                        placeholder = { Text(if (tags.isEmpty()) "标签（逗号分隔，如：校园,热血）" else "标签：${tags.joinToString(",")}") },
+                        placeholder = { Text(if (tags.isEmpty()) "标签（逗号分隔）" else "标签：${tags.joinToString(",")}") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = {
                             focusManager.clearFocus()
                             applyTagFilter(tagInput, viewModel)
                         }),
-                        modifier = Modifier.weight(1f),
-                    )
-                    FilterChip(
-                        selected = false,
-                        onClick = {
-                            focusManager.clearFocus()
-                            applyTagFilter(tagInput, viewModel)
+                        trailingIcon = {
+                            if (tagInput.isNotBlank() || tags.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    focusManager.clearFocus()
+                                    tagInput = ""
+                                    applyTagFilter("", viewModel)
+                                }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "清除标签")
+                                }
+                            }
                         },
-                        label = { Text("应用标签") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp),
                     )
                 }
                 if (comics.isEmpty()) {

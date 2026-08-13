@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 页码分页条（紧凑）：‹ 1 2 3 … N › 页码 [跳页]
+ * 页码分页条：‹ 1 2 3 … N › 页码 [跳页]
  * 当前页高亮，点击跳页，左右箭头翻页，右侧输入框可直接输入页码跳转。
  */
 @Composable
@@ -46,27 +46,27 @@ fun PaginationBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .padding(horizontal = 4.dp),
-        horizontalArrangement = Arrangement.Center,
+            .height(48.dp)
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
             onClick = { onPageChange((currentPage - 1).coerceAtLeast(1)) },
             enabled = currentPage > 1,
-            modifier = Modifier.width(32.dp).height(32.dp),
+            modifier = Modifier.width(40.dp).height(40.dp),
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                 contentDescription = "上一页",
-                modifier = Modifier.width(18.dp).height(18.dp),
+                modifier = Modifier.width(24.dp).height(24.dp),
             )
         }
         pageWindow(currentPage, totalPages).forEach { p ->
             if (p == null) {
                 Text(
                     text = "…",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 2.dp),
                 )
@@ -80,12 +80,12 @@ fun PaginationBar(
                         MaterialTheme.colorScheme.surfaceVariant
                     },
                     modifier = Modifier
-                        .width(24.dp)
-                        .height(24.dp),
+                        .width(32.dp)
+                        .height(32.dp),
                 ) {
                     Text(
                         text = "$p",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = if (p == currentPage) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
@@ -100,19 +100,19 @@ fun PaginationBar(
         IconButton(
             onClick = { onPageChange((currentPage + 1).coerceAtMost(totalPages)) },
             enabled = currentPage < totalPages,
-            modifier = Modifier.width(32.dp).height(32.dp),
+            modifier = Modifier.width(40.dp).height(40.dp),
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = "下一页",
-                modifier = Modifier.width(18.dp).height(18.dp),
+                modifier = Modifier.width(24.dp).height(24.dp),
             )
         }
         TextField(
             value = jumpInput,
             onValueChange = { jumpInput = it.filter { c -> c.isDigit() }.take(4) },
             singleLine = true,
-            placeholder = { Text("$currentPage/$totalPages", fontSize = 10.sp) },
+            placeholder = { Text("$currentPage/$totalPages", fontSize = 12.sp) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = {
                 val p = jumpInput.toIntOrNull()
@@ -121,7 +121,7 @@ fun PaginationBar(
                     jumpInput = ""
                 }
             }),
-            textStyle = MaterialTheme.typography.labelSmall,
+            textStyle = MaterialTheme.typography.bodySmall,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -130,8 +130,8 @@ fun PaginationBar(
                 disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
             ),
             modifier = Modifier
-                .width(52.dp)
-                .height(30.dp)
+                .width(64.dp)
+                .height(36.dp)
                 .padding(start = 4.dp),
         )
     }
