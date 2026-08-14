@@ -1,1 +1,1 @@
-{"version":"1.5.1","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.1.apk","notes":"v1.5.1 优化：\n1. 底部导航高度调至 64dp\n2. 排行榜加载失败时显示原因与重试按钮（不再静默空白）\n3. 首页移除上次浏览记录区块\n4. 关注流改为聚合时间线：全部关注（作者/关键词/分类标签）最新作品合并，按更新时间由近至远排序，滚动加载"}
+{"version":"1.5.2","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.2.apk","notes":"v1.5.2 修复：\n1. 修复排行榜无数据：排行榜类型参数需大写（H24/D7/D30），已修正\n2. 排行榜日榜/周榜/月榜均恢复正常"}

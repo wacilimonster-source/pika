@@ -141,7 +141,8 @@ fun comicsQuery(
 }
 
 fun rankQuery(type: ComicRankType): Map<String, String> = mapOf(
-    "tt" to type.name.lowercase(),
+    // 服务端要求大写枚举名：H24 / D7 / D30
+    "tt" to type.name,
     "ct" to "VC",
 )
 
