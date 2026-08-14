@@ -1,1 +1,1 @@
-{"version":"1.5.11","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.11.apk","notes":"v1.5.11 更新：\n1. 阅读器全屏沉浸模式：进入阅读自动隐藏系统栏，点击中间区域切换显示/隐藏控制面板和系统栏\n2. 底部上滑手势允许显示系统栏（约3秒后自动隐藏）\n3. 切换上一话/下一话后自动进入全屏\n4. 离线阅读同样进入全屏\n5. 阅读时屏幕常亮"}
+{"version":"1.5.12","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.12.apk","notes":"v1.5.12 更新：\n1. 首页新增「随便看看」标签，随机推荐20个漫画，下拉刷新获取新一批随机推荐"}

@@ -63,6 +63,14 @@ class HomeViewModel : ViewModel() {
     private val _rankError = MutableStateFlow<String?>(null)
     val rankError: StateFlow<String?> = _rankError.asStateFlow()
 
+    private val _randomComics = MutableStateFlow<List<ComicSummary>>(emptyList())
+    val randomComics: StateFlow<List<ComicSummary>> = _randomComics.asStateFlow()
+
+    private val _randomLoading = MutableStateFlow(false)
+    val randomLoading: StateFlow<Boolean> = _randomLoading.asStateFlow()
+
+    private var randomLoaded = false
+
     /** 各关注来源当前已加载到的页数（key -> page） */
     private var targetPages = mutableMapOf<String, Int>()
 
@@ -127,6 +135,27 @@ class HomeViewModel : ViewModel() {
             _followLoading.value = false
             _followEndReached.value = targetEnded.values.all { it }
             _refreshTick.value++
+        }
+    }
+
+    /** 首次进入随便看看 tab 时加载 */
+    fun ensureRandomLoaded() {
+        if (randomLoaded) return
+        refreshRandom()
+    }
+
+    /** 下拉刷新：清空后加载全新随机推荐 */
+    fun refreshRandom() {
+        randomLoaded = true
+        _randomLoading.value = true
+        viewModelScope.launch {
+            try {
+                _randomComics.value = SourceManager.current().randomComics()
+            } catch (e: Exception) {
+                _randomComics.value = emptyList()
+            } finally {
+                _randomLoading.value = false
+            }
         }
     }
 

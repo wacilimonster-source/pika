@@ -57,6 +57,8 @@ fun HomeScreen(
     val rankError by viewModel.rankError.collectAsState()
     val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
     val followRefreshTick by viewModel.refreshTick.collectAsState()
+    val randomComics by viewModel.randomComics.collectAsState()
+    val randomLoading by viewModel.randomLoading.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
 
@@ -73,6 +75,8 @@ fun HomeScreen(
     LaunchedEffect(selectedTab) {
         if (selectedTab == 1 && rankComics.isEmpty() && rankError == null) {
             viewModel.loadRank(rankType)
+        } else if (selectedTab == 2) {
+            viewModel.ensureRandomLoaded()
         }
     }
 
@@ -125,6 +129,11 @@ fun HomeScreen(
                         onClick = { selectedTab = 1 },
                         text = { Text("排行榜") },
                     )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = { Text("随便看看") },
+                    )
                 }
             }
         },
@@ -141,12 +150,19 @@ fun HomeScreen(
                 onComicClick = onComicClick,
                 modifier = Modifier.padding(innerPadding),
             )
-            else -> RankTab(
+            1 -> RankTab(
                 rankComics = rankComics,
                 rankType = rankType,
                 loading = rankLoading,
                 error = rankError,
                 onTypeChange = viewModel::loadRank,
+                onComicClick = onComicClick,
+                modifier = Modifier.padding(innerPadding),
+            )
+            else -> RandomTab(
+                comics = randomComics,
+                loading = randomLoading,
+                onRefresh = viewModel::refreshRandom,
                 onComicClick = onComicClick,
                 modifier = Modifier.padding(innerPadding),
             )
@@ -260,6 +276,42 @@ private fun RankTab(
         } else {
             ComicGridView(
                 comics = rankComics,
+                loading = loading,
+                endReached = true,
+                listState = rememberLazyGridState(),
+                onLoadMore = {},
+                onComicClick = onComicClick,
+            )
+        }
+    }
+}
+
+/** 随便看看：随机推荐，下拉刷新换一批 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RandomTab(
+    comics: List<com.pika.core.model.ComicSummary>,
+    loading: Boolean,
+    onRefresh: () -> Unit,
+    onComicClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PullToRefreshBox(
+        isRefreshing = loading,
+        onRefresh = onRefresh,
+        modifier = modifier.fillMaxSize(),
+    ) {
+        if (comics.isEmpty() && !loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "点击刷新随机推荐",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            ComicGridView(
+                comics = comics,
                 loading = loading,
                 endReached = true,
                 listState = rememberLazyGridState(),
