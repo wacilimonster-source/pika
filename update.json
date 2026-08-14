@@ -1,1 +1,1 @@
-{"version":"1.5.9","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.9.apk","notes":"v1.5.9 更新：\n1. 修复搜索中途切换关键词时页面无反应的问题（立即取消旧任务、清空结果、显示加载状态）\n2. 多关键词搜索改为渐进式分页：够1页后立即显示，后台继续拉完所有页再启用完整分页\n3. 多关键词搜索中途切换排序时，秒级本地重排（复用已拉取的交集结果）"}
+{"version":"1.5.10","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.10.apk","notes":"v1.5.10 更新：\n1. 修复注册接口返回无 data 字段导致的反序列化崩溃（ApiResponse.data 改为可选）"}

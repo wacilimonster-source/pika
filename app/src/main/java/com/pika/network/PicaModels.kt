@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
 data class ApiResponse<T>(
     val code: Int,
     val message: String,
-    val data: T,
+    val data: T? = null,
 )
 
 @Serializable
