@@ -1,1 +1,1 @@
-{"version":"1.5.0","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.0.apk","notes":"v1.5.0 首页重构：\n1. 首页改为顶部标签切换：关注（默认）/ 排行榜\n2. 关注页：上次浏览记录 + 关注信息流（收藏作者/关键词/分类标签的最新更新），下拉刷新\n3. 排行榜页：日榜/周榜/月榜切换直接展示\n4. 新增「关注管理」（我的页面）：添加/删除关键词和分类标签关注\n5. 底部导航去除图标只留文字，降低高度并完整显示"}
+{"version":"1.5.1","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.1.apk","notes":"v1.5.1 优化：\n1. 底部导航高度调至 64dp\n2. 排行榜加载失败时显示原因与重试按钮（不再静默空白）\n3. 首页移除上次浏览记录区块\n4. 关注流改为聚合时间线：全部关注（作者/关键词/分类标签）最新作品合并，按更新时间由近至远排序，滚动加载"}

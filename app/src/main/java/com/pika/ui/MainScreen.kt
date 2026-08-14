@@ -67,7 +67,7 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(56.dp)) {
+            NavigationBar(modifier = Modifier.height(64.dp)) {
                 tabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy
                         ?.any { it.route == tab.route } == true
@@ -98,12 +98,6 @@ fun MainScreen() {
                 HomeScreen(
                     onComicClick = { id ->
                         navController.navigate("comic/${Uri.encode(id)}")
-                    },
-                    onResumeReading = { id, order ->
-                        navController.navigate("reader/${Uri.encode(id)}/$order")
-                    },
-                    onOpenHistory = {
-                        navController.navigate("recent-reads")
                     },
                 )
             }

@@ -1,25 +1,14 @@
 package com.pika.ui.home
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +16,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,44 +28,41 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
-import com.pika.data.RecentRead
 import com.pika.ui.browse.ComicGridView
 
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
 /**
  * 首页：顶部标签「关注 / 排行榜」。
- * 关注（默认）：上次浏览记录 + 关注信息流（作者/关键词/分类标签最新更新）。
+ * 关注（默认）：关注信息流（作者/关键词/分类标签最新更新，按时间排序的聚合网格，滚动加载）。
  * 排行榜：日榜 / 周榜 / 月榜切换。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onComicClick: (String) -> Unit = {},
-    onResumeReading: (String, Int) -> Unit = { _, _ -> },
-    onOpenHistory: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(),
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
-    val recentReads by viewModel.recentReads.collectAsState()
-    val followSections by viewModel.followSections.collectAsState()
-    val refreshing by viewModel.refreshing.collectAsState()
+    val followFeed by viewModel.followFeed.collectAsState()
+    val followEndReached by viewModel.followEndReached.collectAsState()
+    val followLoading by viewModel.followLoading.collectAsState()
+    val followEmptyHint by viewModel.followEmptyHint.collectAsState()
     val rankComics by viewModel.rankComics.collectAsState()
     val rankType by viewModel.rankType.collectAsState()
     val rankLoading by viewModel.rankLoading.collectAsState()
+    val rankError by viewModel.rankError.collectAsState()
     val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         com.pika.core.update.UpdateState.checkOnce()
-        viewModel.ensureLoaded()
+        viewModel.ensureFollowTargets()
+        viewModel.refresh()
     }
 
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -83,7 +70,7 @@ fun HomeScreen(
     }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 1 && rankComics.isEmpty()) {
+        if (selectedTab == 1 && rankComics.isEmpty() && rankError == null) {
             viewModel.loadRank(rankType)
         }
     }
@@ -143,12 +130,12 @@ fun HomeScreen(
     ) { innerPadding ->
         when (selectedTab) {
             0 -> FollowTab(
-                recentReads = recentReads,
-                followSections = followSections,
-                refreshing = refreshing,
+                comics = followFeed,
+                loading = followLoading,
+                endReached = followEndReached,
+                emptyHint = followEmptyHint,
+                onLoadMore = viewModel::loadMore,
                 onRefresh = viewModel::refresh,
-                onResumeReading = onResumeReading,
-                onOpenHistory = onOpenHistory,
                 onComicClick = onComicClick,
                 modifier = Modifier.padding(innerPadding),
             )
@@ -156,6 +143,7 @@ fun HomeScreen(
                 rankComics = rankComics,
                 rankType = rankType,
                 loading = rankLoading,
+                error = rankError,
                 onTypeChange = viewModel::loadRank,
                 onComicClick = onComicClick,
                 modifier = Modifier.padding(innerPadding),
@@ -164,88 +152,53 @@ fun HomeScreen(
     }
 }
 
-/** 关注信息流：上次浏览记录 + 关注的更新 */
+/** 关注信息流：聚合网格（按更新时间由近至远，滚动加载） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FollowTab(
-    recentReads: List<RecentRead>,
-    followSections: List<FollowSection>,
-    refreshing: Boolean,
+    comics: List<com.pika.core.model.ComicSummary>,
+    loading: Boolean,
+    endReached: Boolean,
+    emptyHint: String?,
+    onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
-    onResumeReading: (String, Int) -> Unit,
-    onOpenHistory: () -> Unit,
     onComicClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(
-        isRefreshing = refreshing,
+        isRefreshing = loading,
         onRefresh = onRefresh,
         modifier = modifier.fillMaxSize(),
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 8.dp),
-        ) {
-            // ── 上次浏览记录 ──────────────────────────────────────
-            if (recentReads.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        title = "上次浏览记录",
-                        action = "全部",
-                        onAction = onOpenHistory,
-                    )
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(recentReads, key = { it.comicId }) { recent ->
-                            RecentCard(
-                                recent = recent,
-                                onClick = { onResumeReading(recent.comicId, recent.order) },
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── 关注的更新 ───────────────────────────────────────
-            item {
-                SectionHeader(title = "关注的更新", action = null, onAction = null)
-            }
-            if (followSections.isEmpty() && !refreshing) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "还没有关注内容，去「我的 → 关注管理」添加作者 / 关键词 / 分类标签",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            items(followSections, key = { "${it.type}_${it.name}" }) { section ->
-                FollowSectionBlock(
-                    section = section,
-                    onComicClick = onComicClick,
+        if (comics.isEmpty() && emptyHint != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = emptyHint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp),
                 )
             }
+        } else {
+            ComicGridView(
+                comics = comics,
+                loading = loading,
+                endReached = endReached,
+                listState = rememberLazyGridState(),
+                onLoadMore = onLoadMore,
+                onComicClick = onComicClick,
+            )
         }
     }
 }
 
-/** 排行榜：日/周/月切换 + 网格 */
+/** 排行榜：日/周/月切换 + 网格（失败显示错误与重试） */
 @Composable
 private fun RankTab(
-    rankComics: List<ComicSummary>,
+    rankComics: List<com.pika.core.model.ComicSummary>,
     rankType: String,
     loading: Boolean,
+    error: String?,
     onTypeChange: (String) -> Unit,
     onComicClick: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -263,7 +216,26 @@ private fun RankTab(
                 )
             }
         }
-        if (rankComics.isEmpty() && loading) {
+        if (error != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                    TextButton(onClick = { onTypeChange(rankType) }) {
+                        Text("重试")
+                    }
+                }
+            }
+        } else if (rankComics.isEmpty() && loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("加载中...", style = MaterialTheme.typography.bodyMedium)
             }
@@ -285,134 +257,5 @@ private fun RankTab(
                 onComicClick = onComicClick,
             )
         }
-    }
-}
-
-/** 区块标题 + 右侧操作入口 */
-@Composable
-private fun SectionHeader(title: String, action: String?, onAction: (() -> Unit)?) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f),
-        )
-        if (action != null && onAction != null) {
-            Text(
-                text = action,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clickable(onClick = onAction)
-                    .padding(4.dp),
-            )
-        }
-    }
-}
-
-/** 上次浏览记录卡片 */
-@Composable
-private fun RecentCard(recent: RecentRead, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .width(110.dp)
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(140.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
-                if (recent.coverUrl.isNotBlank()) {
-                    coil.compose.AsyncImage(
-                        model = recent.coverUrl,
-                        contentDescription = recent.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-            Text(
-                text = recent.title,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-            Text(
-                text = "第 ${recent.order} 话 · 续读",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 0.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-        }
-    }
-}
-
-/** 关注的更新：分组子区块（名称 + 最新作品横滑条） */
-@Composable
-private fun FollowSectionBlock(
-    section: FollowSection,
-    onComicClick: (String) -> Unit,
-) {
-    Column(modifier = Modifier.padding(top = 6.dp)) {
-        Text(
-            text = "${section.type} · ${section.name}",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(section.comics, key = { it.id }) { comic ->
-                FollowComicCard(comic = comic, onClick = { onComicClick(comic.id) })
-            }
-        }
-    }
-}
-
-/** 关注区块内的小封面卡 */
-@Composable
-private fun FollowComicCard(comic: ComicSummary, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .width(110.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            if (comic.coverUrl != null) {
-                coil.compose.AsyncImage(
-                    model = comic.coverUrl,
-                    contentDescription = comic.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        Text(
-            text = comic.title,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
-        )
     }
 }
