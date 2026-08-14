@@ -14,6 +14,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,6 +43,24 @@ class FavouriteViewModel : ViewModel() {
 
     var currentPage: Int = 1
         private set
+
+    private var _savedFirstVisibleIndex: Int = 0
+    val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
+
+    private var _savedCurrentPage: Int = 1
+    val savedCurrentPage: Int get() = _savedCurrentPage
+
+    var isScrollStateRestored: Boolean = false
+        private set
+
+    fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {
+        _savedFirstVisibleIndex = firstVisibleIndex
+        _savedCurrentPage = currentPage
+    }
+
+    fun markScrollStateRestored() {
+        isScrollStateRestored = true
+    }
 
     fun load(page: Int) {
         if (_loading.value) return
@@ -77,6 +96,20 @@ fun FavouriteScreen(
     val endReached by viewModel.endReached.collectAsState()
     val error by viewModel.error.collectAsState()
     val listState = rememberLazyGridState()
+
+    // 保存滚动位置
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+        }
+    }
+    // 恢复滚动位置
+    LaunchedEffect(viewModel.isScrollStateRestored) {
+        if (viewModel.savedFirstVisibleIndex > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+            viewModel.markScrollStateRestored()
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.load(page = 1) }
 

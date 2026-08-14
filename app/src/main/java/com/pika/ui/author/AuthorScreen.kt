@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,19 +38,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
-import com.pika.ui.browse.BrowseViewModel
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.browse.PaginationBar
 
-/**
- * 作者作品列表：按作者筛选（哔咔 a 参数，服务端按作者返回）；禁漫源不支持作者浏览。
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthorComicsScreen(
     author: String,
     onBack: () -> Unit,
     onComicClick: (String) -> Unit = {},
-    viewModel: BrowseViewModel = viewModel(),
+    viewModel: AuthorViewModel = viewModel(),
 ) {
     val comics by viewModel.comics.collectAsState()
     val loading by viewModel.loading.collectAsState()
@@ -57,13 +55,26 @@ fun AuthorComicsScreen(
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val status by viewModel.status.collectAsState()
+    val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
 
+    // 保存滚动位置（导航离开时，如进入详情页）
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+        }
+    }
+    // 恢复滚动位置（导航返回时）
+    LaunchedEffect(viewModel.needsScrollRestore) {
+        if (viewModel.needsScrollRestore && viewModel.savedFirstVisibleIndex > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+        }
+    }
+
     LaunchedEffect(author, activeSource) {
-        viewModel.setAuthor(author)
-        viewModel.loadComics(page = 1)
+        viewModel.loadComics(author, page = 1)
     }
 
     LaunchedEffect(activeSource, supportedSorts) {
@@ -74,7 +85,6 @@ fun AuthorComicsScreen(
 
     val unsupported = activeSource == com.pika.core.source.SourceType.JMCOMIC
 
-    // 收藏状态（本地）
     var favourited by remember { mutableStateOf(com.pika.data.AuthorFavourites.contains(author)) }
     LaunchedEffect(author) {
         favourited = com.pika.data.AuthorFavourites.contains(author)
@@ -191,9 +201,14 @@ fun AuthorComicsScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = { viewModel.loadComics(page = viewModel.currentPage + 1) },
+                    onLoadMore = { viewModel.loadMore() },
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
+                )
+                PaginationBar(
+                    currentPage = viewModel.currentPage,
+                    totalPages = totalPages,
+                    onPageChange = { viewModel.jumpToPage(it) },
                 )
             }
         }

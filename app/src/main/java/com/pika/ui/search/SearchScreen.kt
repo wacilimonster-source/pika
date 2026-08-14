@@ -26,9 +26,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,9 +57,24 @@ fun SearchScreen(
     val keyword by viewModel.keyword.collectAsState()
     val currentSort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
+    val multiLoading by viewModel.multiLoading.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    // 保存滚动位置（页面不可见时，如导航到详情）
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+        }
+    }
+    // 恢复滚动位置（首次组成为 false，导航返回后为 true）
+    LaunchedEffect(viewModel.isScrollStateRestored) {
+        if (viewModel.savedFirstVisibleIndex > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+            viewModel.markScrollStateRestored()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -102,28 +120,28 @@ fun SearchScreen(
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.DD,
-                    onClick = { viewModel.updateFilter(sort = ComicSort.DD) },
+                    onClick = { viewModel.updateSortOnly(ComicSort.DD) },
                     label = { Text("新到旧") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.DA,
-                    onClick = { viewModel.updateFilter(sort = ComicSort.DA) },
+                    onClick = { viewModel.updateSortOnly(ComicSort.DA) },
                     label = { Text("旧到新") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.LD,
-                    onClick = { viewModel.updateFilter(sort = ComicSort.LD) },
+                    onClick = { viewModel.updateSortOnly(ComicSort.LD) },
                     label = { Text("最多喜欢") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.VD,
-                    onClick = { viewModel.updateFilter(sort = ComicSort.VD) },
+                    onClick = { viewModel.updateSortOnly(ComicSort.VD) },
                     label = { Text("最多观看") },
                 )
             }
@@ -147,14 +165,22 @@ fun SearchScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = {},
+                    onLoadMore = { viewModel.loadMore() },
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                 )
+                if (multiLoading) {
+                    Text(
+                        text = "后台仍在加载更多结果...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
                 com.pika.ui.browse.PaginationBar(
                     currentPage = viewModel.currentPage,
                     totalPages = totalPages,
-                    onPageChange = { viewModel.search(keyword, page = it) },
+                    onPageChange = { viewModel.jumpToPage(it) },
                 )
             }
         }

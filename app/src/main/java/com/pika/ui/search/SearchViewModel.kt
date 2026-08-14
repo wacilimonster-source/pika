@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeout
 
 /**
  * 搜索 VM：关键词分页搜索（当前源）。
@@ -32,11 +31,11 @@ class SearchViewModel : ViewModel() {
     private val _comics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val comics: StateFlow<List<ComicSummary>> = _comics
 
-    /** 初始加载中（用于显示加载指示器）；多词背景加载时不阻塞 UI */
+    /** 初始加载中（用于显示加载指示器）；多词后台加载时不阻塞 UI */
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
 
-    /** 多词背景加载中（初始加载完成后，后台继续拉取剩余页时为 true） */
+    /** 多词后台加载中（初始显示后，后台继续拉取剩余页时为 true） */
     private val _multiLoading = MutableStateFlow(false)
     val multiLoading: StateFlow<Boolean> = _multiLoading
 
@@ -59,11 +58,30 @@ class SearchViewModel : ViewModel() {
     /** 当前搜索任务（用于中途取消） */
     private var searchJob: Job? = null
 
+    /** 用于列表滚动位置恢复 */
+    private var _savedFirstVisibleIndex: Int = 0
+    val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
+
+    private var _savedCurrentPage: Int = 1
+    val savedCurrentPage: Int get() = _savedCurrentPage
+
+    /** 是否已恢复过（首次组成为 false，之后为 true） */
+    var isScrollStateRestored: Boolean = false
+        private set
+
+    /** 保存列表滚动位置（ DisposableEffect ON_PAUSE 时调用） */
+    fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {
+        _savedFirstVisibleIndex = firstVisibleIndex
+        _savedCurrentPage = currentPage
+    }
+
+    /** 通知滚动状态已恢复（用于 LaunchedEffect key 变化触发） */
+    fun markScrollStateRestored() {
+        isScrollStateRestored = true
+    }
+
     /** 多词搜索专用 scope（所有子协程通过它创建，便于中途取消） */
     private var multiSearchJob: Job? = null
-
-    /** 多词检索结果缓存（key = 关键词），按关键字缓存交集全量结果，切换排序时只重排不重新请求 */
-    private val multiCache = mutableMapOf<String, List<ComicSummary>>()
 
     /** 多词检索并发上限与请求间隔 */
     private val multiConcurrency = 4
@@ -76,10 +94,12 @@ class SearchViewModel : ViewModel() {
 
     // ---- 多词渐进式加载的临时状态（在一次多词搜索期间使用） ----
     private var _multiAllComics: MutableList<ComicSummary> = mutableListOf()
-    /** 最近一次已确认的交集 id 集合（用于最终缓存） */
+    /** 最近一次已确认的交集 id 集合 */
     private var _confirmedIntersectionIds: Set<String> = emptySet()
-    /** 最近已确认的交集大小 */
-    private var _lastIntersectionSize: Int = 0
+
+    /** 多词搜索是否已完成（所有词所有页都拉完，或被取消） */
+    private val _multiSearchComplete = MutableStateFlow(false)
+    val multiSearchComplete: StateFlow<Boolean> = _multiSearchComplete
 
     fun loadHotWords() {
         if (_hotWords.value.isNotEmpty()) return
@@ -109,7 +129,6 @@ class SearchViewModel : ViewModel() {
     }
 
     fun search(keyword: String, page: Int) {
-        // 中途切换关键词：立即取消旧任务，清空结果，显示 loading
         searchJob?.cancel()
         _comics.value = emptyList()
         _loading.value = true
@@ -119,7 +138,7 @@ class SearchViewModel : ViewModel() {
         currentPage = 1
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()
-        _lastIntersectionSize = 0
+        _multiSearchComplete.value = false
 
         multiSearchJob = viewModelScope.launch {
             try {
@@ -129,34 +148,19 @@ class SearchViewModel : ViewModel() {
                     .filter { it.isNotBlank() }
                     .distinct()
                 if (words.size <= 1) {
-                    // -------------------- 单词搜索（服务端分页） --------------------
+                    _multiSearchComplete.value = true
                     val result = source.search(
                         keyword = keyword,
                         page = page,
                         sort = _sort.value,
                     )
-                    // 检查是否被取消/关键词已变更
                     if (_keyword.value != keyword) return@launch
                     _comics.value = result.items
                     _totalPages.value = result.pages.coerceAtLeast(1)
                     _endReached.value = page >= result.pages
                     currentPage = page
                 } else {
-                    // -------------------- 多词搜索（且关系，交集渐进式加载） --------------------
-                    val cacheKey = keyword.trim()
-                    val cached = multiCache[cacheKey]
-                    if (cached != null) {
-                        // 缓存命中：直接本地分页
-                        if (_keyword.value != keyword) return@launch
-                        _comics.value = cached.sortedByComicSort(_sort.value)
-                        _totalPages.value = (cached.size + pageSize - 1) / pageSize
-                        _endReached.value = true
-                        currentPage = 1
-                        _loading.value = false
-                    } else {
-                        // 首次计算交集，够 1 页后先显示，后台继续拉完
-                        computeMultiWordIntersection(source, words, cacheKey, this)
-                    }
+                    computeMultiWordIntersection(source, words, this)
                 }
             } finally {
                 _loading.value = false
@@ -169,13 +173,11 @@ class SearchViewModel : ViewModel() {
      * 1. 先获取每词的总页数
      * 2. 对每词逐页拉取，逐步扩展交集集合
      * 3. 够 1 页（20 条）后立即显示；后台继续拉完所有页
-     * 4. 全部拉完后，启用完整客户端分页
-     * @param scope 用于创建并发子协程（searchJob 的子 scope，可随搜索取消而取消）
+     * 4. 全部拉完后，启用完整客户端分页（无超时上限）
      */
     private suspend fun computeMultiWordIntersection(
         source: Source,
         words: List<String>,
-        cacheKey: String,
         scope: CoroutineScope,
     ) {
         coroutineScope {
@@ -189,14 +191,12 @@ class SearchViewModel : ViewModel() {
             }
             val wordPageCounts = wordPageCountDefs.map { it.await() }
 
-            // 每词当前已拉到的页数
             val wordProgress = words.associateWith { 0 }.toMutableMap()
-            // 每词的 id 集合
             val wordIdSets = mutableMapOf<String, MutableSet<String>>().apply {
                 words.forEach { put(it, mutableSetOf()) }
             }
 
-            // 阶段 2：拉每词第 1 页，建立初始交集
+            // 阶段 1：拉每词第 1 页，建立初始交集
             for (word in words) {
                 val page = (wordProgress[word] ?: 0) + 1
                 val items = semaphore.withPermit {
@@ -211,59 +211,49 @@ class SearchViewModel : ViewModel() {
             }
             val intersection = computeIntersection(wordIdSets, words)
             _confirmedIntersectionIds = intersection
-            if (_keyword.value == cacheKey) {
+            if (_keyword.value == words.joinToString(" ")) {
                 publishDisplay(intersection, complete = false)
             }
 
-            // 阶段 3：继续拉取剩余页，逐步扩展交集（并发）
-            withTimeout(180_000) {
-                var madeProgress = true
-                while (madeProgress) {
-                    madeProgress = false
-                    // 找出还未拉完的词
-                    val pendingWords = wordPageCounts.filter { (w, totalPages) ->
-                        (wordProgress[w] ?: 0) < totalPages
-                    }
-                    if (pendingWords.isEmpty()) break
+            // 阶段 2：继续拉取剩余页，逐步扩展交集（无超时上限，持续拉取直到所有词都拉完）
+            var madeProgress = true
+            while (madeProgress) {
+                madeProgress = false
+                val pendingWords = wordPageCounts.filter { (w, totalPages) ->
+                    (wordProgress[w] ?: 0) < totalPages
+                }
+                if (pendingWords.isEmpty()) break
 
-                    madeProgress = true
-                    // 并发拉取这些词的下一页
-                    val pageJobs = pendingWords.map { (w, _) ->
-                        scope.async {
-                            val nextPage = (wordProgress[w] ?: 0) + 1
-                            val items = semaphore.withPermit {
-                                delay(250)
-                                runCatching { searchWithRetry(source, w, nextPage) }.getOrNull()?.items ?: emptyList()
-                            }
-                            w to items
+                madeProgress = true
+                val pageJobs = pendingWords.map { (w, _) ->
+                    scope.async {
+                        val nextPage = (wordProgress[w] ?: 0) + 1
+                        val items = semaphore.withPermit {
+                            delay(250)
+                            runCatching { searchWithRetry(source, w, nextPage) }.getOrNull()?.items ?: emptyList()
                         }
+                        w to items
                     }
-                    for (job in pageJobs) {
-                        val (w, items) = job.await()
-                        if (items.isNotEmpty()) {
-                            _multiAllComics.addAll(items)
-                            wordIdSets[w]?.addAll(items.map { it.id })
-                            wordProgress[w] = (wordProgress[w] ?: 0) + 1
-                        }
+                }
+                for (job in pageJobs) {
+                    val (w, items) = job.await()
+                    if (items.isNotEmpty()) {
+                        _multiAllComics.addAll(items)
+                        wordIdSets[w]?.addAll(items.map { it.id })
+                        wordProgress[w] = (wordProgress[w] ?: 0) + 1
                     }
+                }
 
-                    // 重新计算交集，如有更新则刷新显示
-                    val newIntersection = computeIntersection(wordIdSets, words)
-                    if (newIntersection != _confirmedIntersectionIds && _keyword.value == cacheKey) {
-                        _confirmedIntersectionIds = newIntersection
-                        publishDisplay(newIntersection, complete = false)
-                    }
+                val newIntersection = computeIntersection(wordIdSets, words)
+                if (newIntersection != _confirmedIntersectionIds && _keyword.value == words.joinToString(" ")) {
+                    _confirmedIntersectionIds = newIntersection
+                    publishDisplay(newIntersection, complete = false)
                 }
             }
 
-            // 全部拉完，构建最终结果（仅含交集 comics）并缓存
-            val intersectionComics = _multiAllComics
-                .filter { it.id in _confirmedIntersectionIds }
-                .distinctBy { it.id }
-                .sortedByComicSort(_sort.value)
-            if (_keyword.value == cacheKey) {
-                multiCache[cacheKey] = intersectionComics
-                publishFinalResult(intersectionComics, _confirmedIntersectionIds.size)
+            // 全部拉完，发布最终结果
+            if (_keyword.value == words.joinToString(" ")) {
+                publishFinalResult(_confirmedIntersectionIds)
             }
         }
     }
@@ -278,12 +268,22 @@ class SearchViewModel : ViewModel() {
         return result
     }
 
-    /** 从当前积累的 comics 构建展示列表（仅取当前确认的交集） */
+    /** 从当前积累的 comics 构建展示列表（取当前确认的交集，按 sort 排序后取前 pageSize 条） */
     private fun buildDisplay(): List<ComicSummary> {
         return _multiAllComics
             .filter { it.id in _confirmedIntersectionIds }
             .distinctBy { it.id }
             .sortedByComicSort(_sort.value)
+            .take(pageSize)
+    }
+
+    /** 构建指定页的展示数据（从已确认交集中分页） */
+    private fun buildDisplayForPage(page: Int): List<ComicSummary> {
+        return _multiAllComics
+            .filter { it.id in _confirmedIntersectionIds }
+            .distinctBy { it.id }
+            .sortedByComicSort(_sort.value)
+            .drop((page - 1) * pageSize)
             .take(pageSize)
     }
 
@@ -296,37 +296,45 @@ class SearchViewModel : ViewModel() {
             _multiLoading.value = !complete
             _endReached.value = complete
             _totalPages.value = if (complete) (intersection.size + pageSize - 1) / pageSize else 1
-            _lastIntersectionSize = intersection.size
         }
     }
 
-    /** 发布最终结果，启用完整分页 */
-    private fun publishFinalResult(allComics: List<ComicSummary>, totalCount: Int) {
-        _comics.value = allComics
+    /** 发布最终结果，多词搜索完成 */
+    private fun publishFinalResult(intersection: Set<String>) {
+        _confirmedIntersectionIds = intersection
+        _comics.value = buildDisplay()
         _loading.value = false
         _multiLoading.value = false
         _endReached.value = true
-        _totalPages.value = (totalCount + pageSize - 1) / pageSize.coerceAtLeast(1)
-        _lastIntersectionSize = totalCount
+        _multiSearchComplete.value = true
+        _totalPages.value = (intersection.size + pageSize - 1) / pageSize.coerceAtLeast(1)
+    }
+
+    /**
+     * 排序切换（多词场景：不重新请求，只重排已有交集数据）
+     */
+    fun updateSortOnly(sort: ComicSort) {
+        _sort.value = sort
+        _comics.value = buildDisplay()
+    }
+
+    /** 跳转到多词搜索的指定页（不重新请求，只做客户端分页） */
+    fun jumpToPage(page: Int) {
+        if (!_multiSearchComplete.value) return
+        val pageComics = buildDisplayForPage(page)
+        if (pageComics.isEmpty()) return
+        _comics.value = pageComics
+        currentPage = page
+        _endReached.value = page >= _totalPages.value
     }
 
     /** 加载更多（多词场景：交集完成后按页追加） */
     fun loadMore() {
-        if (_loading.value || _endReached.value) return
-        val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (words.size <= 1) {
-            search(_keyword.value, currentPage + 1)
-            return
-        }
-        // 多词交集已完成，按页追加（客户端分页）
-        val cacheKey = _keyword.value.trim()
-        val cached = multiCache[cacheKey] ?: return
+        if (_loading.value) return
+        if (!_multiSearchComplete.value) return
 
         val nextPage = currentPage + 1
-        val pageComics = cached
-            .sortedByComicSort(_sort.value)
-            .drop((nextPage - 1) * pageSize)
-            .take(pageSize)
+        val pageComics = buildDisplayForPage(nextPage)
         if (pageComics.isEmpty()) {
             _endReached.value = true
             return

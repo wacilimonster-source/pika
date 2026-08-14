@@ -63,6 +63,26 @@ class BrowseViewModel : ViewModel() {
     var currentPage: Int = 1
         private set
 
+    /** 用于列表滚动位置恢复 */
+    private var _savedFirstVisibleIndex: Int = 0
+    val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
+
+    private var _savedCurrentPage: Int = 1
+    val savedCurrentPage: Int get() = _savedCurrentPage
+
+    /** 是否已恢复过滚动位置 */
+    var isScrollStateRestored: Boolean = false
+        private set
+
+    fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {
+        _savedFirstVisibleIndex = firstVisibleIndex
+        _savedCurrentPage = currentPage
+    }
+
+    fun markScrollStateRestored() {
+        isScrollStateRestored = true
+    }
+
     fun loadCategories() {
         viewModelScope.launch {
             try {

@@ -50,13 +50,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -177,6 +179,21 @@ fun CategoryComicsScreen(
     val sort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
+
+    // 保存滚动位置
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+        }
+    }
+    // 恢复滚动位置
+    LaunchedEffect(viewModel.isScrollStateRestored) {
+        if (viewModel.savedFirstVisibleIndex > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+            viewModel.markScrollStateRestored()
+        }
+    }
+
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }

@@ -19,9 +19,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +64,33 @@ fun HomeScreen(
     val randomLoading by viewModel.randomLoading.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
+
+    val followGridState = rememberLazyGridState()
+    val rankGridState = rememberLazyGridState()
+    val randomGridState = rememberLazyGridState()
+
+    // 保存当前 Tab 的滚动位置（导航离开时）
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.saveScrollState(selectedTab, followGridState.firstVisibleItemIndex)
+        }
+    }
+    // 恢复滚动位置
+    LaunchedEffect(viewModel.isScrollStateRestored) {
+        val index = when (selectedTab) {
+            0 -> viewModel.savedFollowIndex
+            1 -> viewModel.savedRankIndex
+            else -> viewModel.savedRandomIndex
+        }
+        if (index > 0) {
+            when (selectedTab) {
+                0 -> followGridState.scrollToItem(index)
+                1 -> rankGridState.scrollToItem(index)
+                else -> randomGridState.scrollToItem(index)
+            }
+            viewModel.markScrollStateRestored()
+        }
+    }
 
     LaunchedEffect(Unit) {
         com.pika.core.update.UpdateState.checkOnce()
@@ -148,6 +178,7 @@ fun HomeScreen(
                 onLoadMore = viewModel::loadMore,
                 onRefresh = viewModel::refresh,
                 onComicClick = onComicClick,
+                gridState = followGridState,
                 modifier = Modifier.padding(innerPadding),
             )
             1 -> RankTab(
@@ -157,6 +188,7 @@ fun HomeScreen(
                 error = rankError,
                 onTypeChange = viewModel::loadRank,
                 onComicClick = onComicClick,
+                gridState = rankGridState,
                 modifier = Modifier.padding(innerPadding),
             )
             else -> RandomTab(
@@ -164,6 +196,7 @@ fun HomeScreen(
                 loading = randomLoading,
                 onRefresh = viewModel::refreshRandom,
                 onComicClick = onComicClick,
+                gridState = randomGridState,
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -182,9 +215,9 @@ private fun FollowTab(
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
-    val gridState = rememberLazyGridState()
     // 刷新完成后回到顶部，从最新内容开始展示
     LaunchedEffect(refreshTick) {
         if (refreshTick > 0 && comics.isNotEmpty()) {
@@ -227,6 +260,7 @@ private fun RankTab(
     error: String?,
     onTypeChange: (String) -> Unit,
     onComicClick: (String) -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize()) {
@@ -278,7 +312,7 @@ private fun RankTab(
                 comics = rankComics,
                 loading = loading,
                 endReached = true,
-                listState = rememberLazyGridState(),
+                listState = gridState,
                 onLoadMore = {},
                 onComicClick = onComicClick,
             )
@@ -294,6 +328,7 @@ private fun RandomTab(
     loading: Boolean,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(
@@ -314,7 +349,7 @@ private fun RandomTab(
                 comics = comics,
                 loading = loading,
                 endReached = true,
-                listState = rememberLazyGridState(),
+                listState = gridState,
                 onLoadMore = {},
                 onComicClick = onComicClick,
             )

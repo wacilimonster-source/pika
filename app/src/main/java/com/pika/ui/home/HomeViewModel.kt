@@ -81,6 +81,31 @@ class HomeViewModel : ViewModel() {
 
     private var followLoadingJob: kotlinx.coroutines.Job? = null
 
+    /** 各 Tab 滚动位置恢复 */
+    private var _savedFollowIndex = 0
+    val savedFollowIndex: Int get() = _savedFollowIndex
+
+    private var _savedRankIndex = 0
+    val savedRankIndex: Int get() = _savedRankIndex
+
+    private var _savedRandomIndex = 0
+    val savedRandomIndex: Int get() = _savedRandomIndex
+
+    var isScrollStateRestored: Boolean = false
+        private set
+
+    fun saveScrollState(tab: Int, index: Int) {
+        when (tab) {
+            0 -> _savedFollowIndex = index
+            1 -> _savedRankIndex = index
+            2 -> _savedRandomIndex = index
+        }
+    }
+
+    fun markScrollStateRestored() {
+        isScrollStateRestored = true
+    }
+
     /** 加载指定排行榜（日 H24 / 周 D7 / 月 D30） */
     fun loadRank(type: String) {
         if (_rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
