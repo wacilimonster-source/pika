@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
+import com.pika.core.model.sortedByComicSort
 import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
 import com.pika.data.AuthorFavourites
@@ -141,6 +142,7 @@ class HomeViewModel : ViewModel() {
     /**
      * 拉取所有来源的指定页。串行执行：哔咔服务端对高频并发请求会挂起（限速 ~2/s），
      * 多词拉取一次几十页，必须与其他来源错开；单词来源排前尽快出内容。
+     * 已到末页的来源直接跳过。
      */
     private suspend fun fetchTargetPage(page: Int): List<ComicSummary> {
         val source = SourceManager.current()
@@ -149,10 +151,13 @@ class HomeViewModel : ViewModel() {
             if (it.type == FollowTargetType.KEYWORD && it.name.isNotBlank() && it.name.split(Regex("\\s+")).size > 1) 1 else 0
         }
         for (target in ordered) {
+            if (targetEnded[target.key] == true) continue
             result += try {
                 when (target.type) {
+                    // 作者作品用全文搜索（关键字=作者名）拉取：浏览接口不带时间字段，
+                    // 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。
                     FollowTargetType.AUTHOR ->
-                        source.browse(page = page, category = null, sort = ComicSort.DD, author = target.name)
+                        source.search(keyword = target.name, page = page, sort = ComicSort.DD)
                             .also { r ->
                                 targetPages[target.key] = page
                                 if (page >= r.pages) targetEnded[target.key] = true
@@ -185,18 +190,18 @@ class HomeViewModel : ViewModel() {
             return result.items
         }
         // 多词关注项：每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页）取交集，
-        // 一次拉完（无需滚动分页）；Semaphore 控制并发避免限流。
+        // 一次拉完（无需滚动分页）；Semaphore 控制并发避免限流（实测并发 4 安全）。
         if (startPage > 1) {
             targetEnded[target.key] = true
             return emptyList()
         }
-        val semaphore = Semaphore(1)
+        val semaphore = Semaphore(4)
         val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
             words.map { word ->
                 async {
                     semaphore.withPermit {
-                        kotlinx.coroutines.delay(500)
-                        val first = runCatching { source.search(word, 1, ComicSort.DD) }.getOrNull()
+                        kotlinx.coroutines.delay(250)
+                        val first = runCatching { searchWithRetry(source, word, 1) }.getOrNull()
                         word to (first?.pages ?: 1).coerceIn(1, 50)
                     }
                 }
@@ -208,8 +213,8 @@ class HomeViewModel : ViewModel() {
                     async {
                         (1..pages).mapNotNull { p ->
                             semaphore.withPermit {
-                                kotlinx.coroutines.delay(500)
-                                runCatching { source.search(word, p, ComicSort.DD).items }.getOrNull()
+                                kotlinx.coroutines.delay(250)
+                                runCatching { searchWithRetry(source, word, p) }.getOrNull()?.items
                             }
                         }.flatten()
                     }
@@ -222,7 +227,25 @@ class HomeViewModel : ViewModel() {
         targetEnded[target.key] = true
         return common
             .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
-            .sortedByDescending { it.updatedAt }
+            .sortedByComicSort(ComicSort.DD)
+    }
+
+    /** 单词/多词搜索，失败自动重试 */
+    private suspend fun searchWithRetry(
+        source: Source,
+        word: String,
+        page: Int,
+    ): com.pika.core.model.PageResult<ComicSummary> {
+        var last: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                return source.search(word, page, ComicSort.DD)
+            } catch (e: Exception) {
+                last = e
+                if (attempt < 2) kotlinx.coroutines.delay(500)
+            }
+        }
+        throw last ?: RuntimeException("search failed")
     }
 
     /** 合并新拉取的漫画：按 id 去重、按更新时间（ISO 前缀字典序）由近至远排序 */

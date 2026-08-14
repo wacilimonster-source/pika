@@ -71,6 +71,14 @@ enum class ComicSort(val label: String) {
     VD("最多观看"),
 }
 
+/** 按排序方式对已加载列表重排（多词交集等本地聚合场景） */
+fun List<ComicSummary>.sortedByComicSort(sort: ComicSort): List<ComicSummary> = when (sort) {
+    ComicSort.DD -> sortedByDescending { it.updatedAt }
+    ComicSort.DA -> sortedBy { it.updatedAt }
+    ComicSort.LD -> sortedByDescending { it.totalLikes }
+    ComicSort.VD -> sortedByDescending { it.totalViews }
+}
+
 /** 连载状态筛选 */
 enum class ComicStatus(val label: String) {
     ALL("全部"),

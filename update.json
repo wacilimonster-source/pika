@@ -1,1 +1,1 @@
-{"version":"1.5.6","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.6.apk","notes":"v1.5.6 更新：\n1. 修复多关键词搜索无结果：每个关键词检索其全部可返回结果后取交集（且关系），关键词可命中标题/标签/简介\n2. 关注流多关键词关注同步修复\n3. 修复关注管理添加关注时偶发崩溃"}
+{"version":"1.5.7","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.7.apk","notes":"v1.5.7 更新：\n1. 修复注册报错：安全问答字段未随请求发送\n2. 多关键词搜索提速（并发检索+失败重试+结果缓存），支持按喜欢/观看/时间排序\n3. 关注流作者作品改按最新更新时间展示\n4. 首页默认显示排行榜"}

@@ -57,7 +57,7 @@ fun HomeScreen(
     val rankError by viewModel.rankError.collectAsState()
     val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(1) }
 
     LaunchedEffect(Unit) {
         com.pika.core.update.UpdateState.checkOnce()

@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
+import com.pika.core.model.sortedByComicSort
+import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -43,6 +46,17 @@ class SearchViewModel : ViewModel() {
 
     var currentPage: Int = 1
         private set
+
+    /** 多词检索结果缓存（key = "关键词|sort"），5 分钟内重复搜索直接复用 */
+    private data class MultiSearchCache(val comics: List<ComicSummary>, val fetchedAt: Long)
+
+    private val multiCache = mutableMapOf<String, MultiSearchCache>()
+
+    /** 多词检索并发上限与请求间隔（实测服务端对系统 TLS 并发 6 无限制，留余量取 4） */
+    private val multiConcurrency = 4
+
+    /** 单页请求失败重试次数 */
+    private val pageRetryCount = 2
 
     fun loadHotWords() {
         if (_hotWords.value.isNotEmpty()) return
@@ -96,41 +110,52 @@ class SearchViewModel : ViewModel() {
                     // 多关键词（且关系）：服务端不支持空格分词与标签筛选，
                     // 每个词分别全文搜索（标题/标签/简介），取 id 交集。
                     // 每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页），
-                    // 避免交集作品分布靠后导致无结果；Semaphore 控制并发避免限流。
-                    val semaphore = Semaphore(1)
-                    val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
-                        words.map { word ->
-                            async {
-                                semaphore.withPermit {
-                                    kotlinx.coroutines.delay(500)
-                                    val first = runCatching { source.search(word, 1, _sort.value) }.getOrNull()
-                                    word to (first?.pages ?: 1).coerceIn(1, 50)
-                                }
-                            }
-                        }.map { it.await() }
-                    }
-                    val wordSets: List<List<ComicSummary>> = kotlinx.coroutines.withTimeout(120_000) {
-                        coroutineScope {
-                            wordPageCounts.map { (word, pages) ->
+                    // 避免交集作品分布靠后导致无结果。
+                    val cacheKey = "${keyword.trim()}|${_sort.value.name}"
+                    val cached = multiCache[cacheKey]
+                    if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 5 * 60_000L) {
+                        _comics.value = cached.comics
+                        _totalPages.value = 1
+                        _endReached.value = true
+                        currentPage = 1
+                    } else {
+                        val semaphore = Semaphore(multiConcurrency)
+                        val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
+                            words.map { word ->
                                 async {
-                                    (1..pages).mapNotNull { p ->
-                                        semaphore.withPermit {
-                                            kotlinx.coroutines.delay(500)
-                                            runCatching { source.search(word, p, _sort.value).items }.getOrNull()
-                                        }
-                                    }.flatten()
+                                    semaphore.withPermit {
+                                        delay(250)
+                                        val first = runCatching { searchWithRetry(source, word, 1) }.getOrNull()
+                                        word to (first?.pages ?: 1).coerceIn(1, 50)
+                                    }
                                 }
                             }.map { it.await() }
                         }
+                        val wordSets: List<List<ComicSummary>> = kotlinx.coroutines.withTimeout(120_000) {
+                            coroutineScope {
+                                wordPageCounts.map { (word, pages) ->
+                                    async {
+                                        (1..pages).mapNotNull { p ->
+                                            semaphore.withPermit {
+                                                delay(250)
+                                                runCatching { searchWithRetry(source, word, p) }.getOrNull()?.items
+                                            }
+                                        }.flatten()
+                                    }
+                                }.map { it.await() }
+                            }
+                        }
+                        val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
+                        val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
+                        val result = common
+                            .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
+                            .sortedBySort(_sort.value)
+                        multiCache[cacheKey] = MultiSearchCache(result, System.currentTimeMillis())
+                        _comics.value = result
+                        _totalPages.value = 1
+                        _endReached.value = true
+                        currentPage = 1
                     }
-                    val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
-                    val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
-                    _comics.value = common
-                        .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
-                        .sortedByDescending { it.updatedAt }
-                    _totalPages.value = 1
-                    _endReached.value = true
-                    currentPage = 1
                 }
             } catch (e: Exception) {
                 // 搜索失败保留已有结果
@@ -139,4 +164,25 @@ class SearchViewModel : ViewModel() {
             }
         }
     }
+
+    /** 单页搜索，失败自动重试 */
+    private suspend fun searchWithRetry(
+        source: Source,
+        word: String,
+        page: Int,
+    ): com.pika.core.model.PageResult<ComicSummary> {
+        var last: Exception? = null
+        repeat(pageRetryCount + 1) { attempt ->
+            try {
+                return source.search(word, page, _sort.value)
+            } catch (e: Exception) {
+                last = e
+                if (attempt < pageRetryCount) delay(500)
+            }
+        }
+        throw last ?: RuntimeException("search failed")
+    }
 }
+
+/** 按当前排序方式对多词交集结果排序（哔咔服务端排序只影响翻页集合，集合不变） */
+private fun List<ComicSummary>.sortedBySort(sort: ComicSort): List<ComicSummary> = sortedByComicSort(sort)
