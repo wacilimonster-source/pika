@@ -3,13 +3,6 @@
 import android.net.Uri
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -19,7 +12,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -45,14 +37,13 @@ import com.pika.ui.settings.SettingsScreen
 private data class TabItem(
     val route: String,
     val label: String,
-    val icon: ImageVector,
 )
 
 private val tabs = listOf(
-    TabItem("home", "首页", Icons.Filled.Home),
-    TabItem("category", "分类", Icons.AutoMirrored.Filled.List),
-    TabItem("search", "搜索", Icons.Filled.Search),
-    TabItem("mine", "我的", Icons.Filled.Person),
+    TabItem("home", "首页"),
+    TabItem("category", "分类"),
+    TabItem("search", "搜索"),
+    TabItem("mine", "我的"),
 )
 
 @Composable
@@ -76,7 +67,7 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(64.dp)) {
+            NavigationBar(modifier = Modifier.height(56.dp)) {
                 tabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy
                         ?.any { it.route == tab.route } == true
@@ -91,8 +82,8 @@ fun MainScreen() {
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(tab.icon, contentDescription = tab.label, modifier = Modifier.size(22.dp)) },
-                        label = { Text(tab.label, fontSize = 10.sp) },
+                        icon = {},
+                        label = { Text(tab.label, fontSize = 12.sp) },
                     )
                 }
             }
@@ -111,8 +102,8 @@ fun MainScreen() {
                     onResumeReading = { id, order ->
                         navController.navigate("reader/${Uri.encode(id)}/$order")
                     },
-                    onOpenRank = {
-                        navController.navigate("rank")
+                    onOpenHistory = {
+                        navController.navigate("recent-reads")
                     },
                 )
             }
@@ -146,6 +137,7 @@ fun MainScreen() {
                     onOpenDownloads = { navController.navigate("downloads") },
                     onOpenFavourites = { navController.navigate("favourites") },
                     onOpenAuthorFavourites = { navController.navigate("author-favourites") },
+                    onOpenFollowManage = { navController.navigate("follow-manage") },
                     onOpenReader = { comicId, order ->
                         navController.navigate("reader/${Uri.encode(comicId)}/$order")
                     },
@@ -197,6 +189,11 @@ fun MainScreen() {
                     onOpenAuthor = { author ->
                         navController.navigate("author/${Uri.encode(author)}")
                     },
+                )
+            }
+            composable("follow-manage") {
+                com.pika.ui.follow.FollowManageScreen(
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("login") {
