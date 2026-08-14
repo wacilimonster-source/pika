@@ -221,7 +221,7 @@ data class FetchChapterImagesResponse(
 @Serializable
 data class SearchPayload(
     val keyword: String,
-    val sort: String = ComicSortTypeName.DD,
+    @EncodeDefault val sort: String = ComicSortTypeName.DD,
     val categories: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val author: String? = null,

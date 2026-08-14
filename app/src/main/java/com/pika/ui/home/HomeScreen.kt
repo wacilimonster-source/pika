@@ -56,6 +56,7 @@ fun HomeScreen(
     val rankLoading by viewModel.rankLoading.collectAsState()
     val rankError by viewModel.rankError.collectAsState()
     val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
+    val followRefreshTick by viewModel.refreshTick.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
 
@@ -134,6 +135,7 @@ fun HomeScreen(
                 loading = followLoading,
                 endReached = followEndReached,
                 emptyHint = followEmptyHint,
+                refreshTick = followRefreshTick,
                 onLoadMore = viewModel::loadMore,
                 onRefresh = viewModel::refresh,
                 onComicClick = onComicClick,
@@ -160,11 +162,19 @@ private fun FollowTab(
     loading: Boolean,
     endReached: Boolean,
     emptyHint: String?,
+    refreshTick: Int,
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val gridState = rememberLazyGridState()
+    // 刷新完成后回到顶部，从最新内容开始展示
+    LaunchedEffect(refreshTick) {
+        if (refreshTick > 0 && comics.isNotEmpty()) {
+            gridState.scrollToItem(0)
+        }
+    }
     PullToRefreshBox(
         isRefreshing = loading,
         onRefresh = onRefresh,
@@ -184,7 +194,7 @@ private fun FollowTab(
                 comics = comics,
                 loading = loading,
                 endReached = endReached,
-                listState = rememberLazyGridState(),
+                listState = gridState,
                 onLoadMore = onLoadMore,
                 onComicClick = onComicClick,
             )

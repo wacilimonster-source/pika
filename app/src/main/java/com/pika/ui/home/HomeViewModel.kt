@@ -47,6 +47,10 @@ class HomeViewModel : ViewModel() {
     private val _followEmptyHint = MutableStateFlow<String?>(null)
     val followEmptyHint: StateFlow<String?> = _followEmptyHint.asStateFlow()
 
+    /** 关注流每次刷新完成 +1（UI 据此回到列表顶部，从最新开始展示） */
+    private val _refreshTick = MutableStateFlow(0)
+    val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
+
     private val _rankComics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val rankComics: StateFlow<List<ComicSummary>> = _rankComics.asStateFlow()
 
@@ -122,6 +126,7 @@ class HomeViewModel : ViewModel() {
             mergeIntoFeed(result)
             _followLoading.value = false
             _followEndReached.value = targetEnded.values.all { it }
+            _refreshTick.value++
         }
     }
 

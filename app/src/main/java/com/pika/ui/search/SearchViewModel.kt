@@ -47,10 +47,8 @@ class SearchViewModel : ViewModel() {
     var currentPage: Int = 1
         private set
 
-    /** 多词检索结果缓存（key = "关键词|sort"），5 分钟内重复搜索直接复用 */
-    private data class MultiSearchCache(val comics: List<ComicSummary>, val fetchedAt: Long)
-
-    private val multiCache = mutableMapOf<String, MultiSearchCache>()
+    /** 多词检索结果缓存（key = 关键词），按关键字缓存交集全量结果，切换排序时只重排不重新请求 */
+    private val multiCache = mutableMapOf<String, List<ComicSummary>>()
 
     /** 多词检索并发上限与请求间隔（实测服务端对系统 TLS 并发 6 无限制，留余量取 4） */
     private val multiConcurrency = 4
@@ -111,10 +109,10 @@ class SearchViewModel : ViewModel() {
                     // 每个词分别全文搜索（标题/标签/简介），取 id 交集。
                     // 每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页），
                     // 避免交集作品分布靠后导致无结果。
-                    val cacheKey = "${keyword.trim()}|${_sort.value.name}"
+                    val cacheKey = keyword.trim()
                     val cached = multiCache[cacheKey]
-                    if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 5 * 60_000L) {
-                        _comics.value = cached.comics
+                    if (cached != null) {
+                        _comics.value = cached.sortedByComicSort(_sort.value)
                         _totalPages.value = 1
                         _endReached.value = true
                         currentPage = 1
@@ -147,11 +145,10 @@ class SearchViewModel : ViewModel() {
                         }
                         val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
                         val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
-                        val result = common
+                        val inter = common
                             .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
-                            .sortedBySort(_sort.value)
-                        multiCache[cacheKey] = MultiSearchCache(result, System.currentTimeMillis())
-                        _comics.value = result
+                        multiCache[cacheKey] = inter
+                        _comics.value = inter.sortedByComicSort(_sort.value)
                         _totalPages.value = 1
                         _endReached.value = true
                         currentPage = 1
@@ -185,4 +182,4 @@ class SearchViewModel : ViewModel() {
 }
 
 /** 按当前排序方式对多词交集结果排序（哔咔服务端排序只影响翻页集合，集合不变） */
-private fun List<ComicSummary>.sortedBySort(sort: ComicSort): List<ComicSummary> = sortedByComicSort(sort)
+
