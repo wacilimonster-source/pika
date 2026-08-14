@@ -44,7 +44,9 @@ object FollowSettings {
         val words = keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.isEmpty()) return
         val list = items().filterNot { it.keywords == words }.toMutableList()
-        list.add(0, FollowItem(keywords = words))
+        var ts = System.currentTimeMillis()
+        while (list.any { it.createdAt == ts }) ts++
+        list.add(0, FollowItem(keywords = words, createdAt = ts))
         val p = prefs ?: return
         p.edit().putString(KEY_ITEMS, json.encodeToString(list)).apply()
     }

@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** 关注来源类型 */
 private enum class FollowTargetType { AUTHOR, KEYWORD }
@@ -136,28 +138,34 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    /** 拉取所有来源的指定页（并发，失败项静默跳过并视为末页） */
-    private suspend fun fetchTargetPage(page: Int): List<ComicSummary> = coroutineScope {
+    /**
+     * 拉取所有来源的指定页。串行执行：哔咔服务端对高频并发请求会挂起（限速 ~2/s），
+     * 多词拉取一次几十页，必须与其他来源错开；单词来源排前尽快出内容。
+     */
+    private suspend fun fetchTargetPage(page: Int): List<ComicSummary> {
         val source = SourceManager.current()
-        targets.mapNotNull { target ->
-            async {
-                try {
-                    when (target.type) {
-                        FollowTargetType.AUTHOR ->
-                            source.browse(page = page, category = null, sort = ComicSort.DD, author = target.name)
-                                .also { result ->
-                                    targetPages[target.key] = page
-                                    if (page >= result.pages) targetEnded[target.key] = true
-                                }.items
-                        FollowTargetType.KEYWORD ->
-                            fetchKeywordPage(source, target, page)
-                    }
-                } catch (e: Exception) {
-                    targetEnded[target.key] = true
-                    emptyList()
+        val result = mutableListOf<ComicSummary>()
+        val ordered = targets.sortedBy {
+            if (it.type == FollowTargetType.KEYWORD && it.name.isNotBlank() && it.name.split(Regex("\\s+")).size > 1) 1 else 0
+        }
+        for (target in ordered) {
+            result += try {
+                when (target.type) {
+                    FollowTargetType.AUTHOR ->
+                        source.browse(page = page, category = null, sort = ComicSort.DD, author = target.name)
+                            .also { r ->
+                                targetPages[target.key] = page
+                                if (page >= r.pages) targetEnded[target.key] = true
+                            }.items
+                    FollowTargetType.KEYWORD ->
+                        fetchKeywordPage(source, target, page)
                 }
+            } catch (e: Exception) {
+                targetEnded[target.key] = true
+                emptyList()
             }
-        }.mapNotNull { it.await() }.flatten()
+        }
+        return result
     }
 
     /**
@@ -176,23 +184,41 @@ class HomeViewModel : ViewModel() {
             if (startPage >= result.pages) targetEnded[target.key] = true
             return result.items
         }
-        // 多词关注项：每词前 10 页取交集，一次拉完（无需滚动分页）
+        // 多词关注项：每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页）取交集，
+        // 一次拉完（无需滚动分页）；Semaphore 控制并发避免限流。
         if (startPage > 1) {
             targetEnded[target.key] = true
             return emptyList()
         }
-        val wordSets: List<List<ComicSummary>> = coroutineScope {
+        val semaphore = Semaphore(1)
+        val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
             words.map { word ->
                 async {
-                    (1..10).mapNotNull { p ->
-                        runCatching { source.search(word, p, ComicSort.DD).items }.getOrNull()
-                    }.flatten()
+                    semaphore.withPermit {
+                        kotlinx.coroutines.delay(500)
+                        val first = runCatching { source.search(word, 1, ComicSort.DD) }.getOrNull()
+                        word to (first?.pages ?: 1).coerceIn(1, 50)
+                    }
                 }
             }.map { it.await() }
         }
+        val wordSets: List<List<ComicSummary>> = kotlinx.coroutines.withTimeout(120_000) {
+            coroutineScope {
+                wordPageCounts.map { (word, pages) ->
+                    async {
+                        (1..pages).mapNotNull { p ->
+                            semaphore.withPermit {
+                                kotlinx.coroutines.delay(500)
+                                runCatching { source.search(word, p, ComicSort.DD).items }.getOrNull()
+                            }
+                        }.flatten()
+                    }
+                }.map { it.await() }
+            }
+        }
         val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
         val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
-        targetPages[target.key] = 10
+        targetPages[target.key] = 50
         targetEnded[target.key] = true
         return common
             .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }

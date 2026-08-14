@@ -10,6 +10,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * 搜索 VM：关键词分页搜索（当前源）。
@@ -93,15 +95,33 @@ class SearchViewModel : ViewModel() {
                 } else {
                     // 多关键词（且关系）：服务端不支持空格分词与标签筛选，
                     // 每个词分别全文搜索（标题/标签/简介），取 id 交集。
-                    val perWordPages = 10
-                    val wordSets: List<List<ComicSummary>> = coroutineScope {
+                    // 每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页），
+                    // 避免交集作品分布靠后导致无结果；Semaphore 控制并发避免限流。
+                    val semaphore = Semaphore(1)
+                    val wordPageCounts: List<Pair<String, Int>> = coroutineScope {
                         words.map { word ->
                             async {
-                                (1..perWordPages).mapNotNull { p ->
-                                    runCatching { source.search(word, p, _sort.value).items }.getOrNull()
-                                }.flatten()
+                                semaphore.withPermit {
+                                    kotlinx.coroutines.delay(500)
+                                    val first = runCatching { source.search(word, 1, _sort.value) }.getOrNull()
+                                    word to (first?.pages ?: 1).coerceIn(1, 50)
+                                }
                             }
                         }.map { it.await() }
+                    }
+                    val wordSets: List<List<ComicSummary>> = kotlinx.coroutines.withTimeout(120_000) {
+                        coroutineScope {
+                            wordPageCounts.map { (word, pages) ->
+                                async {
+                                    (1..pages).mapNotNull { p ->
+                                        semaphore.withPermit {
+                                            kotlinx.coroutines.delay(500)
+                                            runCatching { source.search(word, p, _sort.value).items }.getOrNull()
+                                        }
+                                    }.flatten()
+                                }
+                            }.map { it.await() }
+                        }
                     }
                     val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
                     val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }

@@ -1,1 +1,1 @@
-{"version":"1.5.5","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.5.apk","notes":"v1.5.5 更新：\n1. 修复多关键词搜索无结果：改为每个关键词分别搜索后取交集（且关系），关键词可命中作品标题/标签/简介\n2. 关注流的多关键词关注同样生效"}
+{"version":"1.5.6","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.6.apk","notes":"v1.5.6 更新：\n1. 修复多关键词搜索无结果：每个关键词检索其全部可返回结果后取交集（且关系），关键词可命中标题/标签/简介\n2. 关注流多关键词关注同步修复\n3. 修复关注管理添加关注时偶发崩溃"}

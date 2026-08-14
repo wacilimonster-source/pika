@@ -78,7 +78,7 @@ fun FollowManageScreen(
             if (items.isEmpty()) {
                 item { EmptyHint("暂无关键词关注，点击添加") }
             }
-            items(items, key = { it.createdAt }) { item ->
+            items(items, key = { it.keywords.joinToString("+") }) { item ->
                 FollowRow(
                     name = item.keywords.joinToString(" + "),
                     onDelete = {
