@@ -18,7 +18,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -26,7 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,11 +53,8 @@ fun SearchScreen(
     val endReached by viewModel.endReached.collectAsState()
     val keyword by viewModel.keyword.collectAsState()
     val currentSort by viewModel.sort.collectAsState()
-    val tags by viewModel.tags.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     var input by remember { mutableStateOf("") }
-    var tagInput by remember { mutableStateOf("") }
-    var showTagDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
@@ -72,7 +67,7 @@ fun SearchScreen(
             value = input,
             onValueChange = { input = it },
             singleLine = true,
-            placeholder = { Text("搜索漫画") },
+            placeholder = { Text("搜索漫画，多个关键词用空格分隔") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
                 focusManager.clearFocus()
@@ -86,11 +81,10 @@ fun SearchScreen(
                 }
             },
             trailingIcon = {
-                if (input.isNotBlank() || keyword.isNotBlank() || tags.isNotEmpty()) {
+                if (input.isNotBlank() || keyword.isNotBlank()) {
                     IconButton(onClick = {
                         focusManager.clearFocus()
                         input = ""
-                        tagInput = ""
                         viewModel.resetAll()
                     }) {
                         Icon(Icons.Filled.Close, contentDescription = "重置")
@@ -133,29 +127,13 @@ fun SearchScreen(
                     label = { Text("最多观看") },
                 )
             }
-            item {
-                // 标签筛选：按钮 + 弹窗输入（多个标签逗号分隔）
-                FilterChip(
-                    selected = tags.isNotEmpty(),
-                    onClick = {
-                        tagInput = tags.joinToString(",")
-                        showTagDialog = true
-                    },
-                    label = {
-                        Text(
-                            if (tags.isEmpty()) "标签筛选" else "标签×${tags.size}",
-                            maxLines = 1,
-                        )
-                    },
-                )
-            }
         }
         if (comics.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = when {
                         loading -> "搜索中..."
-                        keyword.isBlank() && tags.isEmpty() -> "输入关键词或标签开始搜索"
+                        keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
                         else -> "没有更多结果"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -181,35 +159,4 @@ fun SearchScreen(
             }
         }
     }
-
-    if (showTagDialog) {
-        AlertDialog(
-            onDismissRequest = { showTagDialog = false },
-            title = { Text("标签筛选") },
-            text = {
-                OutlinedTextField(
-                    value = tagInput,
-                    onValueChange = { tagInput = it },
-                    singleLine = true,
-                    placeholder = { Text("多个标签用逗号分隔，如：校园,热血") },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    focusManager.clearFocus()
-                    applyTagFilter(tagInput, viewModel)
-                    showTagDialog = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTagDialog = false }) { Text("取消") }
-            },
-        )
-    }
-}
-
-private fun applyTagFilter(tagInput: String, viewModel: SearchViewModel) {
-    viewModel.updateFilter(
-        tags = tagInput.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
-    )
 }

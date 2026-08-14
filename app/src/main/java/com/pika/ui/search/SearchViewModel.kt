@@ -2,7 +2,6 @@ package com.pika.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
@@ -12,7 +11,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 搜索 VM：关键词分页搜索（当前源）。
- * 支持筛选：排序 / 标签。
+ * 支持多关键词（空格分隔，服务端全文搜索覆盖标题/标签）与排序筛选。
  */
 class SearchViewModel : ViewModel() {
 
@@ -31,12 +30,9 @@ class SearchViewModel : ViewModel() {
     private val _keyword = MutableStateFlow("")
     val keyword: StateFlow<String> = _keyword
 
-    // ---- 筛选状态（StateFlow，Compose 可观察） ----
+    // ---- 筛选状态（Compose 可观察） ----
     private val _sort = MutableStateFlow(ComicSort.DD)
     val sort: StateFlow<ComicSort> = _sort
-
-    private val _tags = MutableStateFlow<Set<String>>(emptySet())
-    val tags: StateFlow<Set<String>> = _tags
 
     private val _totalPages = MutableStateFlow(1)
     val totalPages: StateFlow<Int> = _totalPages
@@ -55,20 +51,12 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    fun updateFilter(
-        sort: ComicSort = _sort.value,
-        tags: Set<String> = _tags.value,
-    ) {
+    fun updateFilter(sort: ComicSort = _sort.value) {
         _sort.value = sort
-        _tags.value = tags
-        // 关键词为空时仅按标签筛选（标签搜索不依赖关键词）
         search(_keyword.value, page = 1)
     }
 
-    fun resetFilters() = updateFilter(
-        sort = ComicSort.DD,
-        tags = emptySet(),
-    )
+    fun resetFilters() = updateFilter(sort = ComicSort.DD)
 
     /** 完全重置搜索状态（清空结果 + 筛选 + 关键词） */
     fun resetAll() {
@@ -89,7 +77,6 @@ class SearchViewModel : ViewModel() {
                     keyword = keyword,
                     page = page,
                     sort = _sort.value,
-                    tags = _tags.value.toList(),
                 )
                 _comics.value = result.items
                 _totalPages.value = result.pages.coerceAtLeast(1)

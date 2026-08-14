@@ -1,1 +1,1 @@
-{"version":"1.5.3","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.3.apk","notes":"v1.5.3 更新：\n1. 移除分类标签关注功能\n2. 关键词关注支持组合关键词：多个关键词用空格分隔（如「校园 热血」），作品需同时包含全部关键词（且关系）\n3. 组合关键词在作品标题/标签中检索\n4. 关注管理页简化，仅保留关键词关注"}
+{"version":"1.5.4","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.4.apk","notes":"v1.5.4 更新：\n1. 搜索支持多关键词：多个关键词用空格分隔，作品标题/标签需同时包含（且关系）\n2. 移除搜索页标签筛选功能"}
