@@ -161,17 +161,42 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * 组合关键词拉取：服务端按空格连接全文搜索（覆盖标题/标签），不做二次过滤。
+     * 组合关键词拉取：服务端不支持空格分词，每个词分别全文搜索（标题/标签/简介）取 id 交集，
+     * 保证"且"关系且不误杀（词可分别命中标题或标签）。
      */
     private suspend fun fetchKeywordPage(
         source: Source,
         target: FollowTarget,
         startPage: Int,
     ): List<ComicSummary> {
-        val result = source.search(keyword = target.name, page = startPage, sort = ComicSort.DD)
-        targetPages[target.key] = startPage
-        if (startPage >= result.pages) targetEnded[target.key] = true
-        return result.items
+        val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+        if (words.size <= 1) {
+            val result = source.search(keyword = target.name, page = startPage, sort = ComicSort.DD)
+            targetPages[target.key] = startPage
+            if (startPage >= result.pages) targetEnded[target.key] = true
+            return result.items
+        }
+        // 多词关注项：每词前 10 页取交集，一次拉完（无需滚动分页）
+        if (startPage > 1) {
+            targetEnded[target.key] = true
+            return emptyList()
+        }
+        val wordSets: List<List<ComicSummary>> = coroutineScope {
+            words.map { word ->
+                async {
+                    (1..10).mapNotNull { p ->
+                        runCatching { source.search(word, p, ComicSort.DD).items }.getOrNull()
+                    }.flatten()
+                }
+            }.map { it.await() }
+        }
+        val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
+        val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
+        targetPages[target.key] = 10
+        targetEnded[target.key] = true
+        return common
+            .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
+            .sortedByDescending { it.updatedAt }
     }
 
     /** 合并新拉取的漫画：按 id 去重、按更新时间（ISO 前缀字典序）由近至远排序 */

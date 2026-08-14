@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -73,15 +75,43 @@ class SearchViewModel : ViewModel() {
             _loading.value = true
             _keyword.value = keyword
             try {
-                val result = SourceManager.current().search(
-                    keyword = keyword,
-                    page = page,
-                    sort = _sort.value,
-                )
-                _comics.value = result.items
-                _totalPages.value = result.pages.coerceAtLeast(1)
-                _endReached.value = page >= result.pages
-                currentPage = page
+                val source = SourceManager.current()
+                val words = keyword.split(Regex("\\s+"))
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                if (words.size <= 1) {
+                    val result = source.search(
+                        keyword = keyword,
+                        page = page,
+                        sort = _sort.value,
+                    )
+                    _comics.value = result.items
+                    _totalPages.value = result.pages.coerceAtLeast(1)
+                    _endReached.value = page >= result.pages
+                    currentPage = page
+                } else {
+                    // 多关键词（且关系）：服务端不支持空格分词与标签筛选，
+                    // 每个词分别全文搜索（标题/标签/简介），取 id 交集。
+                    val perWordPages = 10
+                    val wordSets: List<List<ComicSummary>> = coroutineScope {
+                        words.map { word ->
+                            async {
+                                (1..perWordPages).mapNotNull { p ->
+                                    runCatching { source.search(word, p, _sort.value).items }.getOrNull()
+                                }.flatten()
+                            }
+                        }.map { it.await() }
+                    }
+                    val wordIds = wordSets.map { set -> set.map { it.id }.toSet() }
+                    val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
+                    _comics.value = common
+                        .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
+                        .sortedByDescending { it.updatedAt }
+                    _totalPages.value = 1
+                    _endReached.value = true
+                    currentPage = 1
+                }
             } catch (e: Exception) {
                 // 搜索失败保留已有结果
             } finally {
