@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.CacheControl
 import com.pika.network.BcTls
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -53,7 +54,11 @@ object UpdateManager {
      */
     suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
         val info = runCatching {
-            val request = Request.Builder().url(UPDATE_URL).build()
+            val urlWithTs = "$UPDATE_URL?ts=${System.currentTimeMillis()}"
+            val request = Request.Builder()
+                .url(urlWithTs)
+                .cacheControl(CacheControl.FORCE_NETWORK)
+                .build()
             client.newCall(request).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) return@runCatching null
