@@ -57,9 +57,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -108,7 +111,40 @@ fun ReaderScreen(
     val listState = rememberLazyListState()
     val pagerState = rememberPagerState(pageCount = { pages.size })
 
-    // 加载章节
+    // ── 沉浸式全屏管理 ─────────────────────────────────────────────────────
+    val view = LocalView.current
+    val windowInsetsController = remember {
+        val activity = (context as? android.app.Activity) ?: return@remember null
+        WindowCompat.getInsetsController(activity.window, view)
+    }
+
+    // 进入时隐藏系统栏，退出时恢复
+    DisposableEffect(Unit) {
+        windowInsetsController?.apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        onDispose {
+            windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // showPanel 与系统栏同步：显示面板时显示系统栏，隐藏面板时隐藏系统栏
+    LaunchedEffect(showPanel) {
+        if (showPanel) {
+            windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
+        } else {
+            windowInsetsController?.hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // 屏幕常亮
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+
+    // ── 加载章节
     LaunchedEffect(comicId, order) {
         viewModel.load(context, comicId, order)
     }

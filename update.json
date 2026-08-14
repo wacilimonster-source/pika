@@ -1,1 +1,1 @@
-{"version":"1.5.10","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.10.apk","notes":"v1.5.10 更新：\n1. 修复注册接口返回无 data 字段导致的反序列化崩溃（ApiResponse.data 改为可选）"}
+{"version":"1.5.11","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.11.apk","notes":"v1.5.11 更新：\n1. 阅读器全屏沉浸模式：进入阅读自动隐藏系统栏，点击中间区域切换显示/隐藏控制面板和系统栏\n2. 底部上滑手势允许显示系统栏（约3秒后自动隐藏）\n3. 切换上一话/下一话后自动进入全屏\n4. 离线阅读同样进入全屏\n5. 阅读时屏幕常亮"}
