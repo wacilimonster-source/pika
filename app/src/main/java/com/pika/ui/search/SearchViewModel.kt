@@ -311,11 +311,21 @@ class SearchViewModel : ViewModel() {
     }
 
     /**
-     * 排序切换（多词场景：不重新请求，只重排已有交集数据）
+     * 排序切换：
+     * - 多词场景：直接对已积累的全部 comics 重排（不重新请求）
+     * - 单词场景：重新请求（服务端分页排序）
      */
     fun updateSortOnly(sort: ComicSort) {
         _sort.value = sort
-        _comics.value = buildDisplay()
+        val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (words.size > 1) {
+            _comics.value = _multiAllComics
+                .filter { it.id in _confirmedIntersectionIds }
+                .distinctBy { it.id }
+                .sortedByComicSort(_sort.value)
+        } else {
+            search(_keyword.value, page = currentPage)
+        }
     }
 
     /** 跳转到多词搜索的指定页（重新 search 该页） */

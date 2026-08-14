@@ -121,13 +121,13 @@ class AuthorViewModel : ViewModel() {
     fun setSort(sort: ComicSort) {
         if (_sort.value == sort) return
         _sort.value = sort
-        applyFilterAndSort()
+        loadComics(_author, page = 1)
     }
 
     fun setStatus(status: ComicStatus) {
         if (_status.value == status) return
         _status.value = status
-        applyFilterAndSort()
+        loadComics(_author, page = 1)
     }
 
     private fun applyFilterAndSort() {

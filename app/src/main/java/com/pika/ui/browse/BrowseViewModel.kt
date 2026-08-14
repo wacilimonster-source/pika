@@ -135,11 +135,6 @@ class BrowseViewModel : ViewModel() {
     fun setSort(sort: ComicSort) {
         if (_sort.value == sort) return
         _sort.value = sort
-        // 缓存命中：直接用已有 rawItems 重滤，不重新请求网络
-        if (rawItems.isNotEmpty()) {
-            applyFilterAndSort()
-            return
-        }
         reload()
     }
 
