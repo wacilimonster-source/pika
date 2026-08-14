@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
+import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
 import com.pika.data.AuthorFavourites
 import com.pika.data.FollowSettings
@@ -15,9 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** 关注来源类型 */
-private enum class FollowTargetType { AUTHOR, KEYWORD, CATEGORY }
+private enum class FollowTargetType { AUTHOR, KEYWORD }
 
-/** 一个关注来源：作者名 / 关键词 / 分类 */
+/** 一个关注来源：作者 / 组合关键词（空格连接） */
 private data class FollowTarget(
     val key: String,
     val type: FollowTargetType,
@@ -92,8 +93,10 @@ class HomeViewModel : ViewModel() {
     private fun rebuildTargets() {
         targets = buildList {
             AuthorFavourites.get().forEach { add(FollowTarget("a_${it.author}", FollowTargetType.AUTHOR, it.author)) }
-            FollowSettings.keywords().forEach { add(FollowTarget("k_$it", FollowTargetType.KEYWORD, it)) }
-            FollowSettings.categories().forEach { add(FollowTarget("c_${it.id}", FollowTargetType.CATEGORY, it.title)) }
+            FollowSettings.items().forEach { item ->
+                val name = item.keywords.joinToString(" ")
+                add(FollowTarget("k_$name", FollowTargetType.KEYWORD, name))
+            }
         }
     }
 
@@ -103,7 +106,7 @@ class HomeViewModel : ViewModel() {
         if (targets.isEmpty()) {
             _followFeed.value = emptyList()
             _followEndReached.value = true
-            _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加作者 / 关键词 / 分类标签"
+            _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加关键词关注"
             return
         }
         _followEmptyHint.value = null
@@ -142,20 +145,33 @@ class HomeViewModel : ViewModel() {
                     when (target.type) {
                         FollowTargetType.AUTHOR ->
                             source.browse(page = page, category = null, sort = ComicSort.DD, author = target.name)
+                                .also { result ->
+                                    targetPages[target.key] = page
+                                    if (page >= result.pages) targetEnded[target.key] = true
+                                }.items
                         FollowTargetType.KEYWORD ->
-                            source.search(keyword = target.name, page = page, sort = ComicSort.DD)
-                        FollowTargetType.CATEGORY ->
-                            source.browse(page = page, category = target.key.removePrefix("c_"), sort = ComicSort.DD)
-                    }.also { result ->
-                        targetPages[target.key] = page
-                        if (page >= result.pages) targetEnded[target.key] = true
-                    }.items
+                            fetchKeywordPage(source, target, page)
+                    }
                 } catch (e: Exception) {
                     targetEnded[target.key] = true
                     emptyList()
                 }
             }
         }.mapNotNull { it.await() }.flatten()
+    }
+
+    /**
+     * 组合关键词拉取：服务端按空格连接全文搜索（覆盖标题/标签），不做二次过滤。
+     */
+    private suspend fun fetchKeywordPage(
+        source: Source,
+        target: FollowTarget,
+        startPage: Int,
+    ): List<ComicSummary> {
+        val result = source.search(keyword = target.name, page = startPage, sort = ComicSort.DD)
+        targetPages[target.key] = startPage
+        if (startPage >= result.pages) targetEnded[target.key] = true
+        return result.items
     }
 
     /** 合并新拉取的漫画：按 id 去重、按更新时间（ISO 前缀字典序）由近至远排序 */

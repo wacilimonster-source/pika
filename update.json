@@ -1,1 +1,1 @@
-{"version":"1.5.2","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.2.apk","notes":"v1.5.2 修复：\n1. 修复排行榜无数据：排行榜类型参数需大写（H24/D7/D30），已修正\n2. 排行榜日榜/周榜/月榜均恢复正常"}
+{"version":"1.5.3","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.3.apk","notes":"v1.5.3 更新：\n1. 移除分类标签关注功能\n2. 关键词关注支持组合关键词：多个关键词用空格分隔（如「校园 热血」），作品需同时包含全部关键词（且关系）\n3. 组合关键词在作品标题/标签中检索\n4. 关注管理页简化，仅保留关键词关注"}

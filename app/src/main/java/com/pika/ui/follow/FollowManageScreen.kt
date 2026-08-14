@@ -1,13 +1,11 @@
 package com.pika.ui.follow
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,20 +37,17 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pika.data.FollowSettings
 
-/** 关注管理：添加/删除关键词与分类标签关注 */
+/** 关注管理：添加/删除关键词关注（支持组合关键词，且关系） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FollowManageScreen(
     onBack: () -> Unit,
 ) {
-    var keywords by remember { mutableStateOf(FollowSettings.keywords()) }
-    var categories by remember { mutableStateOf(FollowSettings.categories()) }
+    var items by remember { mutableStateOf(FollowSettings.items()) }
     var showKeywordDialog by remember { mutableStateOf(false) }
-    var showCategoryDialog by remember { mutableStateOf(false) }
 
     fun reload() {
-        keywords = FollowSettings.keywords()
-        categories = FollowSettings.categories()
+        items = FollowSettings.items()
     }
 
     Scaffold(
@@ -80,34 +75,14 @@ fun FollowManageScreen(
                     onAction = { showKeywordDialog = true },
                 )
             }
-            if (keywords.isEmpty()) {
-                item { EmptyHint("暂无关键词关注") }
+            if (items.isEmpty()) {
+                item { EmptyHint("暂无关键词关注，点击添加") }
             }
-            items(keywords, key = { "k_$it" }) { keyword ->
+            items(items, key = { it.createdAt }) { item ->
                 FollowRow(
-                    name = keyword,
+                    name = item.keywords.joinToString(" + "),
                     onDelete = {
-                        FollowSettings.removeKeyword(keyword)
-                        reload()
-                    },
-                )
-            }
-
-            item {
-                SectionLabel(
-                    title = "分类标签关注",
-                    actionLabel = "添加",
-                    onAction = { showCategoryDialog = true },
-                )
-            }
-            if (categories.isEmpty()) {
-                item { EmptyHint("暂无分类标签关注") }
-            }
-            items(categories, key = { "c_${it.id}" }) { category ->
-                FollowRow(
-                    name = category.title,
-                    onDelete = {
-                        FollowSettings.removeCategory(category.id)
+                        FollowSettings.removeItem(item.createdAt)
                         reload()
                     },
                 )
@@ -118,20 +93,9 @@ fun FollowManageScreen(
     if (showKeywordDialog) {
         KeywordAddDialog(
             onDismiss = { showKeywordDialog = false },
-            onAdd = { keyword ->
-                FollowSettings.addKeyword(keyword)
+            onAdd = { keywords ->
+                FollowSettings.addItem(keywords)
                 showKeywordDialog = false
-                reload()
-            },
-        )
-    }
-
-    if (showCategoryDialog) {
-        CategoryAddDialog(
-            onDismiss = { showCategoryDialog = false },
-            onAdd = { id, title ->
-                FollowSettings.addCategory(id, title)
-                showCategoryDialog = false
                 reload()
             },
         )
@@ -194,7 +158,7 @@ private fun EmptyHint(text: String) {
 }
 
 @Composable
-private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>) -> Unit) {
     var input by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -202,7 +166,7 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
         text = {
             Column {
                 Text(
-                    text = "关注后首页将展示该关键词的最新漫画，如作者名、作品系列名等",
+                    text = "多个关键词用空格分隔，作品标题/标签需同时包含全部关键词（且关系），如：校园 热血",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -210,10 +174,11 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
                     value = input,
                     onValueChange = { input = it },
                     singleLine = true,
-                    placeholder = { Text("输入关键词") },
+                    placeholder = { Text("输入关键词，多个用空格分隔") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
-                        if (input.isNotBlank()) onAdd(input.trim())
+                        val words = parseWords(input)
+                        if (words.isNotEmpty()) onAdd(words)
                     }),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -223,8 +188,8 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
         },
         confirmButton = {
             TextButton(
-                onClick = { onAdd(input.trim()) },
-                enabled = input.isNotBlank(),
+                onClick = { onAdd(parseWords(input)) },
+                enabled = parseWords(input).isNotEmpty(),
             ) { Text("添加") }
         },
         dismissButton = {
@@ -233,70 +198,5 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
     )
 }
 
-@Composable
-private fun CategoryAddDialog(
-    onDismiss: () -> Unit,
-    onAdd: (String, String) -> Unit,
-) {
-    var categories by remember { mutableStateOf<List<com.pika.core.model.ComicCategory>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        loading = true
-        error = null
-        try {
-            categories = com.pika.core.source.SourceManager.current().categories()
-        } catch (e: Exception) {
-            error = e.message ?: "加载分类失败"
-        } finally {
-            loading = false
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加分类标签关注") },
-        text = {
-            Column {
-                Text(
-                    text = "关注后首页将展示该分类的最新漫画",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                when {
-                    loading -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text(error ?: "", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    else -> LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(280.dp),
-                    ) {
-                        items(categories, key = { it.id }) { category ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onAdd(category.id, category.title)
-                                    }
-                                    .padding(vertical = 10.dp),
-                            ) {
-                                Text(
-                                    text = category.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
-}
+private fun parseWords(input: String): List<String> =
+    input.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
