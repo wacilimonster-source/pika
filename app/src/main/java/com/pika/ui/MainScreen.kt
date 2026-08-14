@@ -3,6 +3,7 @@
 import android.net.Uri
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
@@ -75,7 +76,7 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(56.dp)) {
+            NavigationBar(modifier = Modifier.height(64.dp)) {
                 tabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy
                         ?.any { it.route == tab.route } == true
@@ -90,9 +91,8 @@ fun MainScreen() {
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        icon = { Icon(tab.icon, contentDescription = tab.label, modifier = Modifier.size(22.dp)) },
                         label = { Text(tab.label, fontSize = 10.sp) },
-                        modifier = Modifier.height(56.dp),
                     )
                 }
             }
