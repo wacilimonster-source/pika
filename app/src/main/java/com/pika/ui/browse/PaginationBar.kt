@@ -1,23 +1,26 @@
 package com.pika.ui.browse
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.FilterCenterFocus
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,14 +28,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
- * 页码分页条：‹ 1 2 3 … N › 页码 [跳页]
- * 当前页高亮，点击跳页，左右箭头翻页，右侧输入框可直接输入页码跳转。
+ * 页码分页条：左箭头 | 页码（居中块状）| 右箭头 | 跳页按钮
+ * 数字在矩形块内居中；点跳页弹窗输入页码直达。
  */
 @Composable
 fun PaginationBar(
@@ -42,97 +43,132 @@ fun PaginationBar(
     modifier: Modifier = Modifier,
 ) {
     if (totalPages <= 1) return
+    var showJump by remember { mutableStateOf(false) }
     var jumpInput by remember { mutableStateOf("") }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
-            .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
             onClick = { onPageChange((currentPage - 1).coerceAtLeast(1)) },
             enabled = currentPage > 1,
-            modifier = Modifier.width(40.dp).height(40.dp),
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "上一页",
-                modifier = Modifier.width(24.dp).height(24.dp),
-            )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "上一页")
         }
-        pageWindow(currentPage, totalPages).forEach { p ->
-            if (p == null) {
-                Text(
-                    text = "…",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 2.dp),
-                )
-            } else {
-                Surface(
-                    onClick = { onPageChange(p) },
-                    shape = MaterialTheme.shapes.small,
-                    color = if (p == currentPage) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    modifier = Modifier
-                        .width(32.dp)
-                        .height(32.dp),
-                ) {
+        // 页码组：权重 1f 居中，占满中间区域
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            pageWindow(currentPage, totalPages).forEach { p ->
+                if (p == null) {
                     Text(
-                        text = "$p",
+                        text = "…",
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (p == currentPage) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.align(Alignment.CenterVertically),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                } else {
+                    Surface(
+                        onClick = { onPageChange(p) },
+                        shape = MaterialTheme.shapes.small,
+                        color = if (p == currentPage) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "$p",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (p == currentPage) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
                 }
             }
         }
         IconButton(
             onClick = { onPageChange((currentPage + 1).coerceAtMost(totalPages)) },
             enabled = currentPage < totalPages,
-            modifier = Modifier.width(40.dp).height(40.dp),
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "下一页",
-                modifier = Modifier.width(24.dp).height(24.dp),
-            )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一页")
         }
-        TextField(
-            value = jumpInput,
-            onValueChange = { jumpInput = it.filter { c -> c.isDigit() }.take(4) },
-            singleLine = true,
-            placeholder = { Text("$currentPage/$totalPages", fontSize = 12.sp) },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = {
-                val p = jumpInput.toIntOrNull()
-                if (p != null && p in 1..totalPages) {
-                    onPageChange(p)
-                    jumpInput = ""
-                }
-            }),
-            textStyle = MaterialTheme.typography.bodySmall,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-            ),
-            modifier = Modifier
-                .width(64.dp)
-                .height(36.dp)
-                .padding(start = 4.dp),
+        // 跳页按钮（弹窗输入页码）
+        Surface(
+            onClick = {
+                jumpInput = ""
+                showJump = true
+            },
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.width(64.dp).height(36.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.FilterCenterFocus,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "跳页",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+    }
+
+    if (showJump) {
+        AlertDialog(
+            onDismissRequest = { showJump = false },
+            title = { Text("跳转到指定页") },
+            text = {
+                OutlinedTextField(
+                    value = jumpInput,
+                    onValueChange = { jumpInput = it.filter { c -> c.isDigit() }.take(4) },
+                    singleLine = true,
+                    label = { Text("页码（1-$totalPages）") },
+                    placeholder = { Text("当前第 $currentPage 页") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val p = jumpInput.toIntOrNull()
+                        if (p != null && p in 1..totalPages) {
+                            onPageChange(p)
+                            showJump = false
+                        }
+                    },
+                    enabled = jumpInput.toIntOrNull()?.let { it in 1..totalPages } == true,
+                ) { Text("跳转") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJump = false }) { Text("取消") }
+            },
         )
     }
 }

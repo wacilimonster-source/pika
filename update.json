@@ -1,1 +1,1 @@
-{"version":"1.4.2","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.4.2.apk","notes":"v1.4.2 优化：\n1. 删除分类详情页冗余的显示设置弹窗（排序直接在顶部切换）\n2. 搜索页标签筛选压缩为紧凑单行，回车即应用\n3. 搜索重置按钮集成到输入框（×一键清空）\n4. 分页条调大：页码块/箭头/跳页框增大，左右留白加宽，更好点击"}
+{"version":"1.4.3","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.4.3.apk","notes":"v1.4.3 优化：\n1. 分页组件重做：页码数字在矩形块内居中，排版均匀占满一行\n2. 跳页交互改为弹窗输入页码，仅限数字、越界不可跳转\n3. 搜索标签筛选改为按钮+弹窗（多个标签逗号分隔）\n4. 搜索页顶部空白消除，输入框置顶\n5. 底部导航高度压缩（80dp→56dp）"}

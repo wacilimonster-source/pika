@@ -1,6 +1,7 @@
 ﻿package com.pika.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -18,6 +19,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -72,7 +75,7 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(modifier = Modifier.height(56.dp)) {
                 tabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy
                         ?.any { it.route == tab.route } == true
@@ -88,7 +91,8 @@ fun MainScreen() {
                             }
                         },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
+                        label = { Text(tab.label, fontSize = 10.sp) },
+                        modifier = Modifier.height(56.dp),
                     )
                 }
             }

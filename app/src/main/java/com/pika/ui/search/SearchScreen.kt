@@ -8,28 +8,25 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,7 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
 
-/** 搜索页：输入框 + 排序筛选 + 标签筛选 + 结果网格 + 底部页码分页 */
+/** 搜索页：输入框（含返回/重置）+ 排序筛选 + 标签筛选按钮 + 结果网格 + 底部页码分页 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -62,154 +59,152 @@ fun SearchScreen(
     val totalPages by viewModel.totalPages.collectAsState()
     var input by remember { mutableStateOf("") }
     var tagInput by remember { mutableStateOf("") }
+    var showTagDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {},
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+    ) {
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            singleLine = true,
+            placeholder = { Text("搜索漫画") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = {
+                focusManager.clearFocus()
+                viewModel.search(input.trim(), page = 1)
+            }),
+            leadingIcon = {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                windowInsets = WindowInsets(0, 0),
-            )
-        },
-    ) { innerPadding ->
-        Box(Modifier.padding(innerPadding)) {
-            Column(Modifier.fillMaxSize()) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    singleLine = true,
-                    placeholder = { Text("搜索漫画 / 标签") },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {
+                }
+            },
+            trailingIcon = {
+                if (input.isNotBlank() || keyword.isNotBlank() || tags.isNotEmpty()) {
+                    IconButton(onClick = {
                         focusManager.clearFocus()
-                        viewModel.search(input.trim(), page = 1)
-                    }),
-                    trailingIcon = {
-                        if (input.isNotBlank() || keyword.isNotBlank() || tags.isNotEmpty()) {
-                            IconButton(onClick = {
-                                focusManager.clearFocus()
-                                input = ""
-                                tagInput = ""
-                                viewModel.resetAll()
-                            }) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "重置",
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        input = ""
+                        tagInput = ""
+                        viewModel.resetAll()
+                    }) {
+                        Icon(Icons.Filled.Close, contentDescription = "重置")
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                FilterChip(
+                    selected = currentSort == ComicSort.DD,
+                    onClick = { viewModel.updateFilter(sort = ComicSort.DD) },
+                    label = { Text("新到旧") },
                 )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    item {
-                        FilterChip(
-                            selected = currentSort == ComicSort.DD,
-                            onClick = { viewModel.updateFilter(sort = ComicSort.DD) },
-                            label = { Text("新到旧") },
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = currentSort == ComicSort.DA,
-                            onClick = { viewModel.updateFilter(sort = ComicSort.DA) },
-                            label = { Text("旧到新") },
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = currentSort == ComicSort.LD,
-                            onClick = { viewModel.updateFilter(sort = ComicSort.LD) },
-                            label = { Text("最多喜欢") },
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = currentSort == ComicSort.VD,
-                            onClick = { viewModel.updateFilter(sort = ComicSort.VD) },
-                            label = { Text("最多观看") },
-                        )
-                    }
-                }
-                // 标签筛选（可输入多个，逗号分隔；紧凑单行）
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedTextField(
-                        value = tagInput,
-                        onValueChange = { tagInput = it },
-                        singleLine = true,
-                        placeholder = { Text(if (tags.isEmpty()) "标签（逗号分隔）" else "标签：${tags.joinToString(",")}") },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            focusManager.clearFocus()
-                            applyTagFilter(tagInput, viewModel)
-                        }),
-                        trailingIcon = {
-                            if (tagInput.isNotBlank() || tags.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    focusManager.clearFocus()
-                                    tagInput = ""
-                                    applyTagFilter("", viewModel)
-                                }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "清除标签")
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp),
-                    )
-                }
-                if (comics.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            }
+            item {
+                FilterChip(
+                    selected = currentSort == ComicSort.DA,
+                    onClick = { viewModel.updateFilter(sort = ComicSort.DA) },
+                    label = { Text("旧到新") },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = currentSort == ComicSort.LD,
+                    onClick = { viewModel.updateFilter(sort = ComicSort.LD) },
+                    label = { Text("最多喜欢") },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = currentSort == ComicSort.VD,
+                    onClick = { viewModel.updateFilter(sort = ComicSort.VD) },
+                    label = { Text("最多观看") },
+                )
+            }
+            item {
+                // 标签筛选：按钮 + 弹窗输入（多个标签逗号分隔）
+                FilterChip(
+                    selected = tags.isNotEmpty(),
+                    onClick = {
+                        tagInput = tags.joinToString(",")
+                        showTagDialog = true
+                    },
+                    label = {
                         Text(
-                            text = when {
-                                loading -> "搜索中..."
-                                keyword.isBlank() && tags.isEmpty() -> "输入关键词或标签开始搜索"
-                                else -> "没有更多结果"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            if (tags.isEmpty()) "标签筛选" else "标签×${tags.size}",
+                            maxLines = 1,
                         )
-                    }
-                } else {
-                    Column(Modifier.fillMaxSize()) {
-                        ComicGridView(
-                            comics = comics,
-                            loading = loading,
-                            endReached = endReached,
-                            listState = listState,
-                            onLoadMore = {},
-                            onComicClick = onComicClick,
-                            modifier = Modifier.weight(1f),
-                        )
-                        com.pika.ui.browse.PaginationBar(
-                            currentPage = viewModel.currentPage,
-                            totalPages = totalPages,
-                            onPageChange = { viewModel.search(keyword, page = it) },
-                        )
-                    }
-                }
+                    },
+                )
             }
         }
+        if (comics.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = when {
+                        loading -> "搜索中..."
+                        keyword.isBlank() && tags.isEmpty() -> "输入关键词或标签开始搜索"
+                        else -> "没有更多结果"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                ComicGridView(
+                    comics = comics,
+                    loading = loading,
+                    endReached = endReached,
+                    listState = listState,
+                    onLoadMore = {},
+                    onComicClick = onComicClick,
+                    modifier = Modifier.weight(1f),
+                )
+                com.pika.ui.browse.PaginationBar(
+                    currentPage = viewModel.currentPage,
+                    totalPages = totalPages,
+                    onPageChange = { viewModel.search(keyword, page = it) },
+                )
+            }
+        }
+    }
+
+    if (showTagDialog) {
+        AlertDialog(
+            onDismissRequest = { showTagDialog = false },
+            title = { Text("标签筛选") },
+            text = {
+                OutlinedTextField(
+                    value = tagInput,
+                    onValueChange = { tagInput = it },
+                    singleLine = true,
+                    placeholder = { Text("多个标签用逗号分隔，如：校园,热血") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    focusManager.clearFocus()
+                    applyTagFilter(tagInput, viewModel)
+                    showTagDialog = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTagDialog = false }) { Text("取消") }
+            },
+        )
     }
 }
 
