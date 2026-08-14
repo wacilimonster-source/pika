@@ -89,6 +89,7 @@ class AuthorViewModel : ViewModel() {
 
     fun jumpToPage(page: Int) {
         _needsScrollRestore = false
+        _endReached.value = true  // 防止加载期间 ComicGridView 触发 loadMore
         loadComics(_author, page)
     }
 

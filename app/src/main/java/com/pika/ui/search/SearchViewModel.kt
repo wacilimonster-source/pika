@@ -318,14 +318,9 @@ class SearchViewModel : ViewModel() {
         _comics.value = buildDisplay()
     }
 
-    /** 跳转到多词搜索的指定页（不重新请求，只做客户端分页） */
+    /** 跳转到多词搜索的指定页（重新 search 该页） */
     fun jumpToPage(page: Int) {
-        if (!_multiSearchComplete.value) return
-        val pageComics = buildDisplayForPage(page)
-        if (pageComics.isEmpty()) return
-        _comics.value = pageComics
-        currentPage = page
-        _endReached.value = page >= _totalPages.value
+        search(_keyword.value, page)
     }
 
     /** 加载更多（多词场景：交集完成后按页追加） */

@@ -101,6 +101,7 @@ class BrowseViewModel : ViewModel() {
     /** 跳转到指定页（严格单页） */
     fun jumpToPage(page: Int) {
         val token = ++loadToken
+        _endReached.value = true  // 防止加载期间 ComicGridView 触发 recompose
         viewModelScope.launch {
             _loading.value = true
             _error.value = null

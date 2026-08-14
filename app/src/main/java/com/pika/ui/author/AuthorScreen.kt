@@ -201,7 +201,7 @@ fun AuthorComicsScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = { viewModel.loadMore() },
+                    onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                 )

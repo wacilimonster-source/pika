@@ -1,1 +1,1 @@
-{"version":"1.5.13","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.13.apk","notes":"v1.5.13 更新：\n1. 所有列表页（搜索/分类/作者/收藏/排行榜/首页Tab）进入详情返回后恢复滚动位置\n2. 多词搜索修复：去掉180s超时、去掉缓存每次实时拉取、后台加载提示、分页切换逻辑\n3. 作者页独立分页：PaginationBar切换页码+无限滚动追加"}
+{"version":"1.5.14","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.14.apk","notes":"v1.5.14 更新：\n1. 修复Author/Category/搜索分页无限滚动bug\n2. 所有列表页（搜索/分类/作者/收藏/排行榜/首页Tab）进入详情返回后恢复滚动位置\n3. 多词搜索修复：去掉180s超时、去掉缓存每次实时拉取、后台加载提示、分页切换逻辑"}
