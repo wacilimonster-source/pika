@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -44,7 +46,7 @@ import com.pika.data.RecentRead
 @Composable
 fun RecentReadsScreen(
     onBack: () -> Unit,
-    onOpenReader: (String, Int) -> Unit,
+    onOpenComic: (String) -> Unit,
 ) {
     var recentReads by remember { mutableStateOf<List<RecentRead>>(emptyList()) }
 
@@ -61,6 +63,7 @@ fun RecentReadsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                windowInsets = WindowInsets(0, 0),
             )
         },
     ) { innerPadding ->
@@ -77,7 +80,7 @@ fun RecentReadsScreen(
                     items(recentReads, key = { "${it.comicId}:${it.order}" }) { recent ->
                         RecentReadRow(
                             recent = recent,
-                            onClick = { onOpenReader(recent.comicId, recent.order) },
+                            onClick = { onOpenComic(recent.comicId) },
                         )
                     }
                 }
@@ -100,20 +103,22 @@ private fun RecentReadRow(recent: RecentRead, onClick: () -> Unit) {
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(48.dp, 64.dp)
+                .size(72.dp, 96.dp)
                 .clip(RoundedCornerShape(4.dp)),
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = recent.title,
-                style = MaterialTheme.typography.bodyMedium,
+                text = recent.title.ifBlank { "未知作品" },
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = "第 ${recent.order} 话 · 第 ${recent.pageIndex + 1} 页",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

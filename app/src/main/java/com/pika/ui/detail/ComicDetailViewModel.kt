@@ -62,9 +62,19 @@ class ComicDetailViewModel : ViewModel() {
     var commentSupported: Boolean = true
         private set
 
+    /** 本地历史进度（上次阅读到第几话第几页），无则 null */
+    private val _lastProgress = MutableStateFlow<com.pika.data.ReaderPrefs.Progress?>(null)
+    val lastProgress: StateFlow<com.pika.data.ReaderPrefs.Progress?> = _lastProgress
+
     fun load(comicId: String) {
         if (loadedComicId == comicId && _comic.value != null) return
         loadedComicId = comicId
+        // 读取本地历史进度（不阻塞主线程）
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _lastProgress.value = runCatching {
+                com.pika.data.ReaderPrefs.current().lastProgress(comicId)
+            }.getOrNull()
+        }
         viewModelScope.launch {
             try {
                 _comic.value = SourceManager.current().comicDetail(comicId)

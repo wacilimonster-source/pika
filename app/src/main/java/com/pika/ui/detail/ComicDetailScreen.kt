@@ -87,6 +87,7 @@ fun ComicDetailScreen(
     val subComments by viewModel.subComments.collectAsState()
     val loadingSubIds by viewModel.loadingSubIds.collectAsState()
     val replyingTo by viewModel.replyingTo.collectAsState()
+    val lastProgress by viewModel.lastProgress.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
@@ -143,6 +144,19 @@ fun ComicDetailScreen(
                             enabled = chapters.isNotEmpty(),
                         )
                         { Text("开始阅读") }
+                        if (lastProgress != null && chapters.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    onOpenReader(comicId, lastProgress!!.order)
+                                },
+                            ) {
+                                Text(
+                                    "上次阅读到 第${lastProgress!!.order}话 · 第${lastProgress!!.pageIndex + 1}页",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                         OutlinedButton(
                             onClick = { viewModel.downloadAll(comicId, comic, chapters) },
                             enabled = chapters.isNotEmpty(),

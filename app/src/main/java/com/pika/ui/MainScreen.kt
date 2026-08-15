@@ -158,8 +158,8 @@ fun MainScreen() {
             composable("recent-reads") {
                 com.pika.ui.history.RecentReadsScreen(
                     onBack = { navController.popBackStack() },
-                    onOpenReader = { id, order ->
-                        navController.navigate("reader/${Uri.encode(id)}/$order")
+                    onOpenComic = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}")
                     },
                 )
             }

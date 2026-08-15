@@ -94,6 +94,7 @@ fun ReaderScreen(
     val pages by viewModel.pages.collectAsState()
     val chapters by viewModel.chapters.collectAsState()
     val epTitle by viewModel.epTitle.collectAsState()
+    val comicTitle by viewModel.comicTitle.collectAsState()
     val loading by viewModel.loading.collectAsState()
 
     var scrollMode by remember { mutableStateOf(ReaderPrefs.current().readerMode == 0) }
@@ -213,7 +214,7 @@ fun ReaderScreen(
     LaunchedEffect(currentPage, pages.size) {
         if (pages.isNotEmpty()) {
             viewModel.saveProgress(currentPage)
-            viewModel.recordRecentRead(epTitle, viewModel.coverUrl.value, currentPage)
+            viewModel.recordRecentRead(comicTitle, viewModel.coverUrl.value, currentPage)
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {

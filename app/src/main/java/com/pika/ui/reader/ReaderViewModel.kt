@@ -30,6 +30,10 @@ class ReaderViewModel : ViewModel() {
     private val _epTitle = MutableStateFlow("")
     val epTitle: StateFlow<String> = _epTitle
 
+    /** 作品标题（阅读历史用，与章节标题区分） */
+    private val _comicTitle = MutableStateFlow("")
+    val comicTitle: StateFlow<String> = _comicTitle
+
     private val _coverUrl = MutableStateFlow("")
     val coverUrl: StateFlow<String> = _coverUrl
 
@@ -68,10 +72,16 @@ class ReaderViewModel : ViewModel() {
                         _pages.value = SourceManager.current().chapterPages(comicId, order)
                     }
                     _chapters.value = SourceManager.current().chapters(comicId)
-                    // 顺便拿封面（历史记录用），失败不影响阅读
-                    if (_coverUrl.value.isBlank()) {
+                    // 顺便拿封面与作品标题（历史记录用），失败不影响阅读
+                    if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank()) {
                         runCatching {
-                            _coverUrl.value = SourceManager.current().comicDetail(comicId).coverUrl.orEmpty()
+                            val detail = SourceManager.current().comicDetail(comicId)
+                            if (_coverUrl.value.isBlank()) {
+                                _coverUrl.value = detail.coverUrl.orEmpty()
+                            }
+                            if (_comicTitle.value.isBlank()) {
+                                _comicTitle.value = detail.title
+                            }
                         }
                     }
                 }
