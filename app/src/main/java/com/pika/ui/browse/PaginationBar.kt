@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,9 @@ import androidx.compose.ui.unit.dp
 /**
  * 页码分页条：左箭头 | 页码（居中块状）| 右箭头 | 跳页按钮
  * 数字在矩形块内居中；点跳页弹窗输入页码直达。
+ *
+ * progressMode = true：筛选激活时的加载进度模式——显示"已加载 x / N 页"，
+ * 每后台加载完一页自动 +1，全部加载完切换回正常分页。
  */
 @Composable
 fun PaginationBar(
@@ -41,8 +45,34 @@ fun PaginationBar(
     totalPages: Int,
     onPageChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    progressMode: Boolean = false,
 ) {
     if (totalPages <= 1) return
+    if (progressMode) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = "已加载 $currentPage / $totalPages 页",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (currentPage < totalPages) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(14.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+        }
+        return
+    }
     var showJump by remember { mutableStateOf(false) }
     var jumpInput by remember { mutableStateOf("") }
 

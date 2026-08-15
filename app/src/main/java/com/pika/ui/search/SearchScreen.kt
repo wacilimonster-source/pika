@@ -33,10 +33,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.browse.filterByRead
 
 /** 搜索页：输入框（含返回/重置/标签筛选）+ 排序筛选 + 结果网格 + 底部页码分页 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -67,8 +67,17 @@ fun SearchScreen(
     val selectedTag by viewModel.selectedTag.collectAsState()
     var input by remember { mutableStateOf("") }
     var showTagSheet by remember { mutableStateOf(false) }
+    var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
+    val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
+    LaunchedEffect(readFilter, comics, loading, endReached) {
+        if (readFilter != com.pika.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
+            viewModel.loadMore()
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.loadHotWords()
@@ -182,13 +191,29 @@ fun SearchScreen(
                     label = { Text("最多观看") },
                 )
             }
+            com.pika.ui.browse.readFilterOptions.forEach { (f, label) ->
+                item {
+                    FilterChip(
+                        selected = readFilter == f,
+                        onClick = {
+                            readFilterName = f.name
+                            viewModel.resetFilterPage()
+                            listState.requestScrollToItem(0)
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
         }
-        if (comics.isEmpty()) {
+        // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
+        val displayComics = remember(readFilter, comics) { comics.filterByRead(readFilter) }
+        if (displayComics.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = when {
                         loading -> "搜索中..."
                         keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
+                        readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
                         else -> "没有更多结果"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -198,13 +223,14 @@ fun SearchScreen(
         } else {
             Column(Modifier.fillMaxSize()) {
                 ComicGridView(
-                    comics = comics,
+                    comics = displayComics,
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
                     onLoadMore = { viewModel.loadMore() },
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
+                    showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
                 )
                 if (multiLoading) {
                     Text(
@@ -218,6 +244,7 @@ fun SearchScreen(
                     currentPage = currentPage,
                     totalPages = totalPages,
                     onPageChange = { viewModel.jumpToPage(it) },
+                    progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )
             }
         }

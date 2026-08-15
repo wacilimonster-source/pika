@@ -1,1 +1,1 @@
-{"version":"1.5.28","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.28.apk","notes":"v1.5.28 更新：\n1. 所有作品列表（排行榜/关注/分类/搜索/作者/收藏等）封面新增阅读状态角标：打开过阅读器显示「已读」，读到最后一章最后一页显示「读完」\n2. 历史阅读进度自动补标「已读」\n3. 阅读状态本地内存缓存，列表滚动零性能影响"}
+{"version":"1.5.29","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.29.apk","notes":"v1.5.29 更新：\n1. 分类与搜索结果页新增阅读状态筛选：全部 / 只看未读（无阅读记录）/ 只看未读完（排除读完）\n2. 筛选激活时自动加载全部分页，底部页码器实时显示加载进度（已加载 x/N 页），加载完恢复可跳页\n3. 筛选结果不随阅读状态实时刷新，看完返回仅更新角标，下次进入页面或切换筛选时刷新\n4. 切换筛选自动重置页码并回到顶部"}

@@ -100,15 +100,30 @@ class BrowseViewModel : ViewModel() {
 
     /** 跳转到指定页（严格单页） */
     fun jumpToPage(page: Int) {
+        loadPage(page, append = false)
+    }
+
+    /** 累积加载下一页（筛选激活时后台拉全部分页用）：追加到 rawItems 并重新过滤排序 */
+    fun loadMore() {
+        if (_loading.value || _endReached.value) return
+        loadPage(_currentPage.value + 1, append = true)
+    }
+
+    /** 切换筛选时重置页码显示（累积数据仍在，列表从头展示） */
+    fun resetFilterPage() {
+        _currentPage.value = 1
+    }
+
+    private fun loadPage(page: Int, append: Boolean) {
         val token = ++loadToken
         _endReached.value = true  // 防止加载期间 ComicGridView 触发 recompose
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
-                val p = page.coerceAtLeast(1)
-                rawItems.clear()
+                if (!append) rawItems.clear()
                 if (token != loadToken) return@launch
+                val p = page.coerceAtLeast(1)
                 val result = SourceManager.current().browse(
                     page = p,
                     category = this@BrowseViewModel.category,

@@ -389,20 +389,59 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    /** 加载更多（多词场景：交集完成后按页追加） */
+    /**
+     * 加载更多：
+     * - 多词场景：交集完成后按页追加（客户端分页）
+     * - 单词场景（含带标签）：请求下一页并追加到已显示结果（服务端分页累积，
+     *   筛选激活时后台自动拉全部分页用）
+     */
     fun loadMore() {
         if (_loading.value) return
-        if (!_multiSearchComplete.value) return
-
-        val nextPage = currentPage.value + 1
-        val pageComics = buildDisplayForPage(nextPage)
-        if (pageComics.isEmpty()) {
-            _endReached.value = true
-            return
+        val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (words.size > 1) {
+            if (!_multiSearchComplete.value) return
+            val nextPage = currentPage.value + 1
+            val pageComics = buildDisplayForPage(nextPage)
+            if (pageComics.isEmpty()) {
+                _endReached.value = true
+                return
+            }
+            _comics.value = _comics.value + pageComics
+            _currentPage.value = nextPage
+            _endReached.value = nextPage >= _totalPages.value
+        } else {
+            if (_endReached.value || _keyword.value.isBlank()) return
+            val keyword = _keyword.value
+            val next = _currentPage.value + 1
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                _loading.value = true
+                try {
+                    val source = SourceManager.current()
+                    val result = source.search(
+                        keyword = keyword,
+                        page = next,
+                        sort = _sort.value,
+                        categories = if (_selectedTag.value == null) emptyList() else listOf(_selectedTag.value!!),
+                    )
+                    if (_keyword.value != keyword) return@launch
+                    _comics.value = _comics.value + result.items
+                    _totalPages.value = result.pages.coerceAtLeast(1)
+                    _currentPage.value = next
+                    _endReached.value = next >= result.pages
+                } catch (e: Exception) {
+                    // 累积失败停止自动加载，避免 UI 循环重试刷屏
+                    _endReached.value = true
+                } finally {
+                    _loading.value = false
+                }
+            }
         }
-        _comics.value = _comics.value + pageComics
-        _currentPage.value = nextPage
-        _endReached.value = nextPage >= _totalPages.value
+    }
+
+    /** 切换筛选时重置页码显示（累积数据仍在，列表从头展示） */
+    fun resetFilterPage() {
+        _currentPage.value = 1
     }
 
     /** 单页搜索，失败自动重试 */
