@@ -1,1 +1,1 @@
-{"version":"1.5.26","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.26.apk","notes":"v1.5.26 更新：\n修复关注管理删除无反应：旧数据缺失 createdAt 字段导致按时间戳删除永远不匹配，改为按内容（关键词+标签）删除；删除/添加关注后同步清理首页关注流缓存"}
+{"version":"1.5.27","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.27.apk","notes":"v1.5.27 更新：\n1. 修复关注/随便看看刷新时顶部下拉指示器与列表尾部转圈双转圈\n2. 排行榜切换日/周/月时清空旧数据（不再残留旧榜）\n3. 首页关注流自动刷新加 30 秒节流（下拉刷新不受影响）"}

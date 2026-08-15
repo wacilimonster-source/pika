@@ -55,6 +55,16 @@ class HomeViewModel : ViewModel() {
     private val _refreshTick = MutableStateFlow(0)
     val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
 
+    /** 自动刷新节流：ON_RESUME 触发时距上次刷新不足阈值则跳过（下拉刷新不受影响） */
+    private var lastAutoRefreshAt = System.currentTimeMillis()
+
+    fun refreshOnResume() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoRefreshAt < 30_000) return
+        lastAutoRefreshAt = now
+        refresh()
+    }
+
     private val _rankComics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val rankComics: StateFlow<List<ComicSummary>> = _rankComics.asStateFlow()
 
@@ -115,10 +125,11 @@ class HomeViewModel : ViewModel() {
         _followFeed.value = com.pika.data.FollowFeedCache.load()
     }
 
-    /** 加载指定排行榜（日 H24 / 周 D7 / 月 D30） */
+    /** 加载指定排行榜（日 H24 / 周 D7 / 月 D30）；切换类型时清空旧榜，避免旧数据残留 */
     fun loadRank(type: String) {
         if (_rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
         _rankType.value = type
+        if (_rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
         _rankLoading.value = true
         _rankError.value = null
         viewModelScope.launch {

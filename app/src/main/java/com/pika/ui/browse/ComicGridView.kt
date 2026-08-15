@@ -46,6 +46,8 @@ fun ComicGridView(
     onLoadMore: () -> Unit,
     onComicClick: (String) -> Unit = {},
     modifier: Modifier = Modifier,
+    /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
+    showTailLoading: Boolean = true,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -58,7 +60,7 @@ fun ComicGridView(
         items(comics, key = { it.id }) { comic ->
             ComicCard(comic = comic, onClick = { onComicClick(comic.id) })
         }
-        if (loading) {
+        if (loading && showTailLoading) {
             item {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.padding(16.dp))

@@ -101,7 +101,7 @@ fun HomeScreen(
     }
 
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-        viewModel.refresh()
+        viewModel.refreshOnResume()
     }
 
     LaunchedEffect(selectedTab) {
@@ -270,6 +270,7 @@ private fun FollowTab(
                     onLoadMore = onLoadMore,
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
+                    showTailLoading = false,
                 )
             }
         }
@@ -377,6 +378,7 @@ private fun RandomTab(
                 listState = gridState,
                 onLoadMore = {},
                 onComicClick = onComicClick,
+                showTailLoading = false,
             )
         }
     }
