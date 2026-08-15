@@ -6,10 +6,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** 一个关键词关注项：一组关键词，组内为"且"关系 */
+/** 一个关键词关注项：一组关键词（组内为"且"关系）+ 可选标签（官方词表，null = 不限制） */
 @Serializable
 data class FollowItem(
     val keywords: List<String>,
+    val tag: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
 )
 
@@ -38,15 +39,16 @@ object FollowSettings {
             .sortedByDescending { it.createdAt }
     }
 
-    fun contains(keywords: List<String>): Boolean = items().any { it.keywords == keywords }
+    fun contains(keywords: List<String>, tag: String? = null): Boolean =
+        items().any { it.keywords == keywords && it.tag == tag }
 
-    fun addItem(keywords: List<String>) {
+    fun addItem(keywords: List<String>, tag: String? = null) {
         val words = keywords.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.isEmpty()) return
-        val list = items().filterNot { it.keywords == words }.toMutableList()
+        val list = items().filterNot { it.keywords == words && it.tag == tag }.toMutableList()
         var ts = System.currentTimeMillis()
         while (list.any { it.createdAt == ts }) ts++
-        list.add(0, FollowItem(keywords = words, createdAt = ts))
+        list.add(0, FollowItem(keywords = words, tag = tag, createdAt = ts))
         val p = prefs ?: return
         p.edit().putString(KEY_ITEMS, json.encodeToString(list)).commit()
     }

@@ -16,6 +16,8 @@ data class ComicSummary(
     val finished: Boolean = false,
     val totalViews: Long = 0,
     val totalLikes: Long = 0,
+    /** 标签（用于客户端标签筛选；源不支持或列表接口不返回时为空） */
+    val tags: List<String> = emptyList(),
     /** 更新时间（"yyyy-MM-dd..." ISO 前缀，用于日期范围筛选；源不支持时为空） */
     val updatedAt: String = "",
 )

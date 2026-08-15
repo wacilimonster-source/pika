@@ -68,6 +68,9 @@ interface Source {
     /** 热搜词（可能为空） */
     suspend fun hotWords(): List<String>
 
+    /** 官方标签词表（可能为空，表示源不支持标签筛选） */
+    suspend fun tags(): List<String> = emptyList()
+
     /** 漫画详情 */
     suspend fun comicDetail(id: String): ComicDetail
 

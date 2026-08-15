@@ -28,6 +28,14 @@ class SearchViewModel : ViewModel() {
     private val _hotWords = MutableStateFlow<List<String>>(emptyList())
     val hotWords: StateFlow<List<String>> = _hotWords
 
+    /** 官方标签词表（空 = 源不支持标签筛选） */
+    private val _tags = MutableStateFlow<List<String>>(emptyList())
+    val tags: StateFlow<List<String>> = _tags
+
+    /** 当前选中的标签筛选（null = 不过滤） */
+    private val _selectedTag = MutableStateFlow<String?>(null)
+    val selectedTag: StateFlow<String?> = _selectedTag
+
     private val _comics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val comics: StateFlow<List<ComicSummary>> = _comics
 
@@ -105,6 +113,9 @@ class SearchViewModel : ViewModel() {
     private val _multiSearchComplete = MutableStateFlow(false)
     val multiSearchComplete: StateFlow<Boolean> = _multiSearchComplete
 
+    /** 当前搜索的词列表（发布结果时校验未过期：词与当前搜索一致才发布） */
+    private var _activeSearchWords: List<String> = emptyList()
+
     fun loadHotWords() {
         if (_hotWords.value.isNotEmpty()) return
         viewModelScope.launch {
@@ -116,6 +127,25 @@ class SearchViewModel : ViewModel() {
         }
     }
 
+    /** 加载官方标签词表（失败静默：词表为空时 UI 隐藏筛选入口） */
+    fun loadTags() {
+        if (_tags.value.isNotEmpty()) return
+        viewModelScope.launch {
+            try {
+                _tags.value = SourceManager.current().tags()
+            } catch (e: Exception) {
+                // 词表失败忽略（视为源不支持）
+            }
+        }
+    }
+
+    /** 选择标签筛选（null = 清除），立即触发搜索 */
+    fun selectTag(tag: String?) {
+        if (_selectedTag.value == tag) return
+        _selectedTag.value = tag
+        search(_keyword.value, page = 1)
+    }
+
     fun updateFilter(sort: ComicSort = _sort.value) {
         _sort.value = sort
         search(_keyword.value, page = 1)
@@ -123,8 +153,9 @@ class SearchViewModel : ViewModel() {
 
     fun resetFilters() = updateFilter(sort = ComicSort.DD)
 
-    /** 完全重置搜索状态 */
+    /** 完全重置搜索状态（含标签筛选） */
     fun resetAll() {
+        _selectedTag.value = null
         resetFilters()
         _keyword.value = ""
         _comics.value = emptyList()
@@ -134,6 +165,7 @@ class SearchViewModel : ViewModel() {
 
     fun search(keyword: String, page: Int) {
         searchJob?.cancel()
+        multiSearchJob?.cancel()
         _comics.value = emptyList()
         _loading.value = true
         _multiLoading.value = false
@@ -151,7 +183,9 @@ class SearchViewModel : ViewModel() {
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .distinct()
-                if (words.size <= 1) {
+                _activeSearchWords = words
+                val tagFilter = _selectedTag.value
+                if (words.size <= 1 && tagFilter == null) {
                     _multiSearchComplete.value = true
                     val result = source.search(
                         keyword = keyword,
@@ -164,7 +198,7 @@ class SearchViewModel : ViewModel() {
                     _endReached.value = page >= result.pages
                     _currentPage.value = page
                 } else {
-                    computeMultiWordIntersection(source, words, page, this)
+                    computeMultiWordIntersection(source, words, page, this, tagFilter)
                 }
             } finally {
                 _loading.value = false
@@ -173,19 +207,25 @@ class SearchViewModel : ViewModel() {
     }
 
     /**
-     * 多词交集渐进式加载：
+     * 多词/标签过滤的渐进式加载：
      * 1. 先获取每词的总页数
      * 2. 对每词逐页拉取，逐步扩展交集集合
      * 3. 够 1 页（20 条）后立即显示；后台继续拉完所有页
      * 4. 全部拉完后，启用完整客户端分页（无超时上限）
      * @param startPage 起始页（来自 jumpToPage 或初始搜索）
+     * @param tagFilter 选中标签（非空时结果只保留 tags 含该标签的作品，语义：关键词 AND 标签）
      */
     private suspend fun computeMultiWordIntersection(
         source: Source,
         words: List<String>,
         startPage: Int,
         scope: CoroutineScope,
+        tagFilter: String? = null,
     ) {
+        // 客户端过滤：搜索接口返回的 doc 自带 tags，无需额外请求
+        fun applyTagFilter(items: List<ComicSummary>): List<ComicSummary> =
+            if (tagFilter == null) items else items.filter { it.tags.contains(tagFilter) }
+
         coroutineScope {
             val semaphore = Semaphore(multiConcurrency)
             val wordPageCountDefs = words.map { word ->
@@ -205,10 +245,10 @@ class SearchViewModel : ViewModel() {
             // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
                 val page = (wordProgress[word] ?: 0) + 1
-                val items = semaphore.withPermit {
+                val items = applyTagFilter(semaphore.withPermit {
                     delay(250)
                     runCatching { searchWithRetry(source, word, page) }.getOrNull()?.items ?: emptyList()
-                }
+                })
                 if (items.isNotEmpty()) {
                     wordIdSets[word]?.addAll(items.map { it.id })
                     _multiAllComics.addAll(items)
@@ -217,7 +257,7 @@ class SearchViewModel : ViewModel() {
             }
             val intersection = computeIntersection(wordIdSets, words)
             _confirmedIntersectionIds = intersection
-            if (_keyword.value == words.joinToString(" ")) {
+            if (words == _activeSearchWords) {
                 publishDisplay(intersection, complete = false)
             }
 
@@ -234,10 +274,10 @@ class SearchViewModel : ViewModel() {
                 val pageJobs = pendingWords.map { (w, _) ->
                     scope.async {
                         val nextPage = (wordProgress[w] ?: 0) + 1
-                        val items = semaphore.withPermit {
+                        val items = applyTagFilter(semaphore.withPermit {
                             delay(250)
                             runCatching { searchWithRetry(source, w, nextPage) }.getOrNull()?.items ?: emptyList()
-                        }
+                        })
                         w to items
                     }
                 }
@@ -251,14 +291,14 @@ class SearchViewModel : ViewModel() {
                 }
 
                 val newIntersection = computeIntersection(wordIdSets, words)
-                if (newIntersection != _confirmedIntersectionIds && _keyword.value == words.joinToString(" ")) {
+                if (newIntersection != _confirmedIntersectionIds && words == _activeSearchWords) {
                     _confirmedIntersectionIds = newIntersection
                     publishDisplay(newIntersection, complete = false)
                 }
             }
 
             // 全部拉完，发布最终结果
-            if (_keyword.value == words.joinToString(" ")) {
+            if (words == _activeSearchWords) {
                 publishFinalResult(_confirmedIntersectionIds)
             }
         }
@@ -301,7 +341,7 @@ class SearchViewModel : ViewModel() {
             _loading.value = false
             _multiLoading.value = !complete
             _endReached.value = complete
-            _totalPages.value = (intersection.size + pageSize - 1) / pageSize.coerceAtLeast(1)
+            _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
         }
     }
 
@@ -313,18 +353,18 @@ class SearchViewModel : ViewModel() {
         _multiLoading.value = false
         _endReached.value = true
         _multiSearchComplete.value = true
-        _totalPages.value = (intersection.size + pageSize - 1) / pageSize.coerceAtLeast(1)
+        _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
     }
 
     /**
      * 排序切换：
-     * - 多词场景：直接对已积累的全部 comics 重排（不重新请求）
+     * - 多词/带标签场景：直接对已积累的全部 comics 重排（不重新请求）
      * - 单词场景：重新请求（服务端分页排序）
      */
     fun updateSortOnly(sort: ComicSort) {
         _sort.value = sort
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (words.size > 1) {
+        if (words.size > 1 || _selectedTag.value != null) {
             _comics.value = _multiAllComics
                 .filter { it.id in _confirmedIntersectionIds }
                 .distinctBy { it.id }
@@ -334,12 +374,12 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    /** 跳转到指定页（多词：客户端分页；单词：服务端分页） */
+    /** 跳转到指定页（多词/带标签：客户端分页；单词：服务端分页） */
     fun jumpToPage(page: Int) {
         _shouldScrollToTop.value++
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (words.size > 1) {
-            // 多词：直接用已缓存的全量数据做客户端分页
+        if (words.size > 1 || _selectedTag.value != null) {
+            // 多词/带标签：直接用已缓存的全量数据做客户端分页
             _currentPage.value = page
             _comics.value = buildDisplayForPage(page)
             _endReached.value = page >= _totalPages.value

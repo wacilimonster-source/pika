@@ -63,6 +63,14 @@ class PicacgSource : Source {
             .map { it.toComicCategory() }
     }
 
+    /** 官方标签词表：分类接口返回的非 Web 分类名（Web 分类为广告/外链入口，不可作标签筛选） */
+    override suspend fun tags(): List<String> {
+        val data = PicaClient.safeCall { PicaClient.api.categories() }
+        return data.categories
+            .filter { it.active != false && it.isWeb != true }
+            .map { it.title }
+    }
+
     override suspend fun browse(
         page: Int,
         category: String?,
@@ -337,6 +345,7 @@ private fun Doc.toSummary() = ComicSummary(
     finished = finished,
     totalViews = totalViews.toLong(),
     totalLikes = (totalLikes ?: likesCount).toLong(),
+    tags = tags,
     updatedAt = updatedAt,
 )
 

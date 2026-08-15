@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,11 +19,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,8 +46,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
 
-/** 搜索页：输入框（含返回/重置）+ 排序筛选 + 标签筛选按钮 + 结果网格 + 底部页码分页 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 搜索页：输入框（含返回/重置/标签筛选）+ 排序筛选 + 结果网格 + 底部页码分页 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     onBack: (() -> Unit)? = null,
@@ -59,9 +63,17 @@ fun SearchScreen(
     val multiLoading by viewModel.multiLoading.collectAsState()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
     val currentPage by viewModel.currentPage.collectAsState()
+    val tags by viewModel.tags.collectAsState()
+    val selectedTag by viewModel.selectedTag.collectAsState()
     var input by remember { mutableStateOf("") }
+    var showTagSheet by remember { mutableStateOf(false) }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    LaunchedEffect(Unit) {
+        viewModel.loadHotWords()
+        viewModel.loadTags()
+    }
 
     // 翻页时滚到顶部
     LaunchedEffect(shouldScrollToTop) {
@@ -106,13 +118,31 @@ fun SearchScreen(
                 }
             },
             trailingIcon = {
-                if (input.isNotBlank() || keyword.isNotBlank()) {
-                    IconButton(onClick = {
-                        focusManager.clearFocus()
-                        input = ""
-                        viewModel.resetAll()
-                    }) {
-                        Icon(Icons.Filled.Close, contentDescription = "重置")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (tags.isNotEmpty()) {
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            showTagSheet = true
+                        }) {
+                            Icon(
+                                Icons.Filled.FilterList,
+                                contentDescription = "标签筛选",
+                                tint = if (selectedTag != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                    if (input.isNotBlank() || keyword.isNotBlank()) {
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            input = ""
+                            viewModel.resetAll()
+                        }) {
+                            Icon(Icons.Filled.Close, contentDescription = "重置")
+                        }
                     }
                 }
             },
@@ -189,6 +219,52 @@ fun SearchScreen(
                     totalPages = totalPages,
                     onPageChange = { viewModel.jumpToPage(it) },
                 )
+            }
+        }
+    }
+
+    if (showTagSheet && tags.isNotEmpty()) {
+        ModalBottomSheet(onDismissRequest = { showTagSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp),
+            ) {
+                Text(
+                    text = "标签筛选",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = "与关键词为「且」关系，单选标签",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedTag == null,
+                        onClick = {
+                            showTagSheet = false
+                            viewModel.selectTag(null)
+                        },
+                        label = { Text("全部") },
+                    )
+                    tags.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTag == tag,
+                            onClick = {
+                                showTagSheet = false
+                                viewModel.selectTag(tag)
+                            },
+                            label = { Text(tag) },
+                        )
+                    }
+                }
             }
         }
     }
