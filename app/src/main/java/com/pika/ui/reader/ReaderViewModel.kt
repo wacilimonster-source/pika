@@ -59,7 +59,7 @@ class ReaderViewModel : ViewModel() {
                     // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
                     val local = com.pika.core.download.DownloadManager.chapterDir(comicId, order)
                         .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
-                        ?.sortedBy { it.name }
+                        ?.sortedBy { it.name.replace(Regex("\\D"), "").toIntOrNull() ?: 0 }
                     if (!local.isNullOrEmpty()) {
                         _pages.value = local.mapIndexed { i, f ->
                             com.pika.core.model.ComicPage(i, f.toURI().toString())

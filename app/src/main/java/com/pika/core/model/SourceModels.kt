@@ -1,10 +1,13 @@
 package com.pika.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 数据源无关的漫画模型：所有源（哔咔/禁漫）统一映射成这些类型供 UI 使用。
  */
 
 /** 列表项（卡片） */
+@Serializable
 data class ComicSummary(
     val id: String,
     val title: String,

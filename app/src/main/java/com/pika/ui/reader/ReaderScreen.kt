@@ -149,24 +149,13 @@ fun ReaderScreen(
         viewModel.load(context, comicId, order)
     }
 
-    // 进度恢复：pages 就绪后跳到上次阅读位置
-    val restorePage = viewModel.pendingRestorePage
-    LaunchedEffect(pages.size, restorePage, scrollMode) {
-        if (pages.isNotEmpty() && restorePage >= 0) {
-            val target = restorePage.coerceAtMost(pages.size - 1)
-            if (scrollMode) {
-                listState.scrollToItem(target)
-            } else {
-                pagerState.scrollToPage(target)
-            }
-            viewModel.pendingRestorePage = -1
-        }
-    }
-
     // ── 滚动流：页 → 行 平铺（长图分割） ──────────────────────────────────
     val sliceCounts = remember { mutableStateMapOf<Int, Int>() }
     LaunchedEffect(scrollMode) {
         if (!scrollMode) sliceCounts.clear()
+    }
+    LaunchedEffect(order) {
+        sliceCounts.clear()
     }
     val rows: List<Pair<Int, Int>> = if (scrollMode) {
         buildList {
@@ -188,6 +177,24 @@ fun ReaderScreen(
             remaining -= n
         }
         return pages.size - 1
+    }
+
+    // 进度恢复：pages 就绪后跳到上次阅读位置
+    val restorePage = viewModel.pendingRestorePage
+    LaunchedEffect(pages.size, restorePage, scrollMode) {
+        if (pages.isNotEmpty() && restorePage >= 0) {
+            val target = restorePage.coerceAtMost(pages.size - 1)
+            if (scrollMode) {
+                var row = 0
+                for (p in 0 until target.coerceAtMost(pages.size - 1)) {
+                    row += (sliceCounts[p] ?: 1).coerceAtLeast(1)
+                }
+                listState.scrollToItem(row)
+            } else {
+                pagerState.scrollToPage(target)
+            }
+            viewModel.pendingRestorePage = -1
+        }
     }
 
     // 滚动流当前页：监听 firstVisibleItemIndex（snapshotFlow）

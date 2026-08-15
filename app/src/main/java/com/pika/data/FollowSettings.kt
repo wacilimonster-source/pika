@@ -48,13 +48,13 @@ object FollowSettings {
         while (list.any { it.createdAt == ts }) ts++
         list.add(0, FollowItem(keywords = words, createdAt = ts))
         val p = prefs ?: return
-        p.edit().putString(KEY_ITEMS, json.encodeToString(list)).apply()
+        p.edit().putString(KEY_ITEMS, json.encodeToString(list)).commit()
     }
 
     fun removeItem(createdAt: Long) {
         val p = prefs ?: return
         p.edit()
             .putString(KEY_ITEMS, json.encodeToString(items().filterNot { it.createdAt == createdAt }))
-            .apply()
+            .commit()
     }
 }

@@ -202,12 +202,12 @@ object DownloadManager {
     fun remove(key: String, deleteFiles: Boolean = true) {
         scope.launch {
             mutex.withLock {
+                val target = _tasks.value.firstOrNull { it.key == key }
                 _tasks.value = _tasks.value.filterNot { it.key == key }
                 persist()
-            }
-            val rt = _tasks.value.firstOrNull { it.key == key }
-            if (deleteFiles && rt != null) {
-                chapterDir(rt.task.comicId, rt.task.order).deleteRecursively()
+                if (deleteFiles && target != null) {
+                    chapterDir(target.task.comicId, target.task.order).deleteRecursively()
+                }
             }
         }
     }

@@ -47,6 +47,9 @@ class HomeViewModel : ViewModel() {
     private val _followEmptyHint = MutableStateFlow<String?>(null)
     val followEmptyHint: StateFlow<String?> = _followEmptyHint.asStateFlow()
 
+    private val _followError = MutableStateFlow<String?>(null)
+    val followError: StateFlow<String?> = _followError.asStateFlow()
+
     /** 关注流每次刷新完成 +1（UI 据此回到列表顶部，从最新开始展示） */
     private val _refreshTick = MutableStateFlow(0)
     val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
@@ -91,8 +94,8 @@ class HomeViewModel : ViewModel() {
     private var _savedRandomIndex = 0
     val savedRandomIndex: Int get() = _savedRandomIndex
 
-    var isScrollStateRestored: Boolean = false
-        private set
+    private val _isScrollStateRestored = MutableStateFlow(false)
+    val isScrollStateRestored: StateFlow<Boolean> = _isScrollStateRestored
 
     fun saveScrollState(tab: Int, index: Int) {
         when (tab) {
@@ -103,7 +106,12 @@ class HomeViewModel : ViewModel() {
     }
 
     fun markScrollStateRestored() {
-        isScrollStateRestored = true
+        _isScrollStateRestored.value = true
+    }
+
+    init {
+        // 冷启动：先展示上次成功刷新的缓存，后台静默刷新替换
+        _followFeed.value = com.pika.data.FollowFeedCache.load()
     }
 
     /** 加载指定排行榜（日 H24 / 周 D7 / 月 D30） */
@@ -140,26 +148,42 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    /** 下拉刷新：所有来源重新从第 1 页拉取 */
+    /** 下拉刷新：所有来源重新从第 1 页拉取，取前120条 */
     fun refresh() {
         rebuildTargets()
         if (targets.isEmpty()) {
             _followFeed.value = emptyList()
             _followEndReached.value = true
             _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加关键词关注"
+            _followError.value = null
+            com.pika.data.FollowFeedCache.clear()  // 清空关注时同步清缓存，避免回退显示旧数据
             return
         }
         _followEmptyHint.value = null
         _followLoading.value = true
+        _followError.value = null
         followLoadingJob?.cancel()
         followLoadingJob = viewModelScope.launch {
-            targetPages.clear()
-            targetEnded.clear()
-            val result = fetchTargetPage(1)
-            mergeIntoFeed(result)
-            _followLoading.value = false
-            _followEndReached.value = targetEnded.values.all { it }
-            _refreshTick.value++
+            try {
+                targetPages.clear()
+                targetEnded.clear()
+                // 只拉各来源第1页，合并后取前120条
+                val result = fetchTargetPage(1)
+                mergeIntoFeed(result)
+                // 取前120条后永远不到底
+                if (_followFeed.value.size > 120) {
+                    _followFeed.value = _followFeed.value.take(120)
+                }
+                // 成功刷新后持久化缓存（冷启动秒显）；保存失败不影响展示，吞掉异常
+                runCatching { com.pika.data.FollowFeedCache.save(_followFeed.value) }
+                _followEndReached.value = true
+                _refreshTick.value++
+            } catch (e: Exception) {
+                // 拉取失败：保留 init 已载入的缓存供展示，仅轻量提示，下拉刷新圈停止
+                _followError.value = "刷新失败（${e.message ?: "网络错误"}），已展示上次缓存"
+            } finally {
+                _followLoading.value = false
+            }
         }
     }
 
@@ -181,20 +205,6 @@ class HomeViewModel : ViewModel() {
             } finally {
                 _randomLoading.value = false
             }
-        }
-    }
-
-    /** 滚动加载：每个来源拉下一页，合并排序追加 */
-    fun loadMore() {
-        if (_followLoading.value || _followEndReached.value) return
-        if (targets.isEmpty()) return
-        _followLoading.value = true
-        followLoadingJob = viewModelScope.launch {
-            val next = targetPages.values.maxOrNull()?.plus(1) ?: 2
-            val result = fetchTargetPage(next)
-            mergeIntoFeed(result, append = true)
-            _followLoading.value = false
-            _followEndReached.value = targetEnded.values.all { it }
         }
     }
 

@@ -18,6 +18,7 @@ class PiKAApp : Application() {
         CategorySettings.init(this)
         com.pika.data.AuthorFavourites.init(this)
         com.pika.data.FollowSettings.init(this)
+        com.pika.data.FollowFeedCache.init(this)
         com.pika.core.download.DownloadManager.init(this)
         SourceManager.init()
         // 安装 BouncyCastle TLS（绕过 Cloudflare 对 BoringSSL 的指纹拦截）

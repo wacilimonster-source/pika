@@ -172,7 +172,7 @@ class PicacgSource : Source {
 
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {
         val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
-        return resp.action.isNotBlank()
+        return resp.action.contains("藏")
     }
 
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {

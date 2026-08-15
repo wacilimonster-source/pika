@@ -60,8 +60,8 @@ class BrowseViewModel : ViewModel() {
     /** 加载代际：切排序/筛选/换源时递增，使旧加载在 await 后失效，避免并发写脏数据 */
     private var loadToken = 0
 
-    var currentPage: Int = 1
-        private set
+    private val _currentPage = MutableStateFlow(1)
+    val currentPage: StateFlow<Int> = _currentPage
 
     /** 用于列表滚动位置恢复 */
     private var _savedFirstVisibleIndex: Int = 0
@@ -118,7 +118,7 @@ class BrowseViewModel : ViewModel() {
                 )
                 if (token != loadToken) return@launch
                 rawItems += result.items
-                currentPage = p
+                _currentPage.value = p
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = p >= result.pages
                 applyFilterAndSort()
@@ -165,7 +165,7 @@ class BrowseViewModel : ViewModel() {
         _comics.value = emptyList()
         _error.value = null
         _endReached.value = false
-        currentPage = 0
+        _currentPage.value = 1
         loadComics(page = 1, category = category)
     }
 

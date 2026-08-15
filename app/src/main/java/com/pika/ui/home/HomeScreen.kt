@@ -54,6 +54,7 @@ fun HomeScreen(
     val followEndReached by viewModel.followEndReached.collectAsState()
     val followLoading by viewModel.followLoading.collectAsState()
     val followEmptyHint by viewModel.followEmptyHint.collectAsState()
+    val followError by viewModel.followError.collectAsState()
     val rankComics by viewModel.rankComics.collectAsState()
     val rankType by viewModel.rankType.collectAsState()
     val rankLoading by viewModel.rankLoading.collectAsState()
@@ -68,6 +69,7 @@ fun HomeScreen(
     val followGridState = rememberLazyGridState()
     val rankGridState = rememberLazyGridState()
     val randomGridState = rememberLazyGridState()
+    val scrollStateRestored by viewModel.isScrollStateRestored.collectAsState()
 
     // 保存当前 Tab 的滚动位置（导航离开时）
     DisposableEffect(Unit) {
@@ -76,7 +78,7 @@ fun HomeScreen(
         }
     }
     // 恢复滚动位置
-    LaunchedEffect(viewModel.isScrollStateRestored) {
+    LaunchedEffect(scrollStateRestored) {
         val index = when (selectedTab) {
             0 -> viewModel.savedFollowIndex
             1 -> viewModel.savedRankIndex
@@ -172,10 +174,11 @@ fun HomeScreen(
             0 -> FollowTab(
                 comics = followFeed,
                 loading = followLoading,
-                endReached = followEndReached,
+                endReached = true,
                 emptyHint = followEmptyHint,
+                error = followError,
                 refreshTick = followRefreshTick,
-                onLoadMore = viewModel::loadMore,
+                onLoadMore = {},
                 onRefresh = viewModel::refresh,
                 onComicClick = onComicClick,
                 gridState = followGridState,
@@ -211,6 +214,7 @@ private fun FollowTab(
     loading: Boolean,
     endReached: Boolean,
     emptyHint: String?,
+    error: String? = null,
     refreshTick: Int,
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
@@ -239,14 +243,35 @@ private fun FollowTab(
                 )
             }
         } else {
-            ComicGridView(
-                comics = comics,
-                loading = loading,
-                endReached = endReached,
-                listState = gridState,
-                onLoadMore = onLoadMore,
-                onComicClick = onComicClick,
-            )
+            Column(Modifier.fillMaxSize()) {
+                if (error != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onRefresh) {
+                            Text("重试")
+                        }
+                    }
+                }
+                ComicGridView(
+                    comics = comics,
+                    loading = loading,
+                    endReached = endReached,
+                    listState = gridState,
+                    onLoadMore = onLoadMore,
+                    onComicClick = onComicClick,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }

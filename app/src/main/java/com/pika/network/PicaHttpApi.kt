@@ -25,10 +25,14 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     }
 
     private inline fun <reified T> parseResponse(resp: PicaHttpEngine.RawResponse): ApiResponse<T> {
-        return json.decodeFromString(
-            ApiResponse.serializer(serializer()),
-            resp.bodyString
-        )
+        return try {
+            json.decodeFromString(
+                ApiResponse.serializer(serializer()),
+                resp.bodyString
+            )
+        } catch (e: kotlinx.serialization.SerializationException) {
+            throw PicaException("数据解析失败：${e.message}")
+        }
     }
 
     private suspend inline fun <reified T> get(

@@ -58,14 +58,23 @@ fun SearchScreen(
     val currentSort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val multiLoading by viewModel.multiLoading.collectAsState()
+    val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
+    val currentPage by viewModel.currentPage.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
+    // 翻页时滚到顶部
+    LaunchedEffect(shouldScrollToTop) {
+        if (shouldScrollToTop > 0) {
+            listState.scrollToItem(0)
+        }
+    }
+
     // 保存滚动位置（页面不可见时，如导航到详情）
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage.value)
         }
     }
     // 恢复滚动位置（首次组成为 false，导航返回后为 true）
@@ -178,7 +187,7 @@ fun SearchScreen(
                     )
                 }
                 com.pika.ui.browse.PaginationBar(
-                    currentPage = viewModel.currentPage,
+                    currentPage = currentPage,
                     totalPages = totalPages,
                     onPageChange = { viewModel.jumpToPage(it) },
                 )

@@ -60,7 +60,7 @@ object PicaClient {
                 if (response.code != 200) {
                     throw PicaException(response.message)
                 }
-                return response.data!!
+                return response.data ?: throw PicaException("空响应数据")
             } catch (e: PicaException) {
                 val message = e.message.orEmpty()
                 val isRateLimit = message.contains("too many requests", ignoreCase = true)

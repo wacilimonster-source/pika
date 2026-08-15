@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
@@ -56,25 +57,21 @@ fun AuthorComicsScreen(
     val sort by viewModel.sort.collectAsState()
     val status by viewModel.status.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
+    val currentPage by viewModel.currentPage.collectAsState()
     val listState = rememberLazyGridState()
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
 
-    // 保存滚动位置（导航离开时，如进入详情页）
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
-        }
+    // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
+    LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+        viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
     }
-    // 恢复滚动位置（导航返回时）
-    LaunchedEffect(viewModel.needsScrollRestore) {
-        if (viewModel.needsScrollRestore && viewModel.savedFirstVisibleIndex > 0) {
+    // 恢复滚动状态（导航返回后首次 recompose 时执行）
+    LaunchedEffect(Unit) {
+        viewModel.loadComics(author, page = 1)
+        if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
         }
-    }
-
-    LaunchedEffect(author, activeSource) {
-        viewModel.loadComics(author, page = 1)
     }
 
     LaunchedEffect(activeSource, supportedSorts) {
@@ -206,7 +203,7 @@ fun AuthorComicsScreen(
                     modifier = Modifier.weight(1f),
                 )
                 PaginationBar(
-                    currentPage = viewModel.currentPage,
+                    currentPage = currentPage,
                     totalPages = totalPages,
                     onPageChange = { viewModel.jumpToPage(it) },
                 )

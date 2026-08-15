@@ -34,8 +34,8 @@ class AuthorViewModel : ViewModel() {
     private val _totalPages = MutableStateFlow(1)
     val totalPages: StateFlow<Int> = _totalPages
 
-    var currentPage: Int = 1
-        private set
+    private val _currentPage = MutableStateFlow(1)
+    val currentPage: StateFlow<Int> = _currentPage
 
     private var _author: String = ""
 
@@ -55,17 +55,16 @@ class AuthorViewModel : ViewModel() {
     fun loadComics(author: String, page: Int) {
         _author = author
         loadJob?.cancel()
+        // 恢复滚动状态：跳过加载，只恢复页码（Navigation 已自动恢复 LazyGridState）
+        if (_needsScrollRestore) {
+            _needsScrollRestore = false
+            _currentPage.value = _savedCurrentPage
+            return
+        }
         _loading.value = true
         _error.value = null
         _endReached.value = false
-        currentPage = page
-
-        // 恢复滚动位置（仅 page=1 时触发）
-        if (page == 1 && _needsScrollRestore) {
-            _savedFirstVisibleIndex = 0
-            _savedCurrentPage = 1
-            _needsScrollRestore = false
-        }
+        _currentPage.value = page
 
         loadJob = viewModelScope.launch {
             try {
@@ -79,6 +78,7 @@ class AuthorViewModel : ViewModel() {
                 _comics.value = result.items
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = page >= result.pages
+                applyFilterAndSort()
             } catch (e: Exception) {
                 _error.value = e.message ?: "加载失败"
             } finally {
@@ -89,13 +89,13 @@ class AuthorViewModel : ViewModel() {
 
     fun jumpToPage(page: Int) {
         _needsScrollRestore = false
-        _endReached.value = true  // 防止加载期间 ComicGridView 触发 loadMore
+        _endReached.value = true
         loadComics(_author, page)
     }
 
     fun loadMore() {
         if (_loading.value || _endReached.value) return
-        val nextPage = currentPage + 1
+        val nextPage = _currentPage.value + 1
         _loading.value = true
         loadJob = viewModelScope.launch {
             try {
@@ -107,7 +107,7 @@ class AuthorViewModel : ViewModel() {
                     tag = null,
                 )
                 _comics.value = _comics.value + result.items
-                currentPage = nextPage
+                _currentPage.value = nextPage
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = nextPage >= result.pages
             } catch (e: Exception) {

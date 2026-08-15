@@ -178,12 +178,13 @@ fun CategoryComicsScreen(
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
+    val currentPage by viewModel.currentPage.collectAsState()
     val listState = rememberLazyGridState()
 
     // 保存滚动位置
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage)
+            viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
         }
     }
     // 恢复滚动位置
@@ -320,10 +321,9 @@ fun CategoryComicsScreen(
                     modifier = Modifier.weight(1f),
                 )
                 com.pika.ui.browse.PaginationBar(
-                    currentPage = viewModel.currentPage,
+                    currentPage = currentPage,
                     totalPages = totalPages,
                     onPageChange = { viewModel.jumpToPage(it) },
-                    modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
         }

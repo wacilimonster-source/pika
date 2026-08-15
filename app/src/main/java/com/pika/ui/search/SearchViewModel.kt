@@ -52,8 +52,8 @@ class SearchViewModel : ViewModel() {
     private val _totalPages = MutableStateFlow(1)
     val totalPages: StateFlow<Int> = _totalPages
 
-    var currentPage: Int = 1
-        private set
+    private val _currentPage = MutableStateFlow(1)
+    val currentPage: StateFlow<Int> = _currentPage
 
     /** 当前搜索任务（用于中途取消） */
     private var searchJob: Job? = null
@@ -79,6 +79,10 @@ class SearchViewModel : ViewModel() {
     fun markScrollStateRestored() {
         isScrollStateRestored = true
     }
+
+    /** 翻页时通知 Screen 滚到顶部 */
+    private val _shouldScrollToTop = MutableStateFlow(0)
+    val shouldScrollToTop: StateFlow<Int> = _shouldScrollToTop
 
     /** 多词搜索专用 scope（所有子协程通过它创建，便于中途取消） */
     private var multiSearchJob: Job? = null
@@ -135,7 +139,7 @@ class SearchViewModel : ViewModel() {
         _multiLoading.value = false
         _endReached.value = false
         _keyword.value = keyword
-        currentPage = 1
+        _currentPage.value = 1
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()
         _multiSearchComplete.value = false
@@ -158,9 +162,9 @@ class SearchViewModel : ViewModel() {
                     _comics.value = result.items
                     _totalPages.value = result.pages.coerceAtLeast(1)
                     _endReached.value = page >= result.pages
-                    currentPage = page
+                    _currentPage.value = page
                 } else {
-                    computeMultiWordIntersection(source, words, this)
+                    computeMultiWordIntersection(source, words, page, this)
                 }
             } finally {
                 _loading.value = false
@@ -174,10 +178,12 @@ class SearchViewModel : ViewModel() {
      * 2. 对每词逐页拉取，逐步扩展交集集合
      * 3. 够 1 页（20 条）后立即显示；后台继续拉完所有页
      * 4. 全部拉完后，启用完整客户端分页（无超时上限）
+     * @param startPage 起始页（来自 jumpToPage 或初始搜索）
      */
     private suspend fun computeMultiWordIntersection(
         source: Source,
         words: List<String>,
+        startPage: Int,
         scope: CoroutineScope,
     ) {
         coroutineScope {
@@ -185,18 +191,18 @@ class SearchViewModel : ViewModel() {
             val wordPageCountDefs = words.map { word ->
                 scope.async {
                     delay(250)
-                    val first = runCatching { searchWithRetry(source, word, 1) }.getOrNull()
+                    val first = runCatching { searchWithRetry(source, word, startPage) }.getOrNull()
                     word to (first?.pages ?: 1).coerceIn(1, 50)
                 }
             }
             val wordPageCounts = wordPageCountDefs.map { it.await() }
 
-            val wordProgress = words.associateWith { 0 }.toMutableMap()
+            val wordProgress = words.associateWith { startPage - 1 }.toMutableMap()
             val wordIdSets = mutableMapOf<String, MutableSet<String>>().apply {
                 words.forEach { put(it, mutableSetOf()) }
             }
 
-            // 阶段 1：拉每词第 1 页，建立初始交集
+            // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
                 val page = (wordProgress[word] ?: 0) + 1
                 val items = semaphore.withPermit {
@@ -295,7 +301,7 @@ class SearchViewModel : ViewModel() {
             _loading.value = false
             _multiLoading.value = !complete
             _endReached.value = complete
-            _totalPages.value = if (complete) (intersection.size + pageSize - 1) / pageSize else 1
+            _totalPages.value = (intersection.size + pageSize - 1) / pageSize.coerceAtLeast(1)
         }
     }
 
@@ -324,13 +330,22 @@ class SearchViewModel : ViewModel() {
                 .distinctBy { it.id }
                 .sortedByComicSort(_sort.value)
         } else {
-            search(_keyword.value, page = currentPage)
+            search(_keyword.value, page = currentPage.value)
         }
     }
 
-    /** 跳转到多词搜索的指定页（重新 search 该页） */
+    /** 跳转到指定页（多词：客户端分页；单词：服务端分页） */
     fun jumpToPage(page: Int) {
-        search(_keyword.value, page)
+        _shouldScrollToTop.value++
+        val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (words.size > 1) {
+            // 多词：直接用已缓存的全量数据做客户端分页
+            _currentPage.value = page
+            _comics.value = buildDisplayForPage(page)
+            _endReached.value = page >= _totalPages.value
+        } else {
+            search(_keyword.value, page)
+        }
     }
 
     /** 加载更多（多词场景：交集完成后按页追加） */
@@ -338,14 +353,14 @@ class SearchViewModel : ViewModel() {
         if (_loading.value) return
         if (!_multiSearchComplete.value) return
 
-        val nextPage = currentPage + 1
+        val nextPage = currentPage.value + 1
         val pageComics = buildDisplayForPage(nextPage)
         if (pageComics.isEmpty()) {
             _endReached.value = true
             return
         }
         _comics.value = _comics.value + pageComics
-        currentPage = nextPage
+        _currentPage.value = nextPage
         _endReached.value = nextPage >= _totalPages.value
     }
 
