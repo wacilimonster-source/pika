@@ -115,6 +115,16 @@ private fun RecentReadRow(recent: RecentRead, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (recent.author.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = recent.author,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "第 ${recent.order} 话 · 第 ${recent.pageIndex + 1} 页",

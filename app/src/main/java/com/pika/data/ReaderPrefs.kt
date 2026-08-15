@@ -25,6 +25,7 @@ data class RecentRead(
     val comicId: String,
     val title: String,
     val coverUrl: String,
+    val author: String = "",
     val order: Int,
     val pageIndex: Int,
     val ts: Long,
@@ -122,6 +123,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         comicId: String,
         title: String,
         coverUrl: String,
+        author: String,
         order: Int,
         pageIndex: Int,
     ) {
@@ -130,7 +132,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             val current = prefs[key]?.let {
                 runCatching { json.decodeFromString<List<RecentRead>>(it) }.getOrDefault(emptyList())
             } ?: emptyList()
-            val entry = RecentRead(comicId, title, coverUrl, order, pageIndex, System.currentTimeMillis())
+            val entry = RecentRead(comicId, title, coverUrl, author, order, pageIndex, System.currentTimeMillis())
             val updated = (listOf(entry) + current.filterNot { it.comicId == comicId }).take(6)
             prefs[key] = json.encodeToString(updated)
         }

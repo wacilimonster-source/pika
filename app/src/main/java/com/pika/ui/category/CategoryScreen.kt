@@ -32,7 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -44,7 +43,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -198,9 +196,6 @@ fun CategoryComicsScreen(
     val categoryTitle = categories.firstOrNull { it.id == categoryId }?.title ?: "分类"
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
-    var showFilter by remember { mutableStateOf(false) }
-    var authorInput by remember { mutableStateOf("") }
-    var tagInput by remember { mutableStateOf("") }
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
@@ -223,14 +218,10 @@ fun CategoryComicsScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { showFilter = !showFilter }) {
-                        Icon(Icons.Filled.FilterList, contentDescription = "筛选")
-                    }
-                },
                 windowInsets = WindowInsets(0, 0),
             )
         },
+        contentWindowInsets = WindowInsets(0, 0),
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -247,41 +238,6 @@ fun CategoryComicsScreen(
                         selected = sort == s,
                         onClick = { viewModel.setSort(s) },
                         label = { Text(s.label) },
-                    )
-                }
-            }
-            // 高级筛选（作者）
-            if (showFilter) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = authorInput,
-                            onValueChange = { authorInput = it },
-                            singleLine = true,
-                            label = { Text("作者") },
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = tagInput,
-                            onValueChange = { tagInput = it },
-                            singleLine = true,
-                            label = { Text("标签") },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    FilterChip(
-                        selected = false,
-                        onClick = {
-                            viewModel.setAuthor(authorInput.trim().ifBlank { null })
-                            viewModel.setTag(tagInput.trim().ifBlank { null })
-                        },
-                        label = { Text("应用筛选") },
                     )
                 }
             }

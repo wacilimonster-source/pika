@@ -34,6 +34,10 @@ class ReaderViewModel : ViewModel() {
     private val _comicTitle = MutableStateFlow("")
     val comicTitle: StateFlow<String> = _comicTitle
 
+    /** 作品作者（阅读历史用） */
+    private val _comicAuthor = MutableStateFlow("")
+    val comicAuthor: StateFlow<String> = _comicAuthor
+
     private val _coverUrl = MutableStateFlow("")
     val coverUrl: StateFlow<String> = _coverUrl
 
@@ -72,8 +76,8 @@ class ReaderViewModel : ViewModel() {
                         _pages.value = SourceManager.current().chapterPages(comicId, order)
                     }
                     _chapters.value = SourceManager.current().chapters(comicId)
-                    // 顺便拿封面与作品标题（历史记录用），失败不影响阅读
-                    if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank()) {
+                    // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
+                    if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
                         runCatching {
                             val detail = SourceManager.current().comicDetail(comicId)
                             if (_coverUrl.value.isBlank()) {
@@ -81,6 +85,9 @@ class ReaderViewModel : ViewModel() {
                             }
                             if (_comicTitle.value.isBlank()) {
                                 _comicTitle.value = detail.title
+                            }
+                            if (_comicAuthor.value.isBlank()) {
+                                _comicAuthor.value = detail.author
                             }
                         }
                     }
@@ -130,6 +137,7 @@ class ReaderViewModel : ViewModel() {
                     comicId = comicId,
                     title = title.ifBlank { "第 $currentOrder 话" },
                     coverUrl = coverUrl,
+                    author = _comicAuthor.value,
                     order = currentOrder,
                     pageIndex = pageIndex.coerceAtLeast(0),
                 )

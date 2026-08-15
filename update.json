@@ -1,1 +1,1 @@
-{"version":"1.5.22","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.22.apk","notes":"v1.5.22 更新：\n1. 详情页按钮优化：有历史时主按钮变「继续阅读」直接续读，上次进度改为纯文本展示不再挤占下载按钮\n2. 阅读历史排版优化：作品名与缩略图顶部对齐，新增相对阅读时间（刚刚/X分钟前/X小时前/X天前）"}
+{"version":"1.5.23","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.23.apk","notes":"v1.5.23 更新：\n1. 分类页分页条底部间距与搜索页统一\n2. 删除分类详情页右上角筛选按钮\n3. 修复搜索页顶部多余空白\n4. 阅读历史新增作者名称展示"}
