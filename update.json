@@ -1,1 +1,1 @@
-{"version":"1.5.24","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.24.apk","notes":"v1.5.24 更新：\n1. 搜索页新增标签筛选（搜索框右侧按钮，与关键词为且关系）\n2. 关注管理支持可选标签（关键词+标签组合关注）\n3. 首页关注流支持带标签的关注项\n4. 修复连续搜索时旧任务未取消的问题"}
+{"version":"1.5.25","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.25.apk","notes":"v1.5.25 更新：\n修复标签筛选逻辑：单词+标签改为服务端一次筛选（categories 参数，匹配官方分类语义），不再走全量拉取+客户端过滤；多词+标签每词服务端筛选后取交集；关注流标签关注项同步修复"}

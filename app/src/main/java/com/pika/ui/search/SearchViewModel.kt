@@ -185,12 +185,15 @@ class SearchViewModel : ViewModel() {
                     .distinct()
                 _activeSearchWords = words
                 val tagFilter = _selectedTag.value
-                if (words.size <= 1 && tagFilter == null) {
+                if (words.size <= 1) {
+                    // 单词（含带标签）：服务端一次筛选 + 服务端分页。
+                    // 标签 = advanced-search 的 categories 参数（服务端按 doc.categories 精确匹配，实测有效）。
                     _multiSearchComplete.value = true
                     val result = source.search(
                         keyword = keyword,
                         page = page,
                         sort = _sort.value,
+                        categories = if (tagFilter == null) emptyList() else listOf(tagFilter),
                     )
                     if (_keyword.value != keyword) return@launch
                     _comics.value = result.items
@@ -207,13 +210,14 @@ class SearchViewModel : ViewModel() {
     }
 
     /**
-     * 多词/标签过滤的渐进式加载：
+     * 多词交集渐进式加载：
      * 1. 先获取每词的总页数
      * 2. 对每词逐页拉取，逐步扩展交集集合
      * 3. 够 1 页（20 条）后立即显示；后台继续拉完所有页
      * 4. 全部拉完后，启用完整客户端分页（无超时上限）
      * @param startPage 起始页（来自 jumpToPage 或初始搜索）
-     * @param tagFilter 选中标签（非空时结果只保留 tags 含该标签的作品，语义：关键词 AND 标签）
+     * @param tagFilter 选中标签（非空时每词搜索都带 categories=[标签]，由服务端筛选，
+     *                  交集语义 = 词1 AND 词2 AND 标签）
      */
     private suspend fun computeMultiWordIntersection(
         source: Source,
@@ -222,16 +226,13 @@ class SearchViewModel : ViewModel() {
         scope: CoroutineScope,
         tagFilter: String? = null,
     ) {
-        // 客户端过滤：搜索接口返回的 doc 自带 tags，无需额外请求
-        fun applyTagFilter(items: List<ComicSummary>): List<ComicSummary> =
-            if (tagFilter == null) items else items.filter { it.tags.contains(tagFilter) }
-
+        val categories = if (tagFilter == null) emptyList() else listOf(tagFilter)
         coroutineScope {
             val semaphore = Semaphore(multiConcurrency)
             val wordPageCountDefs = words.map { word ->
                 scope.async {
                     delay(250)
-                    val first = runCatching { searchWithRetry(source, word, startPage) }.getOrNull()
+                    val first = runCatching { searchWithRetry(source, word, startPage, categories) }.getOrNull()
                     word to (first?.pages ?: 1).coerceIn(1, 50)
                 }
             }
@@ -245,10 +246,10 @@ class SearchViewModel : ViewModel() {
             // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
                 val page = (wordProgress[word] ?: 0) + 1
-                val items = applyTagFilter(semaphore.withPermit {
+                val items = semaphore.withPermit {
                     delay(250)
-                    runCatching { searchWithRetry(source, word, page) }.getOrNull()?.items ?: emptyList()
-                })
+                    runCatching { searchWithRetry(source, word, page, categories) }.getOrNull()?.items ?: emptyList()
+                }
                 if (items.isNotEmpty()) {
                     wordIdSets[word]?.addAll(items.map { it.id })
                     _multiAllComics.addAll(items)
@@ -274,10 +275,10 @@ class SearchViewModel : ViewModel() {
                 val pageJobs = pendingWords.map { (w, _) ->
                     scope.async {
                         val nextPage = (wordProgress[w] ?: 0) + 1
-                        val items = applyTagFilter(semaphore.withPermit {
+                        val items = semaphore.withPermit {
                             delay(250)
-                            runCatching { searchWithRetry(source, w, nextPage) }.getOrNull()?.items ?: emptyList()
-                        })
+                            runCatching { searchWithRetry(source, w, nextPage, categories) }.getOrNull()?.items ?: emptyList()
+                        }
                         w to items
                     }
                 }
@@ -358,13 +359,13 @@ class SearchViewModel : ViewModel() {
 
     /**
      * 排序切换：
-     * - 多词/带标签场景：直接对已积累的全部 comics 重排（不重新请求）
-     * - 单词场景：重新请求（服务端分页排序）
+     * - 多词场景：直接对已积累的全部 comics 重排（不重新请求）
+     * - 单词场景（含带标签）：重新请求（服务端分页排序 + 服务端标签筛选）
      */
     fun updateSortOnly(sort: ComicSort) {
         _sort.value = sort
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (words.size > 1 || _selectedTag.value != null) {
+        if (words.size > 1) {
             _comics.value = _multiAllComics
                 .filter { it.id in _confirmedIntersectionIds }
                 .distinctBy { it.id }
@@ -374,12 +375,12 @@ class SearchViewModel : ViewModel() {
         }
     }
 
-    /** 跳转到指定页（多词/带标签：客户端分页；单词：服务端分页） */
+    /** 跳转到指定页（多词：客户端分页；单词含带标签：服务端分页） */
     fun jumpToPage(page: Int) {
         _shouldScrollToTop.value++
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (words.size > 1 || _selectedTag.value != null) {
-            // 多词/带标签：直接用已缓存的全量数据做客户端分页
+        if (words.size > 1) {
+            // 多词：直接用已缓存的全量数据做客户端分页
             _currentPage.value = page
             _comics.value = buildDisplayForPage(page)
             _endReached.value = page >= _totalPages.value
@@ -409,11 +410,12 @@ class SearchViewModel : ViewModel() {
         source: Source,
         word: String,
         page: Int,
+        categories: List<String> = emptyList(),
     ): PageResult<ComicSummary> {
         var last: Exception? = null
         repeat(pageRetryCount + 1) { attempt ->
             try {
-                return source.search(word, page, _sort.value)
+                return source.search(word, page, _sort.value, categories = categories)
             } catch (e: Exception) {
                 last = e
                 if (attempt < pageRetryCount) delay(500)

@@ -246,28 +246,26 @@ class HomeViewModel : ViewModel() {
     /**
      * 组合关键词拉取：服务端不支持空格分词，每个词分别全文搜索（标题/标签/简介）取 id 交集，
      * 保证"且"关系且不误杀（词可分别命中标题或标签）。
-     * 关注项带标签时，额外对结果做客户端过滤（搜索 doc 自带 tags，无需额外请求），
-     * 语义：关键词 AND 标签精确匹配。
+     * 关注项带标签时，每词搜索都带 categories=[标签]（服务端按 doc.categories 精确筛选），
+     * 语义：关键词 AND 标签。
      */
     private suspend fun fetchKeywordPage(
         source: Source,
         target: FollowTarget,
         startPage: Int,
     ): List<ComicSummary> {
-        val tag = target.tag
-        fun applyTagFilter(items: List<ComicSummary>): List<ComicSummary> =
-            if (tag == null) items else items.filter { it.tags.contains(tag) }
-
+        val categories = if (target.tag == null) emptyList() else listOf(target.tag)
         val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }
         // 单词且无标签：直接取第 1 页（关注流语义：各来源最新作品）
-        if (words.size <= 1 && tag == null) {
+        if (words.size <= 1 && target.tag == null) {
             val result = source.search(keyword = target.name, page = startPage, sort = ComicSort.DD)
             targetPages[target.key] = startPage
             if (startPage >= result.pages) targetEnded[target.key] = true
             return result.items
         }
         // 多词 或 单词+标签：每词按第 1 页响应的 pages 拉取全部可返回页（服务端最多 50 页）
-        // 取交集后客户端按标签过滤，一次拉完（无需滚动分页）；Semaphore 控制并发避免限流（实测并发 4 安全）。
+        // 取交集（带标签时每词已由服务端按标签筛选），一次拉完（无需滚动分页）；
+        // Semaphore 控制并发避免限流（实测并发 4 安全）。
         if (startPage > 1) {
             targetEnded[target.key] = true
             return emptyList()
@@ -278,7 +276,7 @@ class HomeViewModel : ViewModel() {
                 async {
                     semaphore.withPermit {
                         kotlinx.coroutines.delay(250)
-                        val first = runCatching { searchWithRetry(source, word, 1) }.getOrNull()
+                        val first = runCatching { searchWithRetry(source, word, 1, categories) }.getOrNull()
                         word to (first?.pages ?: 1).coerceIn(1, 50)
                     }
                 }
@@ -291,7 +289,7 @@ class HomeViewModel : ViewModel() {
                         (1..pages).mapNotNull { p ->
                             semaphore.withPermit {
                                 kotlinx.coroutines.delay(250)
-                                runCatching { searchWithRetry(source, word, p) }.getOrNull()?.items
+                                runCatching { searchWithRetry(source, word, p, categories) }.getOrNull()?.items
                             }
                         }.flatten()
                     }
@@ -302,9 +300,9 @@ class HomeViewModel : ViewModel() {
         val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
         targetPages[target.key] = 50
         targetEnded[target.key] = true
-        return applyTagFilter(common
+        return common
             .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
-            .sortedByComicSort(ComicSort.DD))
+            .sortedByComicSort(ComicSort.DD)
     }
 
     /** 单词/多词搜索，失败自动重试 */
@@ -312,11 +310,12 @@ class HomeViewModel : ViewModel() {
         source: Source,
         word: String,
         page: Int,
+        categories: List<String> = emptyList(),
     ): com.pika.core.model.PageResult<ComicSummary> {
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
-                return source.search(word, page, ComicSort.DD)
+                return source.search(word, page, ComicSort.DD, categories = categories)
             } catch (e: Exception) {
                 last = e
                 if (attempt < 2) kotlinx.coroutines.delay(500)
