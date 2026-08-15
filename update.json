@@ -1,1 +1,1 @@
-{"version":"1.5.20","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.20.apk","notes":"v1.5.20 更新：\n1. 修复更新包下载无速度问题：新增 jsDelivr CDN 备用下载源，GitHub 直连慢时自动切换"}
+{"version":"1.5.21","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.21.apk","notes":"v1.5.21 更新：\n1. 修复我的菜单子页面（收藏/作者收藏/关注管理/我的评论/阅读历史/下载/设置）顶部空白\n2. 阅读历史优化：显示作品名+加大缩略图，点击进入作品详情页\n3. 详情页新增「上次阅读到第X话·第Y页」入口，点击自动续读"}
