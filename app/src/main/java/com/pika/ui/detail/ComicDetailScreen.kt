@@ -135,40 +135,44 @@ fun ComicDetailScreen(
                     ComicHeader(comic = c, onOpenAuthor = onOpenAuthor)
                 }
                 item {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Button(
-                            onClick = { chapters.firstOrNull()?.let { onOpenReader(comicId, it.order) } },
-                            enabled = chapters.isNotEmpty(),
-                        )
-                        { Text("开始阅读") }
-                        if (lastProgress != null && chapters.isNotEmpty()) {
-                            TextButton(
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Button(
                                 onClick = {
-                                    onOpenReader(comicId, lastProgress!!.order)
+                                    if (lastProgress != null) {
+                                        onOpenReader(comicId, lastProgress!!.order)
+                                    } else {
+                                        chapters.firstOrNull()?.let { onOpenReader(comicId, it.order) }
+                                    }
                                 },
-                            ) {
-                                Text(
-                                    "上次阅读到 第${lastProgress!!.order}话 · 第${lastProgress!!.pageIndex + 1}页",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                enabled = chapters.isNotEmpty(),
+                            )
+                            { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
+                            OutlinedButton(
+                                onClick = { viewModel.downloadAll(comicId, comic, chapters) },
+                                enabled = chapters.isNotEmpty(),
+                            )
+                            {
+                                Icon(
+                                    Icons.Filled.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
                                 )
+                                Spacer(Modifier.width(6.dp))
+                                Text("下载整本")
                             }
                         }
-                        OutlinedButton(
-                            onClick = { viewModel.downloadAll(comicId, comic, chapters) },
-                            enabled = chapters.isNotEmpty(),
-                        )
-                        {
-                            Icon(
-                                Icons.Filled.Download,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
+                        if (lastProgress != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "上次阅读到 第${lastProgress!!.order}话 · 第${lastProgress!!.pageIndex + 1}页",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text("下载整本")
                         }
                     }
                 }

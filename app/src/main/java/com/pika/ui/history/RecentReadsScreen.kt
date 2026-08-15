@@ -96,7 +96,7 @@ private fun RecentReadRow(recent: RecentRead, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         AsyncImage(
             model = recent.coverUrl,
@@ -121,7 +121,27 @@ private fun RecentReadRow(recent: RecentRead, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = formatReadTime(recent.ts),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+}
+
+/** 相对时间：刚刚 / X分钟前 / X小时前 / X天前 / 超过7天显示日期 */
+private fun formatReadTime(ts: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - ts
+    return when {
+        diff < 60_000 -> "刚刚"
+        diff < 3_600_000 -> "${diff / 60_000}分钟前"
+        diff < 24 * 3_600_000L -> "${diff / 3_600_000}小时前"
+        diff < 7 * 24 * 3_600_000L -> "${diff / (24 * 3_600_000L)}天前"
+        else -> java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date(ts))
+    }
 }

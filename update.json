@@ -1,1 +1,1 @@
-{"version":"1.5.21","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.21.apk","notes":"v1.5.21 更新：\n1. 修复我的菜单子页面（收藏/作者收藏/关注管理/我的评论/阅读历史/下载/设置）顶部空白\n2. 阅读历史优化：显示作品名+加大缩略图，点击进入作品详情页\n3. 详情页新增「上次阅读到第X话·第Y页」入口，点击自动续读"}
+{"version":"1.5.22","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.22.apk","notes":"v1.5.22 更新：\n1. 详情页按钮优化：有历史时主按钮变「继续阅读」直接续读，上次进度改为纯文本展示不再挤占下载按钮\n2. 阅读历史排版优化：作品名与缩略图顶部对齐，新增相对阅读时间（刚刚/X分钟前/X小时前/X天前）"}

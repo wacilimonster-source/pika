@@ -13,8 +13,8 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "1.5.21"
+        versionCode = 48
+        versionName = "1.5.22"
     }
 
     signingConfigs {
