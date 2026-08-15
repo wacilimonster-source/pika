@@ -1,1 +1,1 @@
-{"version":"1.5.29","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.29.apk","notes":"v1.5.29 更新：\n1. 分类与搜索结果页新增阅读状态筛选：全部 / 只看未读（无阅读记录）/ 只看未读完（排除读完）\n2. 筛选激活时自动加载全部分页，底部页码器实时显示加载进度（已加载 x/N 页），加载完恢复可跳页\n3. 筛选结果不随阅读状态实时刷新，看完返回仅更新角标，下次进入页面或切换筛选时刷新\n4. 切换筛选自动重置页码并回到顶部"}
+{"version":"1.5.30","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.30.apk","notes":"v1.5.30 更新：\n1. 阅读状态筛选（只看未读/只看未读完）加载中可翻页：已加载页码实时显示可点击，纯本地切片切换，不打断后台自动加载\n2. 页码窗口显示（当前页±附近页+省略号），尾部实时进度 x/N + 转圈\n3. 全部页加载完成后恢复完整页码 + 跳页（客户端切片，零网络请求）"}

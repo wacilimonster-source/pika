@@ -36,8 +36,9 @@ import androidx.compose.ui.unit.dp
  * 页码分页条：左箭头 | 页码（居中块状）| 右箭头 | 跳页按钮
  * 数字在矩形块内居中；点跳页弹窗输入页码直达。
  *
- * progressMode = true：筛选激活时的加载进度模式——显示"已加载 x / N 页"，
- * 每后台加载完一页自动 +1，全部加载完切换回正常分页。
+ * progressMode = true：筛选激活时的加载进度模式——页码可点范围为已加载页
+ * （loadedPages），后台每加载完一页自动扩展范围；加载未完成时右箭头尾部显示
+ * "x / N 页"进度 + 转圈，全部加载完切换回完整跳页按钮（跳页为客户端切片）。
  */
 @Composable
 fun PaginationBar(
@@ -46,35 +47,13 @@ fun PaginationBar(
     onPageChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
     progressMode: Boolean = false,
+    loadedPages: Int = totalPages,
 ) {
     if (totalPages <= 1) return
-    if (progressMode) {
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = "已加载 $currentPage / $totalPages 页",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (currentPage < totalPages) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .size(14.dp),
-                    strokeWidth = 2.dp,
-                )
-            }
-        }
-        return
-    }
     var showJump by remember { mutableStateOf(false) }
     var jumpInput by remember { mutableStateOf("") }
+
+    val loaded = if (progressMode) loadedPages.coerceIn(1, totalPages) else totalPages
 
     Row(
         modifier = modifier
@@ -97,7 +76,7 @@ fun PaginationBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            pageWindow(currentPage, totalPages).forEach { p ->
+            pageWindow(currentPage, loaded).forEach { p ->
                 if (p == null) {
                     Text(
                         text = "…",
@@ -135,38 +114,59 @@ fun PaginationBar(
             }
         }
         IconButton(
-            onClick = { onPageChange((currentPage + 1).coerceAtMost(totalPages)) },
-            enabled = currentPage < totalPages,
+            onClick = { onPageChange((currentPage + 1).coerceAtMost(loaded)) },
+            enabled = currentPage < loaded,
         ) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "下一页")
         }
-        // 跳页按钮（弹窗输入页码）
-        Surface(
-            onClick = {
-                jumpInput = ""
-                showJump = true
-            },
-            shape = MaterialTheme.shapes.small,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.width(64.dp).height(36.dp),
-        ) {
+        // 尾部：进度模式加载中显示进度 + 转圈，否则显示跳页按钮
+        if (progressMode && loaded < totalPages) {
             Row(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.width(88.dp).height(36.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.End,
             ) {
-                Icon(
-                    Icons.Filled.FilterCenterFocus,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Text(
-                    text = "跳页",
+                    text = "$loaded/$totalPages",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp),
                 )
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(start = 4.dp)
+                        .size(12.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+        } else {
+            // 跳页按钮（弹窗输入页码）
+            Surface(
+                onClick = {
+                    jumpInput = ""
+                    showJump = true
+                },
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.width(64.dp).height(36.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.FilterCenterFocus,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "跳页",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
             }
         }
     }

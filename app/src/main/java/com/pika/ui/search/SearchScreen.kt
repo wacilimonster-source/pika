@@ -62,13 +62,14 @@ fun SearchScreen(
     val totalPages by viewModel.totalPages.collectAsState()
     val multiLoading by viewModel.multiLoading.collectAsState()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
-    val currentPage by viewModel.currentPage.collectAsState()
     val tags by viewModel.tags.collectAsState()
     val selectedTag by viewModel.selectedTag.collectAsState()
     var input by remember { mutableStateOf("") }
     var showTagSheet by remember { mutableStateOf(false) }
     var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
     val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
+    // 筛选模式下的客户端翻页（累积数据按 20 条一页切片，纯本地不请求）
+    var filterPage by rememberSaveable { mutableStateOf(1) }
     val listState = rememberLazyGridState()
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
@@ -198,6 +199,7 @@ fun SearchScreen(
                         onClick = {
                             readFilterName = f.name
                             viewModel.resetFilterPage()
+                            filterPage = 1
                             listState.requestScrollToItem(0)
                         },
                         label = { Text(label) },
@@ -206,7 +208,14 @@ fun SearchScreen(
             }
         }
         // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
-        val displayComics = remember(readFilter, comics) { comics.filterByRead(readFilter) }
+        // 筛选模式：累积数据按服务端页（20 条）切片 + 过滤，页码可点（客户端翻页）
+        val displayComics = remember(readFilter, comics, filterPage) {
+            if (readFilter == com.pika.ui.browse.ReadFilter.ALL) {
+                comics
+            } else {
+                comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
+            }
+        }
         if (displayComics.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -241,9 +250,14 @@ fun SearchScreen(
                     )
                 }
                 com.pika.ui.browse.PaginationBar(
-                    currentPage = currentPage,
+                    currentPage = filterPage,
                     totalPages = totalPages,
-                    onPageChange = { viewModel.jumpToPage(it) },
+                    loadedPages = (comics.size + 19) / 20,
+                    onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+                        { filterPage = it }
+                    } else {
+                        { viewModel.jumpToPage(it) }
+                    },
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )
             }

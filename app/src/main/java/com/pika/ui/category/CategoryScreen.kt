@@ -231,6 +231,8 @@ fun CategoryComicsScreen(
             // 排序 + 阅读状态筛选
             var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
             val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
+            // 筛选模式下的客户端翻页（累积数据按 20 条一页切片，纯本地不请求）
+            var filterPage by rememberSaveable { mutableStateOf(1) }
             // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
             LaunchedEffect(readFilter, comics, loading, endReached) {
                 if (readFilter != com.pika.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
@@ -255,6 +257,7 @@ fun CategoryComicsScreen(
                             onClick = {
                                 readFilterName = f.name
                                 viewModel.resetFilterPage()
+                                filterPage = 1
                                 listState.requestScrollToItem(0)
                             },
                             label = { Text(label) },
@@ -263,7 +266,14 @@ fun CategoryComicsScreen(
                 }
             }
             // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
-            val displayComics = remember(readFilter, comics) { comics.filterByRead(readFilter) }
+            // 筛选模式：累积数据按服务端页（20 条）切片 + 过滤，页码可点（客户端翻页）
+            val displayComics = remember(readFilter, comics, filterPage) {
+                if (readFilter == com.pika.ui.browse.ReadFilter.ALL) {
+                    comics
+                } else {
+                    comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
+                }
+            }
             if (error != null && comics.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -305,9 +315,14 @@ fun CategoryComicsScreen(
                     showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
                 )
                 com.pika.ui.browse.PaginationBar(
-                    currentPage = currentPage,
+                    currentPage = filterPage,
                     totalPages = totalPages,
-                    onPageChange = { viewModel.jumpToPage(it) },
+                    loadedPages = (comics.size + 19) / 20,
+                    onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+                        { filterPage = it }
+                    } else {
+                        { viewModel.jumpToPage(it) }
+                    },
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )
             }
