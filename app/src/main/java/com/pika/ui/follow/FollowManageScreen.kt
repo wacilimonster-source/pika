@@ -90,7 +90,8 @@ fun FollowManageScreen(
                 FollowRow(
                     name = item.keywords.joinToString(" + ") + (item.tag?.let { "  [$it]" } ?: ""),
                     onDelete = {
-                        FollowSettings.removeItem(item.createdAt)
+                        FollowSettings.removeItem(item)
+                        com.pika.data.FollowFeedCache.clear()
                         reload()
                     },
                 )
@@ -103,6 +104,7 @@ fun FollowManageScreen(
             onDismiss = { showKeywordDialog = false },
             onAdd = { keywords, tag ->
                 FollowSettings.addItem(keywords, tag)
+                com.pika.data.FollowFeedCache.clear()
                 showKeywordDialog = false
                 reload()
             },

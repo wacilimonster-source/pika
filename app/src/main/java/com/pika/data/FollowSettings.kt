@@ -53,10 +53,20 @@ object FollowSettings {
         p.edit().putString(KEY_ITEMS, json.encodeToString(list)).commit()
     }
 
-    fun removeItem(createdAt: Long) {
+    /**
+     * 删除关注项（按内容匹配 keywords+tag，不依赖 createdAt：
+     * 旧数据可能缺失 createdAt 字段，反序列化时每次读取都会生成不同默认值，按时间戳删不掉）。
+     * addItem 保证同内容只存一条，按内容删除是安全的。
+     */
+    fun removeItem(item: FollowItem) {
         val p = prefs ?: return
         p.edit()
-            .putString(KEY_ITEMS, json.encodeToString(items().filterNot { it.createdAt == createdAt }))
+            .putString(
+                KEY_ITEMS,
+                json.encodeToString(
+                    items().filterNot { it.keywords == item.keywords && it.tag == item.tag }
+                ),
+            )
             .commit()
     }
 }

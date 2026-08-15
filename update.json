@@ -1,1 +1,1 @@
-{"version":"1.5.25","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.25.apk","notes":"v1.5.25 更新：\n修复标签筛选逻辑：单词+标签改为服务端一次筛选（categories 参数，匹配官方分类语义），不再走全量拉取+客户端过滤；多词+标签每词服务端筛选后取交集；关注流标签关注项同步修复"}
+{"version":"1.5.26","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.26.apk","notes":"v1.5.26 更新：\n修复关注管理删除无反应：旧数据缺失 createdAt 字段导致按时间戳删除永远不匹配，改为按内容（关键词+标签）删除；删除/添加关注后同步清理首页关注流缓存"}
