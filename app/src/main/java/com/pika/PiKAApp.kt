@@ -15,6 +15,7 @@ class PiKAApp : Application() {
         super.onCreate()
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
+        com.pika.data.ReaderStatus.loadAll(this)
         CategorySettings.init(this)
         com.pika.data.AuthorFavourites.init(this)
         com.pika.data.FollowSettings.init(this)

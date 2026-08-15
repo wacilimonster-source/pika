@@ -1,1 +1,1 @@
-{"version":"1.5.27","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.27.apk","notes":"v1.5.27 更新：\n1. 修复关注/随便看看刷新时顶部下拉指示器与列表尾部转圈双转圈\n2. 排行榜切换日/周/月时清空旧数据（不再残留旧榜）\n3. 首页关注流自动刷新加 30 秒节流（下拉刷新不受影响）"}
+{"version":"1.5.28","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.28.apk","notes":"v1.5.28 更新：\n1. 所有作品列表（排行榜/关注/分类/搜索/作者/收藏等）封面新增阅读状态角标：打开过阅读器显示「已读」，读到最后一章最后一页显示「读完」\n2. 历史阅读进度自动补标「已读」\n3. 阅读状态本地内存缓存，列表滚动零性能影响"}

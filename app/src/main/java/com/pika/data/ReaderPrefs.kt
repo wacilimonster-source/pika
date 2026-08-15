@@ -14,6 +14,7 @@ private val Context.readerDataStore by preferencesDataStore(name = "pika_reader"
 
 private object ReaderKeys {
     const val PROGRESS_PREFIX = "progress_"
+    const val FINISHED_PREFIX = "finished_"
     const val READER_MODE = "reader_mode"
     const val BRIGHTNESS = "reader_brightness"
     const val RECENT_READS = "recent_reads"
@@ -69,6 +70,30 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             it[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)] = "$order:$pageIndex"
         }
     }
+
+    /** 标记作品已读完（读到最后一章最后一页时调用；幂等，重复写无副作用） */
+    suspend fun saveFinished(comicId: String) {
+        appContext.readerDataStore.edit {
+            it[stringPreferencesKey(ReaderKeys.FINISHED_PREFIX + comicId)] = "1"
+        }
+    }
+
+    /** 一次性读取全部进度/读完标记（启动预热内存缓存用；progress_ 为已读，finished_ 覆盖为已读完） */
+    suspend fun loadAllStatuses(): Map<String, ReadStatus> = runCatching {
+        val prefs = appContext.readerDataStore.data.first()
+        val result = mutableMapOf<String, ReadStatus>()
+        prefs.asMap().forEach { (key, _) ->
+            when {
+                key.name.startsWith(ReaderKeys.FINISHED_PREFIX) -> {
+                    result[key.name.removePrefix(ReaderKeys.FINISHED_PREFIX)] = ReadStatus.FINISHED
+                }
+                key.name.startsWith(ReaderKeys.PROGRESS_PREFIX) -> {
+                    result[key.name.removePrefix(ReaderKeys.PROGRESS_PREFIX)] = ReadStatus.READ
+                }
+            }
+        }
+        result
+    }.getOrDefault(emptyMap())
 
     /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
     var readerMode: Int

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,9 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +54,7 @@ fun ComicGridView(
     /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
     showTailLoading: Boolean = true,
 ) {
+    val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         state = listState,
@@ -58,7 +64,8 @@ fun ComicGridView(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(comics, key = { it.id }) { comic ->
-            ComicCard(comic = comic, onClick = { onComicClick(comic.id) })
+            val readStatus = remember(comic.id, statusVersion) { com.pika.data.ReaderStatus.of(comic.id) }
+            ComicCard(comic = comic, readStatus = readStatus, onClick = { onComicClick(comic.id) })
         }
         if (loading && showTailLoading) {
             item {
@@ -85,6 +92,7 @@ fun ComicGridView(
 @Composable
 private fun ComicCard(
     comic: ComicSummary,
+    readStatus: com.pika.data.ReadStatus?,
     onClick: () -> Unit,
 ) {
     Column(
@@ -114,6 +122,22 @@ private fun ComicCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            // 阅读状态角标：右上角；读完优先显示
+            when (readStatus) {
+                com.pika.data.ReadStatus.FINISHED -> ReadBadge(
+                    text = "读完",
+                    container = MaterialTheme.colorScheme.primary,
+                    content = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+                com.pika.data.ReadStatus.READ -> ReadBadge(
+                    text = "已读",
+                    container = Color(0x99000000),
+                    content = Color.White,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                )
+                null -> {}
             }
         }
         Text(
@@ -164,4 +188,24 @@ private fun ComicCard(
             }
         }
     }
+}
+
+/** 封面右上角阅读状态角标 */
+@Composable
+private fun ReadBadge(
+    text: String,
+    container: Color,
+    content: Color,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = content,
+        maxLines = 1,
+        modifier = modifier
+            .padding(4.dp)
+            .background(container, RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }

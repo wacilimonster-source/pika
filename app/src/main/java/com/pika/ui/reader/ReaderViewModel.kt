@@ -119,12 +119,24 @@ class ReaderViewModel : ViewModel() {
         load(context, comicId, order)
     }
 
-    /** 保存阅读进度（本地，带页码），并刷新"最近阅读"。 */
+    /** 保存阅读进度（本地，带页码），并刷新"最近阅读"；同步更新已读/已读完状态 */
     fun saveProgress(pageIndex: Int) {
-        if (_pages.value.isEmpty()) return
+        val pages = _pages.value
+        if (pages.isEmpty()) return
+        val safePage = pageIndex.coerceAtLeast(0)
         viewModelScope.launch {
             runCatching {
-                ReaderPrefs.current().saveProgress(comicId, currentOrder, pageIndex.coerceAtLeast(0))
+                ReaderPrefs.current().saveProgress(comicId, currentOrder, safePage)
+            }
+            // 打开过阅读器即已读（内存状态只升不降）
+            com.pika.data.ReaderStatus.markRead(comicId)
+            // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
+            val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
+            if (currentOrder == lastOrder && safePage >= pages.size - 1) {
+                if (com.pika.data.ReaderStatus.of(comicId) != com.pika.data.ReadStatus.FINISHED) {
+                    runCatching { ReaderPrefs.current().saveFinished(comicId) }
+                    com.pika.data.ReaderStatus.markFinished(comicId)
+                }
             }
         }
     }
