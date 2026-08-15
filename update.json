@@ -1,1 +1,1 @@
-{"version":"1.5.19","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.19.apk","notes":"v1.5.19 更新：\n1. 首页关注页新增持久化缓存：冷启动秒显上次关注流，后台静默刷新\n2. 修复关注管理关键词无法删除（apply→commit同步写入）\n3. 修复收藏页分页条遮挡网格末行（改为Column+weight布局）\n4. 修复首页滚动位置恢复（var→StateFlow）\n5. 清理关注流loadMore死代码"}
+{"version":"1.5.20","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.20.apk","notes":"v1.5.20 更新：\n1. 修复更新包下载无速度问题：新增 jsDelivr CDN 备用下载源，GitHub 直连慢时自动切换"}

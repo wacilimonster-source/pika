@@ -41,8 +41,24 @@ object UpdateManager {
         BcTls.applyTo(
             OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
         ).build()
+    }
+
+    /**
+     * 由 raw.githubusercontent.com 直链生成候选下载源（依次尝试）：
+     * 1. 原 GitHub raw 直链
+     * 2. jsDelivr CDN（国内访问通常更快）
+     */
+    private fun candidateUrls(apkUrl: String): List<String> {
+        val urls = mutableListOf(apkUrl)
+        val m = Regex("https://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+            .find(apkUrl)
+        if (m != null) {
+            val (owner, repo, branch, file) = m.destructured
+            urls += "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$file"
+        }
+        return urls
     }
 
     val currentVersionName: String
@@ -73,8 +89,23 @@ object UpdateManager {
 
     /**
      * 下载 APK 到 cache 目录，带进度回调（0f..1f）。
+     * 依次尝试多个下载源（GitHub raw → jsDelivr CDN），单个源失败自动切换。
      */
-    suspend fun download(context: Context, url: String, onProgress: (Float) -> Unit): File =
+    suspend fun download(context: Context, url: String, onProgress: (Float) -> Unit): File {
+        var lastError: Exception? = null
+        for (candidate in candidateUrls(url)) {
+            try {
+                return downloadFrom(context, candidate, onProgress)
+            } catch (e: Exception) {
+                lastError = e
+                // 切下一个源前稍等，避免瞬时失败连续重试
+                kotlinx.coroutines.delay(500)
+            }
+        }
+        throw lastError ?: java.io.IOException("下载失败：无可用下载源")
+    }
+
+    private suspend fun downloadFrom(context: Context, url: String, onProgress: (Float) -> Unit): File =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { resp ->
