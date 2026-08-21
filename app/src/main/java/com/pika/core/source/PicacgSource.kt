@@ -1,5 +1,6 @@
 package com.pika.core.source
 
+import com.pika.core.log.LogStore
 import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
@@ -180,7 +181,10 @@ class PicacgSource : Source {
 
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {
         val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
-        return resp.action.contains("藏")
+        LogStore.log("PicacgSource", "D", "favourite response: action=\"${resp.action}\"")
+        if (resp.action.contains("藏")) return true
+        if (resp.action.isNotBlank()) return true
+        return false
     }
 
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {
