@@ -2,6 +2,7 @@ package com.pika.network
 
 import android.content.Context
 import android.util.Log
+import com.pika.core.log.LogStore
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
@@ -58,6 +59,7 @@ object PicaClient {
             try {
                 val response = block()
                 if (response.code != 200) {
+                    LogStore.log("PicaClient", "E", "HTTP ${response.code}: ${response.message}")
                     throw PicaException(response.message)
                 }
                 return response.data ?: throw PicaException("空响应数据")
@@ -68,12 +70,14 @@ object PicaClient {
                 if (isRateLimit && attempt == 0) {
                     attempt++
                     Log.i("PicaClient", "rate limited, switching host and retry")
+                    LogStore.log("PicaClient", "W", "rate limited, switching host and retry")
                     delay(2_000)
                     switchHost()
                     continue
                 }
                 if (isRateLimit) {
                     rateLimitedUntil = System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS
+                    LogStore.log("PicaClient", "E", "rate limited exceeded, cooldown ${RATE_LIMIT_COOLDOWN_MS / 1000}s")
                     throw PicaException("请求过于频繁(429)，请 ${RATE_LIMIT_COOLDOWN_MS / 1000} 秒后再试")
                 }
                 throw e
@@ -81,10 +85,12 @@ object PicaClient {
                 attempt++
                 if (attempt <= 2) {
                     Log.i("PicaClient", "network error, retry $attempt: ${e.message}")
+                    LogStore.log("PicaClient", "W", "network error, retry $attempt: ${e.message}")
                     delay(1_000L * attempt)
                     switchHost()
                     continue
                 }
+                LogStore.log("PicaClient", "E", "network failed after $attempt attempts: ${e.message}")
                 throw PicaException("网络连接失败：${e.message}")
             }
         }
@@ -97,5 +103,6 @@ object PicaClient {
             PicaApiHosts.PICACOMIC
         }
         Log.i("PicaClient", "switched host -> $baseUrl")
+        LogStore.log("PicaClient", "I", "switched host -> $baseUrl")
     }
 }

@@ -7,6 +7,7 @@ import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
+import com.pika.core.log.LogStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -138,6 +139,9 @@ class ComicDetailViewModel : ViewModel() {
     private val _favourited = MutableStateFlow(false)
     val favourited: StateFlow<Boolean> = _favourited
 
+    private val _favouriteError = MutableStateFlow<String?>(null)
+    val favouriteError: StateFlow<String?> = _favouriteError
+
     /** 当前源是否支持收藏 */
     fun canFavourite(): Boolean = favouriteSupported
 
@@ -150,13 +154,25 @@ class ComicDetailViewModel : ViewModel() {
                 val ok = SourceManager.current().favourite(comicId, !_favourited.value)
                 if (ok) {
                     _favourited.value = !_favourited.value
+                    LogStore.log("Detail", "I", "favourite toggled: comic=$comicId, favourited=${_favourited.value}")
+                } else {
+                    LogStore.log("Detail", "W", "favourite returned false: comic=$comicId")
                 }
             } catch (e: UnsupportedOperationException) {
                 favouriteSupported = false
+                LogStore.log("Detail", "I", "favourite not supported by current source")
             } catch (e: Exception) {
-                // 收藏失败静默
+                val msg = e.message ?: "未知错误"
+                _favouriteError.value = msg
+                LogStore.log("Detail", "E", "favourite failed: comic=$comicId, error=$msg")
             }
         }
+    }
+
+    fun consumeFavouriteError(): String? {
+        val v = _favouriteError.value
+        _favouriteError.value = null
+        return v
     }
 
     // ── 评论 ──────────────────────────────────────────────────────────────

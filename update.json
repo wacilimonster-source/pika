@@ -1,1 +1,1 @@
-{"version":"1.5.30","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.30.apk","notes":"v1.5.30 更新：\n1. 阅读状态筛选（只看未读/只看未读完）加载中可翻页：已加载页码实时显示可点击，纯本地切片切换，不打断后台自动加载\n2. 页码窗口显示（当前页±附近页+省略号），尾部实时进度 x/N + 转圈\n3. 全部页加载完成后恢复完整页码 + 跳页（客户端切片，零网络请求）"}
+{"version":"1.5.31","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.31.apk","notes":"v1.5.31 更新：\n1. 收藏按钮点击无反馈修复：失败时弹出 Snackbar 提示错误信息\n2. 设置新增「调试日志」：可查看应用运行日志、复制全部、一键清空\n3. 网络层（PicaClient）关键节点接入日志记录：限流/重试/切换/错误全追踪"}

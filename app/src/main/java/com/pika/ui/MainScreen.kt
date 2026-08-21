@@ -32,6 +32,7 @@ import com.pika.ui.login.LoginScreen
 import com.pika.ui.mine.MineScreen
 import com.pika.ui.reader.ReaderScreen
 import com.pika.ui.search.SearchScreen
+import com.pika.ui.settings.LogScreen
 import com.pika.ui.settings.SettingsScreen
 
 private data class TabItem(
@@ -221,7 +222,13 @@ fun MainScreen() {
                 )
             }
             composable("settings") {
-                SettingsScreen(onBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenLog = { navController.navigate("log") },
+                )
+            }
+            composable("log") {
+                LogScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 "category/{categoryId}",

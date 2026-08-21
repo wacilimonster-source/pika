@@ -39,6 +39,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,15 +91,26 @@ fun ComicDetailScreen(
     val loadingSubIds by viewModel.loadingSubIds.collectAsState()
     val replyingTo by viewModel.replyingTo.collectAsState()
     val lastProgress by viewModel.lastProgress.collectAsState()
+    val favouriteError by viewModel.favouriteError.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(comicId) {
         viewModel.load(comicId)
     }
 
+    LaunchedEffect(favouriteError) {
+        favouriteError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeFavouriteError()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(comic?.title ?: "详情", maxLines = 1, overflow = TextOverflow.Ellipsis) },

@@ -55,6 +55,7 @@ import kotlinx.coroutines.runBlocking
 fun SettingsScreen(
     /** 从"我的"页进入时为 push 页面，显示返回按钮 */
     onBack: (() -> Unit)? = null,
+    onOpenLog: () -> Unit = {},
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val scope = rememberCoroutineScope()
@@ -157,6 +158,14 @@ fun SettingsScreen(
                 text = "切换数据源后，首页 / 搜索 / 详情将展示该源的内容",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodySmall,
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("调试日志") },
+                supportingContent = { Text("查看应用运行日志") },
+                modifier = Modifier
+                    .clickable(onClick = onOpenLog)
+                    .padding(horizontal = 8.dp),
             )
             HorizontalDivider()
             UpdateSection()
