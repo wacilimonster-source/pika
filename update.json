@@ -1,1 +1,1 @@
-{"version":"1.5.31","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.31.apk","notes":"v1.5.31 更新：\n1. 收藏按钮点击无反馈修复：失败时弹出 Snackbar 提示错误信息\n2. 设置新增「调试日志」：可查看应用运行日志、复制全部、一键清空\n3. 网络层（PicaClient）关键节点接入日志记录：限流/重试/切换/错误全追踪"}
+{"version":"1.5.32","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.32.apk","notes":"v1.5.32 更新：\n1. 修复收藏按钮无效：放宽服务端action判定（action非空即视为成功），解决哔咔接口返回不含\"藏\"字导致收藏永远失败的问题"}
