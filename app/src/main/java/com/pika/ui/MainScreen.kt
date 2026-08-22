@@ -53,16 +53,14 @@ fun MainScreen() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val activeSource by SourceManager.activeSource.collectAsState()
-    val loggedOut by SourceManager.loggedOut.collectAsState()
+    val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
 
-    LaunchedEffect(activeSource, loggedOut) {
-        val needLogin = !SourceManager.current().isLoggedIn
-        if (needLogin) {
+    LaunchedEffect(activeSource, unauthorizedTick) {
+        if (!SourceManager.current().isLoggedIn) {
             navController.navigate("login") {
                 popUpTo(0) { inclusive = true }
+                launchSingleTop = true
             }
-        } else if (loggedOut) {
-            SourceManager.consumeLoggedOut()
         }
     }
 

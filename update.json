@@ -1,1 +1,1 @@
-{"version":"1.5.32","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.32.apk","notes":"v1.5.32 更新：\n1. 修复收藏按钮无效：放宽服务端action判定（action非空即视为成功），解决哔咔接口返回不含\"藏\"字导致收藏永远失败的问题"}
+{"version":"1.5.33","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.33.apk","notes":"v1.5.33 更新：\n1. 修复登录失效后无法重新登录的问题：401事件标志被粘滞导致二次失效时不跳转登录页（改为自增事件计数，每次失效必触发跳转）"}

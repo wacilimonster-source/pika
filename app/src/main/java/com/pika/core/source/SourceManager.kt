@@ -12,12 +12,12 @@ object SourceManager {
     private val _activeSource =
         MutableStateFlow<SourceType>(SourcePrefs.current().activeSource)
 
-    private val _loggedOut = MutableStateFlow(false)
+    private val _unauthorizedTick = MutableStateFlow(0)
 
     val activeSource: StateFlow<SourceType> = _activeSource
 
-    /** 哔咔 401 触发：清登录态并通知 UI 跳登录页 */
-    val loggedOut: StateFlow<Boolean> = _loggedOut
+    /** 登录态丢失事件计数：每次 401 / 退出登录自增，UI 据此重查登录态并跳登录页 */
+    val unauthorizedTick: StateFlow<Int> = _unauthorizedTick
 
     private val sources: Map<SourceType, Source> = mapOf(
         SourceType.PICACG to PicacgSource(),
@@ -43,12 +43,6 @@ object SourceManager {
     /** 401 处理（suspend，由 PicaHttpEngine 在 IO 协程中调用） */
     suspend fun onUnauthorized() {
         sources.getValue(_activeSource.value).logout()
-        _loggedOut.value = true
-    }
-
-    fun consumeLoggedOut(): Boolean {
-        val v = _loggedOut.value
-        _loggedOut.value = false
-        return v
+        _unauthorizedTick.value += 1
     }
 }

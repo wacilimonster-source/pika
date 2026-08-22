@@ -54,12 +54,12 @@ fun MineScreen(
 ) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
-    val loggedOut by SourceManager.loggedOut.collectAsState()
+    val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
     var user by remember { mutableStateOf<ComicUser?>(null) }
     var profileLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(loggedIn, loggedOut) {
+    LaunchedEffect(loggedIn, unauthorizedTick) {
         if (loggedIn) {
             profileLoading = true
             try {
