@@ -319,9 +319,17 @@ fun CategoryComicsScreen(
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
                     onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
-                        { filterPage = it }
+                        { p ->
+                            filterPage = p
+                            // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
+                            listState.requestScrollToItem(0)
+                        }
                     } else {
-                        { viewModel.jumpToPage(it) }
+                        { p ->
+                            viewModel.jumpToPage(p)
+                            // 服务端换页：旧列表尚在展示时先回顶，新数据替换后仍停留在顶部
+                            listState.requestScrollToItem(0)
+                        }
                     },
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )

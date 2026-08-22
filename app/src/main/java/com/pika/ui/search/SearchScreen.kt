@@ -265,9 +265,19 @@ fun SearchScreen(
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
                     onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
-                        { filterPage = it }
+                        { p ->
+                            filterPage = p
+                            // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
+                            listState.requestScrollToItem(0)
+                        }
                     } else {
-                        { viewModel.jumpToPage(it) }
+                        { p ->
+                            // 同步分页条高亮与箭头目标（此前普通模式 filterPage 不更新导致卡在旧值）
+                            filterPage = p
+                            viewModel.jumpToPage(p)
+                            // jumpToPage 内部已有 shouldScrollToTop 兜底；这里立即回顶避免旧列表位置残留
+                            listState.requestScrollToItem(0)
+                        }
                     },
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )

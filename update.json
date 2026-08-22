@@ -1,1 +1,1 @@
-{"version":"1.5.35","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.35.apk","notes":"v1.5.35 更新：\n1. 修复阅读历史记录为孤立的\"第N话\"：直接进章节时详情未返回就落盘，现详情加载完成后自动补写完整标题/封面/作者"}
+{"version":"1.5.36","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.36.apk","notes":"v1.5.36 更新：\n1. 修复分类/搜索/排行榜翻页后停留在原滚动位置的问题：显式翻页（含切榜）现在自动回到列表顶部\n2. 修复搜索页翻页后分页条页码高亮不更新"}

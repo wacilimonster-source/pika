@@ -19,7 +19,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,16 +47,7 @@ fun RankScreen(
     var comics by remember { mutableStateOf<List<ComicSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var pendingScrollRestore by remember { mutableStateOf(-1) }
     val listState = rememberLazyGridState()
-
-    // 若有待恢复位置则恢复（来自导航返回）
-    LaunchedEffect(pendingScrollRestore) {
-        if (pendingScrollRestore >= 0) {
-            listState.scrollToItem(pendingScrollRestore)
-            pendingScrollRestore = -1
-        }
-    }
 
     fun load(t: String) {
         loading = true
@@ -76,13 +66,6 @@ fun RankScreen(
     }
 
     LaunchedEffect(Unit) { load(type) }
-
-    // 记住当前滚动位置（导航离开前）
-    DisposableEffect(type, listState) {
-        onDispose {
-            pendingScrollRestore = listState.firstVisibleItemIndex
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -106,8 +89,9 @@ fun RankScreen(
                         selected = type == value,
                         onClick = {
                             type = value
-                            pendingScrollRestore = 0
                             load(value)
+                            // 切榜即回顶：新数据替换后网格会按索引保留位置，需显式重置
+                            listState.requestScrollToItem(0)
                         },
                         label = { Text(label) },
                     )
