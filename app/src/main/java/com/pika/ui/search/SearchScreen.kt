@@ -52,6 +52,7 @@ import com.pika.ui.browse.filterByRead
 fun SearchScreen(
     onBack: (() -> Unit)? = null,
     onComicClick: (String) -> Unit = {},
+    initialKeyword: String? = null,
     viewModel: SearchViewModel = viewModel(),
 ) {
     val comics by viewModel.comics.collectAsState()
@@ -83,6 +84,16 @@ fun SearchScreen(
     LaunchedEffect(Unit) {
         viewModel.loadHotWords()
         viewModel.loadTags()
+    }
+
+    // 从详情页标签点击进入：自动填入关键词并立即搜索（每次导航都是新实例，只执行一次）
+    LaunchedEffect(initialKeyword) {
+        val kw = initialKeyword?.trim().orEmpty()
+        if (kw.isNotEmpty()) {
+            input = kw
+            focusManager.clearFocus()
+            viewModel.search(kw, page = 1)
+        }
     }
 
     // 翻页时滚到顶部

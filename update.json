@@ -1,1 +1,1 @@
-{"version":"1.5.33","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.33.apk","notes":"v1.5.33 更新：\n1. 修复登录失效后无法重新登录的问题：401事件标志被粘滞导致二次失效时不跳转登录页（改为自增事件计数，每次失效必触发跳转）"}
+{"version":"1.5.34","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.34.apk","notes":"v1.5.34 更新：\n1. 作品详情标签支持点击：直接跳转搜索页并按该标签自动搜索"}

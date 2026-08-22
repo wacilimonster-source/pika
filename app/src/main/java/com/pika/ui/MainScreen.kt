@@ -69,7 +69,7 @@ fun MainScreen() {
             NavigationBar(modifier = Modifier.height(64.dp)) {
                 tabs.forEach { tab ->
                     val selected = currentDestination?.hierarchy
-                        ?.any { it.route == tab.route } == true
+                        ?.any { it.route?.substringBefore('?') == tab.route } == true
                     NavigationBarItem(
                         selected = selected,
                         onClick = {
@@ -118,8 +118,18 @@ fun MainScreen() {
                     },
                 )
             }
-            composable("search") {
+            composable(
+                "search?keyword={keyword}",
+                arguments = listOf(
+                    navArgument("keyword") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
                 SearchScreen(
+                    initialKeyword = entry.arguments?.getString("keyword"),
                     onBack = null,
                     onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
                 )
@@ -259,6 +269,9 @@ fun MainScreen() {
                     },
                     onOpenAuthor = { author ->
                         navController.navigate("author/${Uri.encode(author)}")
+                    },
+                    onOpenTagSearch = { tag ->
+                        navController.navigate("search?keyword=${Uri.encode(tag)}")
                     },
                     onComicClick = { id ->
                         navController.navigate("comic/${Uri.encode(id)}") {

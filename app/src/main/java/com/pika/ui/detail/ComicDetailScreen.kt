@@ -74,6 +74,7 @@ fun ComicDetailScreen(
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
     onOpenAuthor: (String) -> Unit = {},
+    onOpenTagSearch: (String) -> Unit = {},
     onComicClick: (String) -> Unit = {},
     viewModel: ComicDetailViewModel = viewModel(),
 ) {
@@ -227,7 +228,10 @@ fun ComicDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(c.tags.ifEmpty { c.categories }) { tag ->
-                            SuggestionChip(onClick = {}, label = { Text(tag) })
+                            SuggestionChip(
+                                onClick = { onOpenTagSearch(tag) },
+                                label = { Text(tag) },
+                            )
                         }
                     }
                 }
