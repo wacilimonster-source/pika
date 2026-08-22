@@ -1,1 +1,1 @@
-{"version":"1.5.34","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.34.apk","notes":"v1.5.34 更新：\n1. 作品详情标签支持点击：直接跳转搜索页并按该标签自动搜索"}
+{"version":"1.5.35","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.35.apk","notes":"v1.5.35 更新：\n1. 修复阅读历史记录为孤立的\"第N话\"：直接进章节时详情未返回就落盘，现详情加载完成后自动补写完整标题/封面/作者"}

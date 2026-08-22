@@ -90,6 +90,10 @@ class ReaderViewModel : ViewModel() {
                                 _comicAuthor.value = detail.author
                             }
                         }
+                        // 详情就绪后补写最近阅读：修正此前按兜底标题("第N话")写入的记录
+                        if (lastRecordedPage >= 0) {
+                            recordRecentRead(lastRecordedPage)
+                        }
                     }
                 }
                 _epTitle.value = _chapters.value.firstOrNull { it.order == order }?.title.orEmpty()
@@ -141,17 +145,25 @@ class ReaderViewModel : ViewModel() {
         }
     }
 
-    /** 记录最近阅读条目（首页"继续阅读"用）。 */
-    fun recordRecentRead(title: String, coverUrl: String, pageIndex: Int) {
+    /** 最近一次记录历史时的页码（-1 = 本次会话尚未记录过；详情就绪后据此补写） */
+    private var lastRecordedPage: Int = -1
+
+    /**
+     * 记录最近阅读条目（首页"继续阅读"用）。
+     * 立即落盘（标题未就绪时先写兜底值）；详情加载完成后由 load() 触发补写覆盖，
+     * 避免直接进章节、详情未返回就退出时在历史里留下孤立的"第N话"。
+     */
+    fun recordRecentRead(pageIndex: Int) {
+        lastRecordedPage = pageIndex.coerceAtLeast(0)
         viewModelScope.launch {
             runCatching {
                 ReaderPrefs.current().recordRecentRead(
                     comicId = comicId,
-                    title = title.ifBlank { "第 $currentOrder 话" },
-                    coverUrl = coverUrl,
+                    title = _comicTitle.value.ifBlank { "第 $currentOrder 话" },
+                    coverUrl = _coverUrl.value,
                     author = _comicAuthor.value,
                     order = currentOrder,
-                    pageIndex = pageIndex.coerceAtLeast(0),
+                    pageIndex = lastRecordedPage,
                 )
             }
         }
