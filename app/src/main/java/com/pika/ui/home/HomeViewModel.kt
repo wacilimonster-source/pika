@@ -21,6 +21,9 @@ import kotlinx.coroutines.sync.withPermit
 /** 关注来源类型 */
 private enum class FollowTargetType { AUTHOR, KEYWORD }
 
+/** 排行榜数据过期阈值：回前台时超过该时长则静默重拉（覆盖进程被后台保留的"温启动"场景） */
+private const val RANK_REFRESH_TTL_MS = 10 * 60 * 1000L
+
 /** 一个关注来源：作者 / 组合关键词（空格连接）+ 可选标签 */
 private data class FollowTarget(
     val key: String,
@@ -60,6 +63,10 @@ class HomeViewModel : ViewModel() {
 
     fun refreshOnResume() {
         val now = System.currentTimeMillis()
+        // 排行榜 TTL 刷新：回前台时数据过期则静默重拉当前榜
+        if (rankLoadedAt > 0 && now - rankLoadedAt >= RANK_REFRESH_TTL_MS) {
+            loadRank(_rankType.value, force = true)
+        }
         if (now - lastAutoRefreshAt < 30_000) return
         lastAutoRefreshAt = now
         refresh()
@@ -76,6 +83,13 @@ class HomeViewModel : ViewModel() {
 
     private val _rankError = MutableStateFlow<String?>(null)
     val rankError: StateFlow<String?> = _rankError.asStateFlow()
+
+    /** 排行榜最近一次成功加载时间（TTL 刷新判断用） */
+    private var rankLoadedAt = 0L
+
+    /** 排行榜刷新完成计数：UI 据此回到列表顶部 */
+    private val _rankRefreshTick = MutableStateFlow(0)
+    val rankRefreshTick: StateFlow<Int> = _rankRefreshTick.asStateFlow()
 
     private val _randomComics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val randomComics: StateFlow<List<ComicSummary>> = _randomComics.asStateFlow()
@@ -125,18 +139,25 @@ class HomeViewModel : ViewModel() {
         _followFeed.value = com.pika.data.FollowFeedCache.load()
     }
 
-    /** 加载指定排行榜（日 H24 / 周 D7 / 月 D30）；切换类型时清空旧榜，避免旧数据残留 */
-    fun loadRank(type: String) {
-        if (_rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
+    /**
+     * 加载指定排行榜（日 H24 / 周 D7 / 月 D30）；切换类型时清空旧榜，避免旧数据残留。
+     * force = true 时静默重拉当前榜：期间保留旧数据展示，成功后替换并触发回顶；
+     * 失败时保留旧数据、仅记录错误（UI 显示顶部横幅），不清空列表。
+     */
+    fun loadRank(type: String, force: Boolean = false) {
+        if (!force && _rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
         _rankType.value = type
-        if (_rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
+        if (!force && _rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
         _rankLoading.value = true
         _rankError.value = null
         viewModelScope.launch {
             try {
                 _rankComics.value = SourceManager.current().rank(type)
+                rankLoadedAt = System.currentTimeMillis()
+                // 刷新完成（换榜/强刷均适用）：通知 UI 回到顶部，从新版第 1 名开始展示
+                _rankRefreshTick.value++
             } catch (e: Exception) {
-                _rankComics.value = emptyList()
+                if (!force) _rankComics.value = emptyList()
                 _rankError.value = e.message ?: "加载排行榜失败"
             } finally {
                 _rankLoading.value = false

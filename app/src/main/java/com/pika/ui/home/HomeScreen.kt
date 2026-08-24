@@ -59,6 +59,7 @@ fun HomeScreen(
     val rankType by viewModel.rankType.collectAsState()
     val rankLoading by viewModel.rankLoading.collectAsState()
     val rankError by viewModel.rankError.collectAsState()
+    val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
     val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
     val followRefreshTick by viewModel.refreshTick.collectAsState()
     val randomComics by viewModel.randomComics.collectAsState()
@@ -189,7 +190,9 @@ fun HomeScreen(
                 rankType = rankType,
                 loading = rankLoading,
                 error = rankError,
-                onTypeChange = viewModel::loadRank,
+                refreshTick = rankRefreshTick,
+                onTypeChange = { viewModel.loadRank(it) },
+                onRefresh = { viewModel.loadRank(rankType, force = true) },
                 onComicClick = onComicClick,
                 gridState = rankGridState,
                 modifier = Modifier.padding(innerPadding),
@@ -277,18 +280,27 @@ private fun FollowTab(
     }
 }
 
-/** 排行榜：日/周/月切换 + 网格（失败显示错误与重试） */
+/** 排行榜：日/周/月切换 + 网格；支持下拉强制刷新（TTL 静默刷新复用同一通道，完成后回顶部） */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RankTab(
     rankComics: List<com.pika.core.model.ComicSummary>,
     rankType: String,
     loading: Boolean,
     error: String?,
+    refreshTick: Int,
     onTypeChange: (String) -> Unit,
+    onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
+    // 刷新完成（换榜 / TTL 静默刷新 / 下拉刷新）后回到顶部，从新版第 1 名开始展示
+    LaunchedEffect(refreshTick) {
+        if (refreshTick > 0 && rankComics.isNotEmpty()) {
+            gridState.scrollToItem(0)
+        }
+    }
     Column(modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -302,46 +314,73 @@ private fun RankTab(
                 )
             }
         }
-        if (error != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp),
-                    )
-                    TextButton(onClick = { onTypeChange(rankType) }) {
-                        Text("重试")
+        PullToRefreshBox(
+            isRefreshing = loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                // 刷新失败但已有旧数据：保留列表，顶部轻量提示 + 重试
+                if (error != null && rankComics.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onTypeChange(rankType) }) {
+                            Text("重试")
+                        }
+                    }
+                }
+                when {
+                    rankComics.isEmpty() && error != null && !loading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 24.dp),
+                                )
+                                TextButton(onClick = { onTypeChange(rankType) }) {
+                                    Text("重试")
+                                }
+                            }
+                        }
+                    }
+                    rankComics.isEmpty() && loading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("加载中...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    rankComics.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "排行榜暂无数据",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    else -> {
+                        ComicGridView(
+                            comics = rankComics,
+                            loading = loading,
+                            endReached = true,
+                            listState = gridState,
+                            onLoadMore = {},
+                            onComicClick = onComicClick,
+                        )
                     }
                 }
             }
-        } else if (rankComics.isEmpty() && loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-            }
-        } else if (rankComics.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "排行榜暂无数据",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            ComicGridView(
-                comics = rankComics,
-                loading = loading,
-                endReached = true,
-                listState = gridState,
-                onLoadMore = {},
-                onComicClick = onComicClick,
-            )
         }
     }
 }
