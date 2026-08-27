@@ -1,1 +1,1 @@
-{"version":"1.5.37","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.37.apk","notes":"v1.5.37 更新：\n1. 排行榜数据保鲜：回前台超过10分钟自动静默刷新（覆盖进程后台保留的温启动场景），刷新完成自动回顶部\n2. 排行榜支持下拉强制刷新；刷新失败时保留旧榜单，顶部横幅提示重试"}
+{"version":"1.5.38","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.38.apk","notes":"v1.5.38 更新：\n1. 修复分类分页bug：翻页/跳页后页码不再卡在第1页"}

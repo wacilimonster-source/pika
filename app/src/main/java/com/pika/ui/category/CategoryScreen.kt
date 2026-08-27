@@ -326,6 +326,7 @@ fun CategoryComicsScreen(
                         }
                     } else {
                         { p ->
+                            filterPage = p
                             viewModel.jumpToPage(p)
                             // 服务端换页：旧列表尚在展示时先回顶，新数据替换后仍停留在顶部
                             listState.requestScrollToItem(0)
