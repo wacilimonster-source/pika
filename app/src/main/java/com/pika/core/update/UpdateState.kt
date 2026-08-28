@@ -22,8 +22,8 @@ object UpdateState {
 
     /** 检查一次（幂等：已有结果不重复弹） */
     fun checkOnce() {
-        if ((updateInfo as MutableStateFlow<UpdateManager.UpdateInfo?>).value != null) return
         scope.launch {
+            if ((updateInfo as MutableStateFlow<UpdateManager.UpdateInfo?>).value != null) return@launch
             runCatching { UpdateManager.check() }
                 .getOrNull()
                 ?.let { (updateInfo as MutableStateFlow<UpdateManager.UpdateInfo?>).value = it }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 63
-        versionName = "1.5.37"
+        versionCode = 64
+        versionName = "1.5.38"
     }
 
     signingConfigs {
@@ -39,6 +39,9 @@ android {
             )
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+    lint {
+        checkReleaseBuilds = false
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

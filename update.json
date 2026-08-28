@@ -1,1 +1,1 @@
-{"version":"1.5.38","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.38.apk","notes":"v1.5.38 更新：\n1. 修复分类分页bug：翻页/跳页后页码不再卡在第1页"}
+{"version":"1.5.38","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.38.apk","notes":"v1.5.38 更新：\n1. 修复分类分页bug：翻页/跳页后页码不再卡在第1页\n2. 修复首页偶尔弹出'新版本'提示的竞态条件"}
