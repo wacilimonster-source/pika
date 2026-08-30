@@ -1,1 +1,1 @@
-{"version":"1.5.38","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.38.apk","notes":"v1.5.38 更新：\n1. 修复分类分页bug：翻页/跳页后页码不再卡在第1页\n2. 修复首页偶尔弹出'新版本'提示的竞态条件"}
+{"version":"1.5.39","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.39.apk","notes":"v1.5.39 更新：\n1. 修复分类/搜索页翻页变滚动加载的bug：滚动到底不再自动追加，恢复纯分页\n2. 进入作品返回后列表不再重置：已拉分页/页码/滚动位置原样保留，返回零请求\n3. 筛选无结果时保留分页条，可直接翻回其他页"}

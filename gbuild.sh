@@ -4,15 +4,17 @@
 # 注意：必须在**关闭沙箱隔离**的情况下运行，否则 rm 会被静默拒绝。
 set -u
 
-GRADLE_HOME="C:/Users/wacil/.gradle/wrapper/dists/gradle-8.14.2-bin/9mqvzzl3fbcgp4a9l34v26dsb/gradle-8.14.2"
 JAVA_BIN="/c/Program Files/Android/Android Studio/jbr/bin/java.exe"
 LOG="/c/Users/wacil/AppData/Local/Temp/pika_build.log"
 
-# 找到真实解压目录（hash 目录名不确定）
-if [ ! -f "$GRADLE_HOME/lib/gradle-launcher-8.14.2.jar" ]; then
-  REAL=$(ls -d /c/Users/wacil/.gradle/wrapper/dists/gradle-8.14.2-bin/*/gradle-8.14.2 2>/dev/null | head -1)
-  if [ -n "$REAL" ]; then GRADLE_HOME=$(cygpath -m "$REAL"); fi
+# 找到真实解压目录（hash 目录名不确定）；AGP 8.9.0 要求 Gradle >= 8.11.1
+GV=$(grep -oP 'gradle-\K[0-9.]+(?=-bin\.zip)' gradle/wrapper/gradle-wrapper.properties | head -1)
+REAL=$(ls -d /c/Users/wacil/.gradle/wrapper/dists/gradle-$GV-bin/*/gradle-$GV 2>/dev/null | head -1)
+if [ -z "$REAL" ]; then
+  echo "Gradle $GV not found" >&2
+  exit 1
 fi
+GRADLE_HOME=$(cygpath -m "$REAL")
 
 rm -rf /c/Users/wacil/.gradle/native /c/Users/wacil/.gradle/daemon 2>/dev/null
 if [ -e /c/Users/wacil/.gradle/native ]; then
@@ -47,7 +49,7 @@ OPENS=(
 
 "$JAVA_BIN" "${JVM_ARGS[@]}" "${OPENS[@]}" \
   -Dorg.gradle.appname=gradle \
-  -classpath "$GRADLE_HOME/lib/gradle-launcher-8.14.2.jar" \
+  -classpath "$GRADLE_HOME/lib/gradle-launcher-$GV.jar" \
   org.gradle.launcher.GradleMain \
   --no-daemon --console=plain "$@" > "$LOG" 2>&1
 EXIT=$?

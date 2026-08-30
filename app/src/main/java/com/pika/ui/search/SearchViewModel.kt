@@ -70,17 +70,13 @@ class SearchViewModel : ViewModel() {
     private var _savedFirstVisibleIndex: Int = 0
     val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
 
-    private var _savedCurrentPage: Int = 1
-    val savedCurrentPage: Int get() = _savedCurrentPage
-
     /** 是否已恢复过（首次组成为 false，之后为 true） */
     var isScrollStateRestored: Boolean = false
         private set
 
-    /** 保存列表滚动位置（ DisposableEffect ON_PAUSE 时调用） */
-    fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {
+    /** 保存列表滚动位置 */
+    fun saveScrollState(firstVisibleIndex: Int) {
         _savedFirstVisibleIndex = firstVisibleIndex
-        _savedCurrentPage = currentPage
     }
 
     /** 通知滚动状态已恢复（用于 LaunchedEffect key 变化触发） */
@@ -115,6 +111,10 @@ class SearchViewModel : ViewModel() {
 
     /** 当前搜索的词列表（发布结果时校验未过期：词与当前搜索一致才发布） */
     private var _activeSearchWords: List<String> = emptyList()
+
+    /** 本界面实例是否已发起过搜索：从详情返回重组时避免 initialKeyword 重新搜索重置状态 */
+    var hasSearched: Boolean = false
+        private set
 
     fun loadHotWords() {
         if (_hotWords.value.isNotEmpty()) return
@@ -166,6 +166,7 @@ class SearchViewModel : ViewModel() {
     fun search(keyword: String, page: Int) {
         searchJob?.cancel()
         multiSearchJob?.cancel()
+        hasSearched = true
         _comics.value = emptyList()
         _loading.value = true
         _multiLoading.value = false

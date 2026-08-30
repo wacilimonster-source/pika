@@ -176,13 +176,12 @@ fun CategoryComicsScreen(
     val error by viewModel.error.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
-    val currentPage by viewModel.currentPage.collectAsState()
     val listState = rememberLazyGridState()
 
     // 保存滚动位置
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
+            viewModel.saveScrollState(listState.firstVisibleItemIndex)
         }
     }
     // 恢复滚动位置
@@ -199,7 +198,8 @@ fun CategoryComicsScreen(
 
     LaunchedEffect(categoryId, activeSource) {
         viewModel.loadCategories()
-        viewModel.loadComics(page = 1, category = categoryId)
+        // 同分类同源且已有数据时（从详情返回重组）VM 内部会跳过重载，保留累积分页与滚动状态
+        viewModel.loadComics(page = 1, category = categoryId, reloadKey = "$activeSource:$categoryId")
     }
 
     // 当前源不支持当前排序时回退到默认
@@ -274,6 +274,21 @@ fun CategoryComicsScreen(
                     comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
                 }
             }
+            // 分页条回调（筛选模式=客户端切片换页；全部模式=服务端单页换页），正常/空态两个分支共用
+            val onBarPageChange: (Int) -> Unit = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+                { p ->
+                    filterPage = p
+                    // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
+                    listState.requestScrollToItem(0)
+                }
+            } else {
+                { p ->
+                    filterPage = p
+                    viewModel.jumpToPage(p)
+                    // 服务端换页：旧列表尚在展示时先回顶，新数据替换后仍停留在顶部
+                    listState.requestScrollToItem(0)
+                }
+            }
             if (error != null && comics.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -287,9 +302,11 @@ fun CategoryComicsScreen(
                     )
                 }
             } else if (displayComics.isEmpty() && !loading) {
+                // 空态也保留分页条（有多页时），避免筛选切片为空时无路可翻
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
+                        .fillMaxWidth()
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -303,13 +320,23 @@ fun CategoryComicsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (totalPages > 1) {
+                    com.pika.ui.browse.PaginationBar(
+                        currentPage = filterPage,
+                        totalPages = totalPages,
+                        loadedPages = (comics.size + 19) / 20,
+                        onPageChange = onBarPageChange,
+                        progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                    )
+                }
             } else {
                 ComicGridView(
                     comics = displayComics,
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = { viewModel.loadMore() },
+                    // 纯分页设计（v1.5.14）：滚动不追加；筛选模式的自动补页由上方 LaunchedEffect 后台链驱动
+                    onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                     showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
@@ -318,20 +345,7 @@ fun CategoryComicsScreen(
                     currentPage = filterPage,
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
-                    onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
-                        { p ->
-                            filterPage = p
-                            // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
-                            listState.requestScrollToItem(0)
-                        }
-                    } else {
-                        { p ->
-                            filterPage = p
-                            viewModel.jumpToPage(p)
-                            // 服务端换页：旧列表尚在展示时先回顶，新数据替换后仍停留在顶部
-                            listState.requestScrollToItem(0)
-                        }
-                    },
+                    onPageChange = onBarPageChange,
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )
             }

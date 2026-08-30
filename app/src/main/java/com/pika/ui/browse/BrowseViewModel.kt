@@ -57,6 +57,9 @@ class BrowseViewModel : ViewModel() {
 
     private var category: String? = null
 
+    /** 已加载数据的标识（源+分类，由界面传入）：从详情返回重组时相同且有数据则跳过重载，保留累积分页与滚动状态 */
+    private var loadedKey: String? = null
+
     /** 加载代际：切排序/筛选/换源时递增，使旧加载在 await 后失效，避免并发写脏数据 */
     private var loadToken = 0
 
@@ -67,16 +70,12 @@ class BrowseViewModel : ViewModel() {
     private var _savedFirstVisibleIndex: Int = 0
     val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
 
-    private var _savedCurrentPage: Int = 1
-    val savedCurrentPage: Int get() = _savedCurrentPage
-
     /** 是否已恢复过滚动位置 */
     var isScrollStateRestored: Boolean = false
         private set
 
-    fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {
+    fun saveScrollState(firstVisibleIndex: Int) {
         _savedFirstVisibleIndex = firstVisibleIndex
-        _savedCurrentPage = currentPage
     }
 
     fun markScrollStateRestored() {
@@ -93,8 +92,14 @@ class BrowseViewModel : ViewModel() {
         }
     }
 
-    fun loadComics(page: Int, category: String? = null) {
-        if (page <= 1) this.category = category
+    fun loadComics(page: Int, category: String? = null, reloadKey: String? = null) {
+        if (page <= 1 && reloadKey != null) {
+            // 同一分类同一源且已有数据：界面重组（如从详情返回）触发时跳过重载；
+            // 内部 reload（切排序等）不带 key，不覆盖 loadedKey，返回后仍可跳过重载
+            if (reloadKey == loadedKey && rawItems.isNotEmpty()) return
+            this.category = category
+            loadedKey = reloadKey
+        }
         jumpToPage(page)
     }
 

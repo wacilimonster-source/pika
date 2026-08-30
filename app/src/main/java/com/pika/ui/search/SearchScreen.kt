@@ -65,7 +65,8 @@ fun SearchScreen(
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
     val tags by viewModel.tags.collectAsState()
     val selectedTag by viewModel.selectedTag.collectAsState()
-    var input by remember { mutableStateOf("") }
+    // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
+    var input by remember { mutableStateOf(viewModel.keyword.value) }
     var showTagSheet by remember { mutableStateOf(false) }
     var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
     val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
@@ -86,10 +87,11 @@ fun SearchScreen(
         viewModel.loadTags()
     }
 
-    // 从详情页标签点击进入：自动填入关键词并立即搜索（每次导航都是新实例，只执行一次）
+    // 从详情页标签点击进入：自动填入关键词并立即搜索（每次导航都是新实例，只执行一次；
+    // 已搜索过则跳过，避免从详情返回重组时重新搜索重置结果与滚动状态）
     LaunchedEffect(initialKeyword) {
         val kw = initialKeyword?.trim().orEmpty()
-        if (kw.isNotEmpty()) {
+        if (kw.isNotEmpty() && !viewModel.hasSearched) {
             input = kw
             focusManager.clearFocus()
             viewModel.search(kw, page = 1)
@@ -106,7 +108,7 @@ fun SearchScreen(
     // 保存滚动位置（页面不可见时，如导航到详情）
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex, viewModel.currentPage.value)
+            viewModel.saveScrollState(listState.firstVisibleItemIndex)
         }
     }
     // 恢复滚动位置（首次组成为 false，导航返回后为 true）
@@ -227,8 +229,25 @@ fun SearchScreen(
                 comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
             }
         }
+        // 分页条回调（筛选模式=客户端切片换页；普通模式=服务端换页），正常/空态两个分支共用
+        val onBarPageChange: (Int) -> Unit = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+            { p ->
+                filterPage = p
+                // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
+                listState.requestScrollToItem(0)
+            }
+        } else {
+            { p ->
+                // 同步分页条高亮与箭头目标（此前普通模式 filterPage 不更新导致卡在旧值）
+                filterPage = p
+                viewModel.jumpToPage(p)
+                // jumpToPage 内部已有 shouldScrollToTop 兜底；这里立即回顶避免旧列表位置残留
+                listState.requestScrollToItem(0)
+            }
+        }
         if (displayComics.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
                     text = when {
                         loading -> "搜索中..."
@@ -240,6 +259,15 @@ fun SearchScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (totalPages > 1) {
+                com.pika.ui.browse.PaginationBar(
+                    currentPage = filterPage,
+                    totalPages = totalPages,
+                    loadedPages = (comics.size + 19) / 20,
+                    onPageChange = onBarPageChange,
+                    progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                )
+            }
         } else {
             Column(Modifier.fillMaxSize()) {
                 ComicGridView(
@@ -247,7 +275,8 @@ fun SearchScreen(
                     loading = loading,
                     endReached = endReached,
                     listState = listState,
-                    onLoadMore = { viewModel.loadMore() },
+                    // 纯分页设计：滚动不追加；筛选模式的自动补页由上方 LaunchedEffect 后台链驱动
+                    onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                     showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
@@ -264,21 +293,7 @@ fun SearchScreen(
                     currentPage = filterPage,
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
-                    onPageChange = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
-                        { p ->
-                            filterPage = p
-                            // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
-                            listState.requestScrollToItem(0)
-                        }
-                    } else {
-                        { p ->
-                            // 同步分页条高亮与箭头目标（此前普通模式 filterPage 不更新导致卡在旧值）
-                            filterPage = p
-                            viewModel.jumpToPage(p)
-                            // jumpToPage 内部已有 shouldScrollToTop 兜底；这里立即回顶避免旧列表位置残留
-                            listState.requestScrollToItem(0)
-                        }
-                    },
+                    onPageChange = onBarPageChange,
                     progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                 )
             }
