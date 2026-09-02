@@ -23,6 +23,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.pika.core.source.SourceManager
+import com.pika.data.ReaderPrefs
 import com.pika.ui.author.AuthorComicsScreen
 import com.pika.ui.category.CategoryComicsScreen
 import com.pika.ui.category.CategoryScreen
@@ -47,6 +48,9 @@ private val tabs = listOf(
     TabItem("mine", "我的"),
 )
 
+/** 需要整屏展示、不应挂底部标签栏的路由前缀 */
+private val fullScreenRoutePrefixes = listOf("reader/")
+
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
@@ -54,6 +58,12 @@ fun MainScreen() {
     val currentDestination = backStackEntry?.destination
     val activeSource by SourceManager.activeSource.collectAsState()
     val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
+    val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
+        .collectAsState(initial = true)
+
+    val route = currentDestination?.route
+    val hideBottomBar = hideBottomBarInReader &&
+        fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
 
     LaunchedEffect(activeSource, unauthorizedTick) {
         if (!SourceManager.current().isLoggedIn) {
@@ -66,24 +76,27 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(64.dp)) {
-                tabs.forEach { tab ->
-                    val selected = currentDestination?.hierarchy
-                        ?.any { it.route?.substringBefore('?') == tab.route } == true
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把这 64dp 还给内容区
+            if (!hideBottomBar) {
+                NavigationBar(modifier = Modifier.height(64.dp)) {
+                    tabs.forEach { tab ->
+                        val selected = currentDestination?.hierarchy
+                            ?.any { it.route?.substringBefore('?') == tab.route } == true
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigate(tab.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = {},
-                        label = { Text(tab.label, fontSize = 12.sp) },
-                    )
+                            },
+                            icon = {},
+                            label = { Text(tab.label, fontSize = 12.sp) },
+                        )
+                    }
                 }
             }
         },

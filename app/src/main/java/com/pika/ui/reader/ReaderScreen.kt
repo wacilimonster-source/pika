@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -285,6 +286,8 @@ fun ReaderScreen(
         bottomBar = {
             AnimatedVisibility(visible = showPanel) {
                 ReaderControlPanel(
+                    // 唤出面板时系统栏会同步显示，避开系统导航条，避免压住亮度滑条和页码
+                    modifier = Modifier.navigationBarsPadding(),
                     scrollMode = scrollMode,
                     onModeChange = { mode ->
                         scrollMode = mode
@@ -405,6 +408,7 @@ fun ReaderScreen(
 /** 阅读器底部控制面板：模式切换 / 亮度 / 上一话·下一话 / 页码 */
 @Composable
 private fun ReaderControlPanel(
+    modifier: Modifier = Modifier,
     scrollMode: Boolean,
     onModeChange: (Boolean) -> Unit,
     brightness: Float,
@@ -416,7 +420,10 @@ private fun ReaderControlPanel(
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit,
 ) {
-    Surface(color = Color(0xE6000000)) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xE6000000),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

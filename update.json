@@ -1,1 +1,1 @@
-{"version":"1.5.39","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.39.apk","notes":"v1.5.39 更新：\n1. 修复分类/搜索页翻页变滚动加载的bug：滚动到底不再自动追加，恢复纯分页\n2. 进入作品返回后列表不再重置：已拉分页/页码/滚动位置原样保留，返回零请求\n3. 筛选无结果时保留分页条，可直接翻回其他页"}
+{"version":"1.5.40","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.40.apk","notes":"v1.5.40 更新：\n1. 阅读漫画时隐藏底部标签栏，画面延伸至屏幕底边，可视区域增加 64dp\n2. 阅读时屏幕底部区域也可点击翻页/翻屏\n3. 修复唤出控制面板时系统导航条压住亮度滑条和页码的问题\n4. 设置页新增「阅读时隐藏底部导航栏」开关（默认开启）"}

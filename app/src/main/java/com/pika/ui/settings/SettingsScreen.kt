@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
 import com.pika.core.source.SourceType
 import com.pika.core.update.UpdateManager
+import com.pika.data.ReaderPrefs
 import com.pika.data.SourcePrefs
 import com.pika.network.JmClient
 import kotlinx.coroutines.launch
@@ -58,6 +60,8 @@ fun SettingsScreen(
     onOpenLog: () -> Unit = {},
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
+    val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
+        .collectAsState(initial = true)
     val scope = rememberCoroutineScope()
     var jmBase by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(false) }
@@ -158,6 +162,25 @@ fun SettingsScreen(
                 text = "切换数据源后，首页 / 搜索 / 详情将展示该源的内容",
                 modifier = Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodySmall,
+            )
+            HorizontalDivider()
+            Text(
+                text = "阅读",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            ListItem(
+                headlineContent = { Text("阅读时隐藏底部导航栏") },
+                supportingContent = { Text("看漫画时隐藏底部标签栏，画面向下延伸至屏幕底边") },
+                trailingContent = {
+                    Switch(
+                        checked = hideBottomBarInReader,
+                        onCheckedChange = {
+                            scope.launch { ReaderPrefs.current().setHideBottomBarInReader(it) }
+                        },
+                    )
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
             )
             HorizontalDivider()
             ListItem(

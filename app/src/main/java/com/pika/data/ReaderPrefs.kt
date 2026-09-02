@@ -1,12 +1,16 @@
 package com.pika.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 
@@ -18,6 +22,7 @@ private object ReaderKeys {
     const val READER_MODE = "reader_mode"
     const val BRIGHTNESS = "reader_brightness"
     const val RECENT_READS = "recent_reads"
+    const val HIDE_BOTTOM_BAR = "hide_bottom_bar_in_reader"
 }
 
 /** 最近阅读条目（首页"继续阅读"用） */
@@ -128,6 +133,21 @@ class ReaderPrefs private constructor(private val appContext: Context) {
                 }
             }
         }
+
+    /**
+     * 阅读时是否隐藏底部导航栏（默认开）。
+     *
+     * 以 Flow 暴露，MainScreen 可直接 collectAsState，改设置后无需重启即时生效。
+     */
+    val hideBottomBarInReader: Flow<Boolean> = appContext.readerDataStore.data
+        .map { it[booleanPreferencesKey(ReaderKeys.HIDE_BOTTOM_BAR)] ?: true }
+        .distinctUntilChanged()
+
+    suspend fun setHideBottomBarInReader(enabled: Boolean) {
+        appContext.readerDataStore.edit {
+            it[booleanPreferencesKey(ReaderKeys.HIDE_BOTTOM_BAR)] = enabled
+        }
+    }
 
     // ── 最近阅读（首页"继续阅读"） ─────────────────────────────────────────
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
