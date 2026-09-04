@@ -1,1 +1,1 @@
-{"version":"1.5.40","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.40.apk","notes":"v1.5.40 更新：\n1. 阅读漫画时隐藏底部标签栏，画面延伸至屏幕底边，可视区域增加 64dp\n2. 阅读时屏幕底部区域也可点击翻页/翻屏\n3. 修复唤出控制面板时系统导航条压住亮度滑条和页码的问题\n4. 设置页新增「阅读时隐藏底部导航栏」开关（默认开启）"}
+{"version":"1.5.41","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.41.apk","notes":"v1.5.41 更新：\n1. 修复首页「关注」Tab 刷新后内容不一致：来源间加节流避免触发限流冷却\n2. 部分来源拉取失败时列表只增不减，不再突然缩水\n3. 被限流时明确提示而非静默丢失内容\n4. 修复关注来源顺序每次读取随机抖动\n5. 回前台时排行榜与关注刷新错峰，避免叠加触发限流"}
