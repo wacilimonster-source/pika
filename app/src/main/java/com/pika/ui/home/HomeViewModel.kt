@@ -157,6 +157,15 @@ class HomeViewModel : ViewModel() {
     init {
         // 冷启动：先展示上次成功刷新的缓存，后台静默刷新替换
         _followFeed.value = com.pika.data.FollowFeedCache.load()
+            .map { fillUpdatedAt(it) }
+        // 浏览详情页拉到更新时间后（缓存 version 递增），回填关注流中还没有时间的条目
+        viewModelScope.launch {
+            com.pika.data.UpdatedAtCache.version.collect {
+                val current = _followFeed.value
+                val refilled = current.map { fillUpdatedAt(it) }
+                if (refilled != current) _followFeed.value = refilled
+            }
+        }
     }
 
     /**
@@ -431,10 +440,20 @@ class HomeViewModel : ViewModel() {
         val base = if (append) _followFeed.value else emptyList()
         val merged = (base + newItems)
             .distinctBy { it.id }
+            .map { fillUpdatedAt(it) }
             .sortedByDescending { it.updatedAt }
         _followFeed.value = merged
         if (merged.isEmpty() && !append) {
             _followEmptyHint.value = "关注的内容暂无更新"
         }
+    }
+
+    /** 条目自带更新时间就顺手记录进缓存；没有则用已记录的（详情页拉到过的）回填展示 */
+    private fun fillUpdatedAt(item: ComicSummary): ComicSummary {
+        if (item.updatedAt.isNotBlank()) {
+            com.pika.data.UpdatedAtCache.put(item.id, item.updatedAt)
+            return item
+        }
+        return com.pika.data.UpdatedAtCache.of(item.id)?.let { item.copy(updatedAt = it) } ?: item
     }
 }

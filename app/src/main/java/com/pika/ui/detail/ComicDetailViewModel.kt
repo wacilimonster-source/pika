@@ -78,7 +78,12 @@ class ComicDetailViewModel : ViewModel() {
         }
         viewModelScope.launch {
             try {
-                _comic.value = SourceManager.current().comicDetail(comicId)
+                _comic.value = SourceManager.current().comicDetail(comicId).also {
+                    // 列表接口不返回更新时间，详情拉到就记录，供关注流回填展示
+                    if (it.updatedAt.isNotBlank()) {
+                        com.pika.data.UpdatedAtCache.put(it.id, it.updatedAt)
+                    }
+                }
             } catch (e: Exception) {
                 // 详情失败：显示空态
             }

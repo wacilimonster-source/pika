@@ -1,1 +1,1 @@
-{"version":"1.5.41","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.41.apk","notes":"v1.5.41 更新：\n1. 修复首页「关注」Tab 刷新后内容不一致：来源间加节流避免触发限流冷却\n2. 部分来源拉取失败时列表只增不减，不再突然缩水\n3. 被限流时明确提示而非静默丢失内容\n4. 修复关注来源顺序每次读取随机抖动\n5. 回前台时排行榜与关注刷新错峰，避免叠加触发限流"}
+{"version":"1.5.42","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.42.apk","notes":"v1.5.42 更新：\n1. 关注流作品卡片新增更新时间展示：打开过详情页的作品会记录其更新时间并回填到关注流，无需刷新即时生效\n2. 更新时间本地持久缓存（上限2000条），重启不丢失\n3. 已有更新时间的条目在关注流刷新时自动入库"}
