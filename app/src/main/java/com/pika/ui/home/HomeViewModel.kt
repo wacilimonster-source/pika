@@ -11,6 +11,7 @@ import com.pika.data.AuthorFavourites
 import com.pika.data.FollowSettings
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,24 @@ private data class FollowTarget(
     val type: FollowTargetType,
     val name: String,
     val tag: String? = null,
+)
+
+/**
+ * 相邻关注来源之间的请求间隔。
+ *
+ * 哔咔服务端限流约 2 次/秒，连续无间隔请求会在第 2~3 个来源触发全局 60 秒冷却，
+ * 冷却期内后续所有来源必然失败且被静默丢弃 → 一次刷新只剩前一两个来源的内容。
+ * 关注来源越多越明显，这是"刷新后内容忽多忽少"的主因。
+ */
+private const val TARGET_REQUEST_INTERVAL_MS = 600L
+
+/** 一次关注流拉取的结果 */
+private data class FollowFetchResult(
+    val items: List<ComicSummary>,
+    /** 本轮未成功拉取的来源数量（含被限流打断而从未开始的） */
+    val failedCount: Int,
+    /** > 0 表示本轮被服务端限流冷却打断，值为冷却剩余秒数 */
+    val rateLimitSeconds: Long,
 )
 
 /**
@@ -64,8 +83,9 @@ class HomeViewModel : ViewModel() {
     fun refreshOnResume() {
         val now = System.currentTimeMillis()
         // 排行榜 TTL 刷新：回前台时数据过期则静默重拉当前榜
+        // （延迟 2 秒启动：关注流刷新也在本方法触发，错峰避免两个来源的请求叠加触发限流）
         if (rankLoadedAt > 0 && now - rankLoadedAt >= RANK_REFRESH_TTL_MS) {
-            loadRank(_rankType.value, force = true)
+            loadRank(_rankType.value, force = true, startDelayMs = 2_000)
         }
         if (now - lastAutoRefreshAt < 30_000) return
         lastAutoRefreshAt = now
@@ -143,8 +163,10 @@ class HomeViewModel : ViewModel() {
      * 加载指定排行榜（日 H24 / 周 D7 / 月 D30）；切换类型时清空旧榜，避免旧数据残留。
      * force = true 时静默重拉当前榜：期间保留旧数据展示，成功后替换并触发回顶；
      * 失败时保留旧数据、仅记录错误（UI 显示顶部横幅），不清空列表。
+     * startDelayMs > 0 时延迟启动：用于回前台场景，避开与关注流刷新的请求撞车
+     * （两者同时开跑会顶到哔咔约 2 次/秒的限流线，排行榜先撞还会触发 60 秒全局冷却拖垮关注流）。
      */
-    fun loadRank(type: String, force: Boolean = false) {
+    fun loadRank(type: String, force: Boolean = false, startDelayMs: Long = 0) {
         if (!force && _rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
         _rankType.value = type
         if (!force && _rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
@@ -152,6 +174,7 @@ class HomeViewModel : ViewModel() {
         _rankError.value = null
         viewModelScope.launch {
             try {
+                if (startDelayMs > 0) kotlinx.coroutines.delay(startDelayMs)
                 _rankComics.value = SourceManager.current().rank(type)
                 rankLoadedAt = System.currentTimeMillis()
                 // 刷新完成（换榜/强刷均适用）：通知 UI 回到顶部，从新版第 1 名开始展示
@@ -187,7 +210,7 @@ class HomeViewModel : ViewModel() {
         if (targets.isEmpty()) {
             _followFeed.value = emptyList()
             _followEndReached.value = true
-            _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加关键词关注"
+            _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加作者或关键词关注"
             _followError.value = null
             com.pika.data.FollowFeedCache.clear()  // 清空关注时同步清缓存，避免回退显示旧数据
             return
@@ -202,20 +225,42 @@ class HomeViewModel : ViewModel() {
                 targetEnded.clear()
                 // 只拉各来源第1页，合并后取前120条
                 val result = fetchTargetPage(1)
-                mergeIntoFeed(result)
-                // 取前120条后永远不到底
-                if (_followFeed.value.size > 120) {
-                    _followFeed.value = _followFeed.value.take(120)
+                val totalFailed = result.failedCount
+                // 全部来源都失败时保留上次内容：若不判断就合并，空结果会清空列表
+                // 并置"关注的内容暂无更新"，把"请求全挂了"伪装成"确实没更新"，误导性极强。
+                if (result.items.isNotEmpty() || totalFailed == 0) {
+                    // 部分来源失败时改用合并（只增不减），避免一次抖动就让列表整体缩水
+                    mergeIntoFeed(result.items, append = totalFailed > 0)
+                    // 只有全部成功才回顶：部分成功时用户在原位继续看，新条目已按时间排入
+                    if (totalFailed == 0) _refreshTick.value++
+                    // 取前120条后永远不到底
+                    if (_followFeed.value.size > 120) {
+                        _followFeed.value = _followFeed.value.take(120)
+                    }
+                    // 成功刷新后持久化缓存（冷启动秒显）；保存失败不影响展示，吞掉异常
+                    runCatching { com.pika.data.FollowFeedCache.save(_followFeed.value) }
                 }
-                // 成功刷新后持久化缓存（冷启动秒显）；保存失败不影响展示，吞掉异常
-                runCatching { com.pika.data.FollowFeedCache.save(_followFeed.value) }
                 _followEndReached.value = true
-                _refreshTick.value++
+                // 部分来源失败要如实告知，不能静默——否则用户只会觉得"内容莫名其妙变少了"
+                _followError.value = when {
+                    result.rateLimitSeconds > 0 && result.items.isEmpty() ->
+                        "请求过于频繁，${result.rateLimitSeconds} 秒后可再试（已保留上次内容）"
+                    result.rateLimitSeconds > 0 ->
+                        "请求过于频繁，${result.rateLimitSeconds} 秒后可再试（仅更新了部分内容）"
+                    totalFailed > 0 && result.items.isEmpty() ->
+                        "全部关注来源拉取失败，已保留上次内容"
+                    totalFailed > 0 ->
+                        "${totalFailed} 个关注来源暂时拉取失败，内容可能不完整"
+                    else -> null
+                }
             } catch (e: Exception) {
+                // 取消是新一次刷新接管，不是失败：必须放行，否则会污染错误态并误报"刷新失败"
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 // 拉取失败：保留 init 已载入的缓存供展示，仅轻量提示，下拉刷新圈停止
                 _followError.value = "刷新失败（${e.message ?: "网络错误"}），已展示上次缓存"
             } finally {
-                _followLoading.value = false
+                // 已被新一次刷新接管（取消）时不要关闭加载态，否则会打断新刷新的转圈
+                if (isActive) _followLoading.value = false
             }
         }
     }
@@ -245,21 +290,40 @@ class HomeViewModel : ViewModel() {
      * 拉取所有来源的指定页。串行执行：哔咔服务端对高频并发请求会挂起（限速 ~2/s），
      * 多词拉取一次几十页，必须与其他来源错开；单词来源排前尽快出内容。
      * 已到末页的来源直接跳过。
+     *
+     * 每个来源之间强制间隔 [TARGET_REQUEST_INTERVAL_MS]，并在检测到服务端限流冷却时立即停止本轮，
+     * 避免"打到限流 → 后续来源全灭且被静默吞掉"造成的刷新内容忽多忽少。
      */
-    private suspend fun fetchTargetPage(page: Int): List<ComicSummary> {
+    private suspend fun fetchTargetPage(page: Int): FollowFetchResult {
         val source = SourceManager.current()
         val result = mutableListOf<ComicSummary>()
+        var failed = 0
+        var rateLimitSeconds = 0L
+        var requested = false
         val ordered = targets.sortedBy {
             if (it.type == FollowTargetType.KEYWORD && it.name.isNotBlank() && it.name.split(Regex("\\s+")).size > 1) 1 else 0
         }
-        for (target in ordered) {
-            if (targetEnded[target.key] == true) continue
+        // 本轮预期要拉的来源（已到末页的跳过，不计入失败）
+        val pending = ordered.filter { targetEnded[it.key] != true }
+        var started = 0
+        for (target in pending) {
+            // 服务端已处于限流冷却：继续请求必然全部失败，还会不断续期冷却时间，直接停止本轮
+            val cooldown = com.pika.network.PicaClient.rateLimitRemaining()
+            if (cooldown > 0) {
+                rateLimitSeconds = (cooldown + 999) / 1000
+                break
+            }
+            // 来源之间强制间隔，避免自己把请求打进限流（此前无任何间隔，第 3 个来源起就开始丢）
+            if (requested) kotlinx.coroutines.delay(TARGET_REQUEST_INTERVAL_MS)
+            requested = true
+            started++
             result += try {
                 when (target.type) {
                     // 作者作品用全文搜索（关键字=作者名）拉取：浏览接口不带时间字段，
                     // 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。
+                    // 走 searchWithRetry：单词/作者来源此前没有任何重试，一次网络抖动就整源消失。
                     FollowTargetType.AUTHOR ->
-                        source.search(keyword = target.name, page = page, sort = ComicSort.DD)
+                        searchWithRetry(source, target.name, page, emptyList())
                             .also { r ->
                                 targetPages[target.key] = page
                                 if (page >= r.pages) targetEnded[target.key] = true
@@ -268,11 +332,15 @@ class HomeViewModel : ViewModel() {
                         fetchKeywordPage(source, target, page)
                 }
             } catch (e: Exception) {
+                // 取消不属于失败，必须向上传播
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 targetEnded[target.key] = true
+                failed++
                 emptyList()
             }
         }
-        return result
+        // 被限流打断而从未开始的来源同样算失败，用于向用户如实提示
+        return FollowFetchResult(result, failed + (pending.size - started), rateLimitSeconds)
     }
 
     /**
@@ -290,7 +358,7 @@ class HomeViewModel : ViewModel() {
         val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }
         // 单词且无标签：直接取第 1 页（关注流语义：各来源最新作品）
         if (words.size <= 1 && target.tag == null) {
-            val result = source.search(keyword = target.name, page = startPage, sort = ComicSort.DD)
+            val result = searchWithRetry(source, target.name, startPage, emptyList())
             targetPages[target.key] = startPage
             if (startPage >= result.pages) targetEnded[target.key] = true
             return result.items
@@ -349,6 +417,8 @@ class HomeViewModel : ViewModel() {
             try {
                 return source.search(word, page, ComicSort.DD, categories = categories)
             } catch (e: Exception) {
+                // 取消必须立刻放行：新一次刷新接管时旧重试不能再继续烧请求
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 last = e
                 if (attempt < 2) kotlinx.coroutines.delay(500)
             }

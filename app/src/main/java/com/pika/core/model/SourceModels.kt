@@ -128,3 +128,10 @@ data class MyComicComment(
     val createdAt: String = "",
     val likesCount: Int = 0,
 )
+
+/** 每日签到结果（禁漫源独有；不支持的源抛异常） */
+data class DailyCheckIn(
+    val checkedIn: Boolean = false,
+    val consecutiveDays: Int = 0,
+    val message: String = "",
+)

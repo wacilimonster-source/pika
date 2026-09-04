@@ -8,6 +8,7 @@ import com.pika.core.model.ComicPage
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.ComicUser
+import com.pika.core.model.DailyCheckIn
 import com.pika.core.model.MyComicComment
 import com.pika.core.model.PageResult
 
@@ -126,6 +127,14 @@ interface Source {
     /** 忘记密码：发送重置邮件（默认源不支持） */
     suspend fun forgotPassword(email: String): Unit =
         throw UnsupportedOperationException("当前源不支持")
+
+    /** 每日签到（默认源不支持；禁漫独有） */
+    suspend fun dailyCheckIn(): DailyCheckIn =
+        throw UnsupportedOperationException("当前源不支持签到")
+
+    /** 云端浏览历史（默认源不支持；禁漫独有） */
+    suspend fun cloudHistory(page: Int): PageResult<ComicSummary> =
+        throw UnsupportedOperationException("当前源不支持云端历史")
 
     /** 修改简介（默认源不支持） */
     suspend fun updateSlogan(slogan: String): Unit =

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pika 源列表页展示更新时间 · 可行性研究</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --line:#e4e7ec; --text:#1f2328; --muted:#656d76;
+    --ok:#1a7f37; --ok-bg:#e8f5ec; --warn:#9a6700; --warn-bg:#fff8e5;
+    --bad:#cf222e; --bad-bg:#ffebe9; --info:#0969da; --info-bg:#e8f2fd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 20px 64px;background:var(--bg);color:var(--text);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       line-height:1.7;font-size:15px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:28px}
+  h2{font-size:19px;margin:36px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:14px 0}
+  .verdict{background:var(--info-bg);border:1px solid #b6d7f7;border-radius:10px;padding:18px 20px;margin:20px 0}
+  .verdict strong{color:var(--info)}
+  table{width:100%;border-collapse:collapse;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:14px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#f2f4f7;font-weight:600;font-size:13px;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:13px;
+       font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  pre{background:#f6f8fa;border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+      overflow-x:auto;font-size:13px;line-height:1.6;margin:10px 0}
+  pre code{background:none;padding:0}
+  .tag{display:inline-block;padding:1px 8px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+  .t-warn{background:var(--warn-bg);color:var(--warn)}
+  .t-bad{background:var(--bad-bg);color:var(--bad)}
+  .t-info{background:var(--info-bg);color:var(--info)}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:4px 0}
+  .path{color:var(--muted);font-size:12px;font-family:ui-monospace,Consolas,monospace}
+  .note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;font-size:14px}
+  .good{border-left:3px solid var(--ok);background:var(--ok-bg);padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;font-size:14px}
+  .foot{color:var(--muted);font-size:13px;margin-top:36px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Pika（哔咔）源列表页展示作品更新时间 · 可行性研究</h1>
+<div class="sub">项目：<code>G:\game\nw\pka\pika</code> · 研究日期：2026-09-02 · 状态：<b>仅调研，未改动任何业务代码</b></div>
+
+<div class="verdict">
+  <strong>结论先行：</strong>这不是一个"要不要加 UI"的问题，而是一个<b>"数据到底有没有"的问题</b>。
+  <ul style="margin-bottom:0">
+    <li><b>UI 层已经做了</b> —— 网格卡片 <code>ComicGridView</code> 早已在封面下方渲染 <code>comic.updatedAt.take(10)</code>，字段为空才不显示。</li>
+    <li><b>大部分列表的数据链路也已接通</b> —— 搜索 / 收藏 / 排行榜 / 随机 / 关注流 都走 <code>Doc.toSummary()</code>，已把 <code>updated_at</code> 传下去。</li>
+    <li><b>剩下两个真问题</b>：① <b>分类浏览</b>接口究竟返不返回 <code>updated_at</code>（项目注释与模型声明互相矛盾）；② 详情页<b>「猜你喜欢」</b>既缺数据、卡片本身也没有时间行。</li>
+  </ul>
+</div>
+
+<h2>一、UI 层：已经实现，不是缺口</h2>
+<div class="card">
+<p>网格卡片底部已经有一行"更新时间"，只是<b>有数据时才显示</b>，所以看起来像"没做"。</p>
+<div class="path">app/src/main/java/com/pika/ui/browse/ComicGridView.kt:159-173</div>
+<pre><code>Row(...) {
+    if (comic.updatedAt.isNotBlank()) {
+        Text(
+            text = comic.updatedAt.take(10),          // "2026-05-06T12:34:56.789Z" → "2026-05-06"
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+    } else {
+        Spacer(Modifier.weight(1f))                    // 无数据 → 留白，不显示
+    }
+}</code></pre>
+<p>所有主流列表页（分类浏览 / 搜索 / 收藏 / 排行榜 / 首页三个 Tab / 作者作品 / 云端历史）用的都是这一个 <code>ComicGridView</code>，
+所以<b>只要数据里有 <code>updatedAt</code>，日期会自动出现在所有这些页面上，不需要写任何 UI 代码</b>。</p>
+</div>
+
+<h2>二、数据层：逐页核对</h2>
+<table>
+<tr>
+  <th style="width:15%">列表页</th>
+  <th style="width:16%">调用链</th>
+  <th style="width:20%">接口</th>
+  <th style="width:20%">数据模型</th>
+  <th style="width:11%">代码是否传时间</th>
+  <th>服务端是否有该字段</th>
+</tr>
+<tr>
+  <td>搜索结果</td>
+  <td><code>Source.search</code></td>
+  <td>POST <code>comics/advanced-search</code></td>
+  <td><code>SearchComic.toDoc()</code> → <code>Doc</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-ok">有（证据强）</span><br><span class="path">pica-cli 定义 <code>PageSearch = Page&lt;Comic&gt;</code>，Comic 含 <code>updated_at</code></span></td>
+</tr>
+<tr>
+  <td>收藏夹</td>
+  <td><code>Source.favourites</code></td>
+  <td>GET <code>users/favourite</code></td>
+  <td><code>Doc</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-ok">有（证据强）</span><br><span class="path">pica-cli <code>PageFavorites = Page&lt;Comic&gt;</code></span></td>
+</tr>
+<tr>
+  <td>排行榜</td>
+  <td><code>Source.rank</code></td>
+  <td>GET <code>comics/leaderboard?tt=H24&amp;ct=VC</code></td>
+  <td><code>ComicRankResponse.comics: List&lt;Doc&gt;</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-ok">有（证据强）</span><br><span class="path">pica-cli <code>res.comics as Comic[]</code></span></td>
+</tr>
+<tr>
+  <td>首页 · 关注信息流</td>
+  <td><code>Source.search</code></td>
+  <td>POST <code>comics/advanced-search</code></td>
+  <td><code>Doc</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-ok">有</span><br><span class="path">复用搜索结果，且依赖该字段做按时间倒序聚合</span></td>
+</tr>
+<tr>
+  <td>首页 · 随便看看</td>
+  <td><code>Source.randomComics</code></td>
+  <td>GET <code>comics/random</code></td>
+  <td><code>RandomComicsResponse.comics: List&lt;Doc&gt;</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-warn">待验证</span><br><span class="path">模型按 Doc 解析，但服务端可能返回精简字段</span></td>
+</tr>
+<tr style="background:#fffdf5">
+  <td><b>分类浏览</b></td>
+  <td><code>Source.browse</code></td>
+  <td>GET <code>comics?page=&amp;c=&amp;s=dd</code></td>
+  <td><code>Doc</code></td>
+  <td><span class="tag t-ok">已传</span></td>
+  <td><span class="tag t-warn">矛盾，必须实测</span><br><span class="path">模型声明了 <code>updated_at</code>，但 HomeViewModel:259 注释写"浏览接口不带时间字段"</span></td>
+</tr>
+<tr style="background:#fff6f6">
+  <td><b>详情页 · 猜你喜欢</b></td>
+  <td><code>Source.recommendations</code></td>
+  <td>GET <code>comics/{id}/recommendation</code></td>
+  <td><code>RecommendComic</code></td>
+  <td><span class="tag t-bad">未传</span></td>
+  <td><span class="tag t-bad">疑似无</span><br><span class="path">社区库 RecommendComic / ComicSimple 均无 <code>updated_at</code></span></td>
+</tr>
+</table>
+
+<h3>关于"浏览接口不带时间字段"这条注释</h3>
+<div class="card">
+<p>它来自 v1.5.7 提交（<code>366ef77</code>），原文：</p>
+<pre><code>// 作者作品用全文搜索（关键字=作者名）拉取：浏览接口不带时间字段，
+// 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。</code></pre>
+<p>这句话当时的语境是"为了让关注流能按更新时间排序，作者作品改走搜索而不是浏览"，暗示<b>浏览接口的条目拿不到时间</b>。
+但代码里 <code>Doc</code> 又明确声明了 <code>@SerialName("updated_at")</code>，而 <code>Doc</code> 恰恰就是浏览接口的解析模型——
+两者不可能同时成立。这是本次研究<b>最需要实测澄清的一点</b>，因为分类浏览是主列表页。</p>
+<p>交叉验证时还发现：两个 Go 库（gopica / pica-go）的列表结构体确实都没有 <code>updated_at</code>，
+但它们<b>同时也缺 <code>totalViews</code>、<code>totalLikes</code>、<code>tags</code></b>——而这些字段本项目确定在用且能显示。
+说明这些库只是<b>作者懒得声明</b>，并不能证明服务端不返回。</p>
+</div>
+
+<h2>三、真正的 UI 缺口：详情页「猜你喜欢」</h2>
+<div class="card">
+<p>这一处是<b>数据 + UI 双缺口</b>。即便把数据补上，卡片也显示不出来——它只有封面和标题，没有时间行。</p>
+<div class="path">app/src/main/java/com/pika/ui/detail/ComicDetailScreen.kt:537-565（RecommendCard，宽 96dp 横向卡）</div>
+<pre><code>Card(modifier = Modifier.width(96.dp).clickable(onClick = onClick)) {
+    Column {
+        Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f)) { /* 封面 */ }
+        Text(text = comic.title, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }                                   // ← 没有时间行
+}</code></pre>
+<p>而且数据侧 <code>RecommendComic.toSummary()</code>（PicacgSource.kt:376-383）也确实没传 <code>updatedAt</code>。</p>
+</div>
+
+<h2>四、顺带发现的排序隐患</h2>
+<div class="note">
+<code>BrowseViewModel</code> 与 <code>AuthorViewModel</code> 对哔咔源会<b>在客户端按 <code>updatedAt</code> 字符串重排</b>，以支持"新到旧 / 旧到新"切换：
+<pre style="margin:8px 0 0"><code>ComicSort.DD -> filtered.sortedByDescending { it.updatedAt }
+ComicSort.DA -> filtered.sortedBy { it.updatedAt }</code></pre>
+</div>
+<ul>
+  <li>若分类浏览的 <code>updatedAt</code> <b>全为空</b>：<code>sortedBy</code> 是稳定排序，会原样保留服务端顺序 → <b>目前不出错</b>，但本地重排实际是空转。</li>
+  <li>若<b>部分有部分无</b>：有时间的会整体挤到一端，顺序错乱 → <b>会出 bug</b>。</li>
+</ul>
+<p>所以澄清"浏览接口到底有没有时间"不只是显示问题，也关系到分类页排序的正确性。</p>
+
+<h2>五、三种处置方案与代价</h2>
+<table>
+<tr><th style="width:20%">方案</th><th style="width:38%">做法</th><th>代价 / 评价</th></tr>
+<tr>
+  <td><b>A. 零改动</b></td>
+  <td>先实测确认各接口字段情况；若搜索/收藏/排行榜已有时间，则这些页面<b>本来就显示了</b>，只是你没注意</td>
+  <td>0 成本。前提是实测证明数据确实到位</td>
+</tr>
+<tr>
+  <td><b>B. 补齐推荐页</b></td>
+  <td>给 <code>RecommendComic</code> 加 <code>@SerialName("updated_at")</code> 字段 + <code>toSummary()</code> 传入；如服务端不返回则保持留空</td>
+  <td>1～2 行代码。显示效果取决于服务端，属"有则更好"</td>
+</tr>
+<tr>
+  <td><b>C. 强攻分类浏览</b></td>
+  <td>若实测确认浏览接口无时间：改为对列表逐个调 <code>comics/{id}</code> 详情接口补时间</td>
+  <td><span class="tag t-bad">不推荐</span>。每页 40 条 = 40 次额外请求，哔咔限速约 2 次/秒，会直接触发 429/1023，且拖慢首屏</td>
+</tr>
+</table>
+
+<div class="good">
+推荐路径：<b>先跑一次探测脚本 → 拿到真实字段 → 再决定 A / B</b>。C 方案基本可以排除。
+</div>
+
+<h2>六、已备好一次性探测脚本</h2>
+<div class="card">
+<p>已新增 <code>tools/pica-api-check.mjs</code>（只读：1 次登录 + 若干列表 GET）。请求头与签名与 App 完全一致，会遍历 7 个列表接口，
+打印每个接口的首条目<b>完整字段名</b>，并明确标记 <code>updated_at</code> / <code>created_at</code> 是否存在及示例值。约 30 秒出结果。</p>
+<pre><code># 需要代理时（用完记得关掉代理）
+NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 \
+PICA_EMAIL=你的邮箱 PICA_PASSWORD=你的密码 \
+node tools/pica-api-check.mjs
+
+# 或复用已有 token（跳过登录）
+PICA_TOKEN=xxx node tools/pica-api-check.mjs</code></pre>
+
+<h3>已实测确认的两件事（2026-09-04）</h3>
+<div class="good">
+<b>① Node 的 fetch 不会被 Cloudflare 拦。</b>挂代理后 6 个接口全部返回标准 <code>HTTP 401 / code=401 unauthorized</code>，
+说明签名、请求头、域名轮换都正确，服务端正常响应——<b>不是被 Bot Management 拦截</b>（被拦会表现为 403 或 code=1023）。
+所以脚本本身可用，随时能跑。
+</div>
+<div class="note">
+<b>② 哔咔所有列表接口都必须鉴权</b>，免登录一律 401，<b>没有可以绕开的公开列表接口</b>：
+<pre style="margin:8px 0 0"><code>categories            401 unauthorized
+comics?c=             401 unauthorized      ← 分类浏览
+comics/leaderboard    401 unauthorized
+comics/random         401 unauthorized
+comics/advanced-search 401 unauthorized     ← 搜索
+users/favourite       401 unauthorized</code></pre>
+因此想跑探测，<b>必须提供一个能登录的哔咔账号</b>（邮箱+密码 或 token）。用户本次选择暂不测。
+</div>
+<p>替代方案（无需凭据）：在真机上打开 <b>搜索页 / 收藏页 / 排行榜</b>，看卡片封面下方有没有一行灰色小字日期（如 <code>2026-05-06</code>）。
+有 → 说明该接口确实返回了 <code>updated_at</code>，这些页面本来就显示了；没有 → 说明数据为空。</p>
+</div>
+
+<h2>七、下一步建议</h2>
+<ol>
+  <li><b>最快路径：真机目视确认</b>（零成本、无需凭据）。打开<b>搜索页 / 收藏页 / 排行榜</b>，看卡片封面下方有没有灰色小字日期。
+      有 → 这些接口确实返回 <code>updated_at</code>，页面本来就显示了；没有 → 数据为空。</li>
+  <li>想一次性拿到全部 7 个接口的确定结论：给我哔咔账号跑一次 <code>tools/pica-api-check.mjs</code>（脚本已验证可用，只差凭据）。</li>
+  <li>若确认分类浏览<b>没有</b>时间：建议接受留空，同时<b>移除客户端按 <code>updatedAt</code> 的重排</b>，改回信任服务端 <code>s=dd/da</code> 排序，消除隐患。</li>
+  <li>若分类浏览<b>有</b>时间却没显示：则是解析/缓存问题，需要单独排查。</li>
+  <li>「猜你喜欢」按方案 B 处理：补字段，有就显示，没有也不影响。</li>
+</ol>
+
+<div class="foot">
+本次研究未改动任何业务代码，仅新增探测脚本 <code>tools/pica-api-check.mjs</code>。<br>
+证据来源：项目源码逐行核对 + pica-cli（TypeScript）类型定义 + gopica / pica-go（Go）结构体 + PicaComic（Flutter）模型 + 项目 git 历史（v1.5.7 提交 <code>366ef77</code>）+ 2026-09-04 免登录实测（代理直连，6 接口均 401）。
+</div>
+
+</div>
+</body>
+</html>

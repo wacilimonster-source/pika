@@ -160,6 +160,7 @@ fun MainScreen() {
                     onOpenProfile = { navController.navigate("profile") },
                     onOpenMyComments = { navController.navigate("my-comments") },
                     onOpenRecentReads = { navController.navigate("recent-reads") },
+                    onOpenCloudHistory = { navController.navigate("cloud-history") },
                 )
             }
             composable("profile") {
@@ -181,6 +182,14 @@ fun MainScreen() {
                 com.pika.ui.history.RecentReadsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenComic = { id ->
+                        navController.navigate("comic/${Uri.encode(id)}")
+                    },
+                )
+            }
+            composable("cloud-history") {
+                com.pika.ui.history.CloudHistoryScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id ->
                         navController.navigate("comic/${Uri.encode(id)}")
                     },
                 )
