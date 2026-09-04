@@ -1,1 +1,1 @@
-{"version":"1.5.42","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.42.apk","notes":"v1.5.42 更新：\n1. 关注流作品卡片新增更新时间展示：打开过详情页的作品会记录其更新时间并回填到关注流，无需刷新即时生效\n2. 更新时间本地持久缓存（上限2000条），重启不丢失\n3. 已有更新时间的条目在关注流刷新时自动入库"}
+{"version":"1.5.43","apkUrl":"https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.43.apk","notes":"v1.5.43 更新：\n1. 修复作者作品页、收藏页翻页后停留在旧页面底部位置，现在翻页后从顶部开始展示\n2. 从作品返回后仍保持原页码原位置，不受影响"}

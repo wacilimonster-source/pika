@@ -205,7 +205,11 @@ fun AuthorComicsScreen(
                 PaginationBar(
                     currentPage = currentPage,
                     totalPages = totalPages,
-                    onPageChange = { viewModel.jumpToPage(it) },
+                    onPageChange = { p ->
+                        viewModel.jumpToPage(p)
+                        // 服务端换页：回顶展示新页（返回定位不受影响，恢复只在导航返回重组时执行）
+                        listState.requestScrollToItem(0)
+                    },
                 )
             }
         }
