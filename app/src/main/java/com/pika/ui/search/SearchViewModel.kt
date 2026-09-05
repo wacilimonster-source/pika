@@ -8,7 +8,6 @@ import com.pika.core.model.PageResult
 import com.pika.core.model.sortedByComicSort
 import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -202,7 +201,7 @@ class SearchViewModel : ViewModel() {
                     _endReached.value = page >= result.pages
                     _currentPage.value = page
                 } else {
-                    computeMultiWordIntersection(source, words, page, this, tagFilter)
+                    computeMultiWordIntersection(source, words, page, tagFilter)
                 }
             } finally {
                 _loading.value = false
@@ -224,14 +223,16 @@ class SearchViewModel : ViewModel() {
         source: Source,
         words: List<String>,
         startPage: Int,
-        scope: CoroutineScope,
         tagFilter: String? = null,
     ) {
         val categories = if (tagFilter == null) emptyList() else listOf(tagFilter)
         coroutineScope {
             val semaphore = Semaphore(multiConcurrency)
+            // 注意：async 必须挂在 coroutineScope 的 this 上（结构化并发）。
+            // 原实现误用外部 viewModelScope，导致 await 抛异常时这些子协程不被取消，
+            // 会继续发请求并往共享容器塞数据，污染下一次搜索。
             val wordPageCountDefs = words.map { word ->
-                scope.async {
+                async {
                     delay(250)
                     val first = runCatching { searchWithRetry(source, word, startPage, categories) }.getOrNull()
                     word to (first?.pages ?: 1).coerceIn(1, 50)
@@ -274,7 +275,7 @@ class SearchViewModel : ViewModel() {
 
                 madeProgress = true
                 val pageJobs = pendingWords.map { (w, _) ->
-                    scope.async {
+                    async {
                         val nextPage = (wordProgress[w] ?: 0) + 1
                         val items = semaphore.withPermit {
                             delay(250)
@@ -338,13 +339,16 @@ class SearchViewModel : ViewModel() {
     /** 发布中间结果（够 1 页即显示），后台继续加载 */
     private fun publishDisplay(intersection: Set<String>, complete: Boolean) {
         val display = buildDisplay()
-        if (display.isNotEmpty()) {
-            _comics.value = display
-            _loading.value = false
-            _multiLoading.value = !complete
-            _endReached.value = complete
-            _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
-        }
+        if (display.isEmpty()) return
+        val newTotal = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        // 内容与页数都没变就不发布：后台每轮交集扩展都会走到这里，
+        // 无谓的全量发布只会触发列表重组（E4 性能项）
+        if (display == _comics.value && newTotal == _totalPages.value) return
+        _comics.value = display
+        _loading.value = false
+        _multiLoading.value = !complete
+        _endReached.value = complete
+        _totalPages.value = newTotal
     }
 
     /** 发布最终结果，多词搜索完成 */
@@ -367,10 +371,11 @@ class SearchViewModel : ViewModel() {
         _sort.value = sort
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.size > 1) {
-            _comics.value = _multiAllComics
-                .filter { it.id in _confirmedIntersectionIds }
-                .distinctBy { it.id }
-                .sortedByComicSort(_sort.value)
+            // 多词：重排后必须按当前页重新切片，与页码条保持一致。
+            // 原实现漏掉分页，一次性灌入全量交集，且 loadMore 会在此基础上追加导致重复条目。
+            val page = _currentPage.value.coerceAtLeast(1)
+            _comics.value = buildDisplayForPage(page)
+            _endReached.value = page >= _totalPages.value
         } else {
             search(_keyword.value, page = currentPage.value)
         }
@@ -456,6 +461,8 @@ class SearchViewModel : ViewModel() {
         repeat(pageRetryCount + 1) { attempt ->
             try {
                 return source.search(word, page, _sort.value, categories = categories)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // 取消不放行会继续重试发请求（与 HomeViewModel.searchWithRetry 对齐）
             } catch (e: Exception) {
                 last = e
                 if (attempt < pageRetryCount) delay(500)

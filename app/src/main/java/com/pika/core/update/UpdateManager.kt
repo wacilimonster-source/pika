@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.CacheControl
 import com.pika.network.BcTls
+import com.pika.core.log.LogStore
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -32,12 +33,15 @@ object UpdateManager {
         val version: String = "",
         val apkUrl: String = "",
         val notes: String = "",
+        /** 安装包 SHA-256（仓库 update.json 提供时启用强校验，防止 CDN 劫持安装被篡改的包） */
+        val sha256: String = "",
     )
 
     private val json = Json { ignoreUnknownKeys = true }
 
     private val client: OkHttpClient by lazy {
-        BcTls.install()
+        // TLS 由 PiKAApp.onCreate 单点安装；此处仅校验并记录，不再重复 install
+        if (!BcTls.isAvailable()) BcTls.install()
         BcTls.applyTo(
             OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
@@ -102,7 +106,7 @@ object UpdateManager {
         (checkResult() as? CheckResult.Available)?.info
 
     /**
-     * 下载 APK 到 cache 目录。
+     * 下载 APK 并校验完整性。
      * onProgress(progress, downloadedBytes, totalBytes)：totalBytes<=0 表示总长未知，
      * 此时 progress 为负数，调用方应按"已下载字节数"展示。
      * 依次尝试多个下载源（GitHub raw → jsDelivr CDN），单个源失败自动切换。
@@ -121,6 +125,40 @@ object UpdateManager {
         throw lastError ?: java.io.IOException("下载失败：无可用下载源")
     }
 
+    /**
+     * 下载 + SHA-256 校验的完整流程：update.json 提供 sha256 时强校验
+     * （不一致即删除安装包并中止），未提供时仅记录实际哈希便于人工核对/回填。
+     */
+    suspend fun downloadAndVerify(
+        context: Context,
+        info: UpdateInfo,
+        onProgress: (Float, Long, Long) -> Unit,
+    ): File {
+        val apk = download(context, info.apkUrl, onProgress)
+        val actual = sha256(apk)
+        val expected = info.sha256.trim()
+        if (expected.isNotBlank()) {
+            if (!actual.equals(expected, ignoreCase = true)) {
+                apk.delete()
+                LogStore.log("UpdateManager", "E", "apk sha256 mismatch: expected=$expected actual=$actual")
+                throw java.io.IOException("安装包校验失败，已终止安装")
+            }
+        } else {
+            LogStore.log("UpdateManager", "I", "apk sha256=$actual (update.json 未提供，仅供核对)")
+        }
+        return apk
+    }
+
+    private fun sha256(file: File): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            var read: Int
+            while (input.read(buf).also { read = it } != -1) md.update(buf, 0, read)
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
     private suspend fun downloadFrom(context: Context, url: String, onProgress: (Float, Long, Long) -> Unit): File =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).build()
@@ -130,7 +168,9 @@ object UpdateManager {
                 }
                 val body = resp.body ?: throw java.io.IOException("下载失败：空响应")
                 val total = body.contentLength()
-                val target = File(context.cacheDir, "pika-update.apk")
+                // filesDir 不受"清除缓存"与系统存储回收影响（cacheDir 可能被系统清理，
+                // 导致下载完成到安装之间包丢失、安装器报"解析包失败"）
+                val target = File(context.filesDir, "pika-update.apk")
                 body.byteStream().use { input ->
                     target.outputStream().use { output ->
                         val buffer = ByteArray(64 * 1024)

@@ -64,6 +64,13 @@ class ReaderViewModel : ViewModel() {
             _loading.value = true
             try {
                 withContext(Dispatchers.IO) {
+                    // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）
+                    // 注意必须先于 _pages 赋值，保证 pages 就绪时 UI 能读到待恢复页码
+                    runCatching {
+                        ReaderPrefs.current().lastProgressAsync(comicId)?.let { p ->
+                            if (p.order == order) pendingRestorePage = p.pageIndex
+                        }
+                    }
                     // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
                     val local = com.pika.core.download.DownloadManager.chapterDir(comicId, order)
                         .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
@@ -104,11 +111,7 @@ class ReaderViewModel : ViewModel() {
             }
         }
         // 预取章节标题无需等 chapters 加载完：标题留空则由 UI 兜底
-        ReaderPrefs.current().let { prefs ->
-            prefs.lastProgress(comicId)?.let { p ->
-                if (p.order == order) pendingRestorePage = p.pageIndex
-            }
-        }
+        // （进度恢复已并入上方 IO 块，避免在主线程同步读盘）
     }
 
     /** 等待 pages 加载完成后由 UI 消费的恢复页（-1 表示无需恢复） */
@@ -123,12 +126,16 @@ class ReaderViewModel : ViewModel() {
         load(context, comicId, order)
     }
 
+    /** 上一次进度落盘 Job：滚动时逐页触发，取消旧任务避免乱序覆盖（新页码覆盖旧页码） */
+    private var progressJob: Job? = null
+
     /** 保存阅读进度（本地，带页码），并刷新"最近阅读"；同步更新已读/已读完状态 */
     fun saveProgress(pageIndex: Int) {
+        progressJob?.cancel()
         val pages = _pages.value
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
-        viewModelScope.launch {
+        progressJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 ReaderPrefs.current().saveProgress(comicId, currentOrder, safePage)
             }
@@ -148,6 +155,9 @@ class ReaderViewModel : ViewModel() {
     /** 最近一次记录历史时的页码（-1 = 本次会话尚未记录过；详情就绪后据此补写） */
     private var lastRecordedPage: Int = -1
 
+    /** 上一次"最近阅读"落盘 Job：与 progressJob 同理，防抖防乱序 */
+    private var recentJob: Job? = null
+
     /**
      * 记录最近阅读条目（首页"继续阅读"用）。
      * 立即落盘（标题未就绪时先写兜底值）；详情加载完成后由 load() 触发补写覆盖，
@@ -155,15 +165,19 @@ class ReaderViewModel : ViewModel() {
      */
     fun recordRecentRead(pageIndex: Int) {
         lastRecordedPage = pageIndex.coerceAtLeast(0)
-        viewModelScope.launch {
+        recentJob?.cancel()
+        val comicIdNow = comicId
+        val orderNow = currentOrder
+        val pageNow = lastRecordedPage
+        recentJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 ReaderPrefs.current().recordRecentRead(
-                    comicId = comicId,
-                    title = _comicTitle.value.ifBlank { "第 $currentOrder 话" },
+                    comicId = comicIdNow,
+                    title = _comicTitle.value.ifBlank { "第 $orderNow 话" },
                     coverUrl = _coverUrl.value,
                     author = _comicAuthor.value,
-                    order = currentOrder,
-                    pageIndex = lastRecordedPage,
+                    order = orderNow,
+                    pageIndex = pageNow,
                 )
             }
         }

@@ -31,63 +31,50 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
                 resp.bodyString
             )
         } catch (e: kotlinx.serialization.SerializationException) {
-            throw PicaException("数据解析失败：${e.message}")
+            throw PicaException("数据解析失败：${e.message}", httpCode = resp.code)
+        }
+    }
+
+    /**
+     * 统一请求入口：四个方法（get/post/postEmpty/put）仅有 method 与 body 序列化差异，
+     * 状态码判断与响应解析完全一致，收敛到此处避免新增方法时复制粘贴。
+     */
+    private suspend inline fun <reified T> request(
+        method: String,
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        bodyJson: String? = null,
+    ): ApiResponse<T> {
+        val resp = engine.executeAsync(method, path, query, bodyJson)
+        try {
+            if (resp.code !in 200..299) {
+                throw PicaException("${resp.code}: ${resp.bodyString}", httpCode = resp.code)
+            }
+            return parseResponse(resp)
+        } finally {
+            resp.close()
         }
     }
 
     private suspend inline fun <reified T> get(
         path: String,
         query: Map<String, String> = emptyMap(),
-    ): ApiResponse<T> {
-        val resp = engine.executeAsync("GET", path, query)
-        try {
-            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-            return parseResponse(resp)
-        } finally {
-            resp.close()
-        }
-    }
+    ): ApiResponse<T> = request("GET", path, query)
 
     private suspend inline fun <reified T, reified B> post(
         path: String,
         body: B,
         query: Map<String, String> = emptyMap(),
-    ): ApiResponse<T> {
-        val bodyJson = json.encodeToString(serializer<B>(), body)
-        val resp = engine.executeAsync("POST", path, query, bodyJson)
-        try {
-            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-            return parseResponse(resp)
-        } finally {
-            resp.close()
-        }
-    }
+    ): ApiResponse<T> = request("POST", path, query, json.encodeToString(serializer<B>(), body))
 
     private suspend inline fun <reified T> postEmpty(
         path: String,
-    ): ApiResponse<T> {
-        val resp = engine.executeAsync("POST", path, emptyMap(), "{}")
-        try {
-            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-            return parseResponse(resp)
-        } finally {
-            resp.close()
-        }
-    }
+    ): ApiResponse<T> = request("POST", path, emptyMap(), "{}")
 
     private suspend inline fun <reified T, reified B> put(
         path: String,
         body: B,
-    ): ApiResponse<T> {
-        val bodyJson = json.encodeToString(serializer<B>(), body)
-        val resp = engine.executeAsync("PUT", path, emptyMap(), bodyJson)
-        try {
-            if (resp.code !in 200..299) throw PicaException("${resp.code}: ${resp.bodyString}")
-            return parseResponse(resp)
-        } finally {
-            resp.close()
-        }
-    }
+    ): ApiResponse<T> = request("PUT", path, emptyMap(), json.encodeToString(serializer<B>(), body))
 
     override suspend fun login(body: LoginPayload): ApiResponse<LoginResponse> =
         post("auth/sign-in", body)

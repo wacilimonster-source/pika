@@ -50,7 +50,6 @@ import com.pika.data.ReaderPrefs
 import com.pika.data.SourcePrefs
 import com.pika.network.JmClient
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,8 +140,11 @@ fun SettingsScreen(
                         onClick = {
                             val v = jmBase.trim().trimEnd('/')
                             if (v.isNotEmpty()) {
-                                runBlocking { SourcePrefs.current().setJmBaseUrl(v) }
-                                saved = true
+                                // 主线程不再 runBlocking 同步等落盘（DataStore edit 涉及文件 IO）
+                                scope.launch {
+                                    SourcePrefs.current().setJmBaseUrl(v)
+                                    saved = true
+                                }
                             }
                         },
                     ) { Text("保存") }
@@ -293,12 +295,13 @@ private fun UpdateSection() {
             confirmButton = {
                 when (state) {
                     is UpdateUiState.Found -> {
-                        val url = (state as UpdateUiState.Found).info.apkUrl
+                        val info = (state as UpdateUiState.Found).info
                         Button(onClick = {
                             state = UpdateUiState.Downloading
                             scope.launch {
                                 runCatching {
-                                    UpdateManager.download(context, url) { p, _, _ -> progress = p }
+                                    // 下载 + SHA-256 校验：update.json 提供 sha256 时强校验
+                                    UpdateManager.downloadAndVerify(context, info) { p, _, _ -> progress = p }
                                         .also { apk ->
                                             state = UpdateUiState.Downloaded
                                             UpdateManager.install(context, apk)

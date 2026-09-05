@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -69,6 +71,9 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.pika.data.ReaderPrefs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -81,7 +86,7 @@ import kotlinx.coroutines.launch
  * - **进度**：本地保存（order+页码），重进自动续读；切后台自动保存。
  * - **控制面板**：阅读模式切换、亮度滑条、上一话/下一话。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun ReaderScreen(
     comicId: String,
@@ -101,6 +106,9 @@ fun ReaderScreen(
     var showPanel by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(ReaderPrefs.current().brightness) }
     var zoomScale by remember { mutableFloatStateOf(1f) }
+    // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
 
     val configuration = LocalConfiguration.current
     val viewportAspect = remember(configuration) {
@@ -169,32 +177,62 @@ fun ReaderScreen(
         pages.indices.map { it to 0 }
     }
 
-    fun rowToPage(row: Int): Int {
-        if (pages.isEmpty()) return 0
-        var remaining = row.coerceAtLeast(0)
-        for (p in pages.indices) {
-            val n = (sliceCounts[p] ?: 1).coerceAtLeast(1)
-            if (remaining < n) return p
-            remaining -= n
+    // 切片前缀和：sliceCounts 变化时重建一次（O(n)），行→页查询降为 O(log n)
+    // （原实现在每次滚动回调里从头累加，随页数线性变慢）
+    val rowPrefix by remember(pages.size, scrollMode) {
+        derivedStateOf {
+            val arr = IntArray(pages.size + 1)
+            for (p in pages.indices) {
+                arr[p + 1] = arr[p] + (sliceCounts[p] ?: 1).coerceAtLeast(1)
+            }
+            arr
         }
-        return pages.size - 1
     }
 
-    // 进度恢复：pages 就绪后跳到上次阅读位置
+    fun rowToPage(row: Int): Int {
+        if (pages.isEmpty()) return 0
+        val prefix = rowPrefix
+        val r = row.coerceAtLeast(0)
+        // 二分查找第一个 prefix[p+1] > r 的页
+        var lo = 0
+        var hi = pages.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi) / 2
+            if (prefix[mid + 1] > r) hi = mid else lo = mid + 1
+        }
+        return lo
+    }
+
+    fun rowForPage(page: Int): Int =
+        rowPrefix[page.coerceIn(0, pages.size)]
+
+    // 进度恢复：先按当前已知切片粗定位；随后等切片解析完成再校正（上限 3 秒）。
+    // 原实现在切片未解析时按 1 片估算行号，长图章节会定位偏早若干屏。
     val restorePage = viewModel.pendingRestorePage
     LaunchedEffect(pages.size, restorePage, scrollMode) {
         if (pages.isNotEmpty() && restorePage >= 0) {
-            val target = restorePage.coerceAtMost(pages.size - 1)
-            if (scrollMode) {
-                var row = 0
-                for (p in 0 until target.coerceAtMost(pages.size - 1)) {
-                    row += (sliceCounts[p] ?: 1).coerceAtLeast(1)
-                }
-                listState.scrollToItem(row)
-            } else {
-                pagerState.scrollToPage(target)
-            }
             viewModel.pendingRestorePage = -1
+            val target = restorePage.coerceAtMost(pages.size - 1)
+            if (!scrollMode) {
+                pagerState.scrollToPage(target)
+                return@LaunchedEffect
+            }
+            listState.scrollToItem(rowForPage(target))
+            val deadline = System.currentTimeMillis() + 3_000
+            var lastRow = -1
+            while (System.currentTimeMillis() < deadline) {
+                delay(200)
+                val row = rowForPage(target)
+                if (row != lastRow) {
+                    // 用户已手动滚走（偏离上次自动定位超过 2 行）时不再拉回
+                    val nearLast = lastRow == -1 ||
+                        kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
+                    if (nearLast) listState.scrollToItem(row)
+                    lastRow = row
+                }
+                // 目标页之前的切片全部解析完成即可停止校正
+                if ((0 until target).all { sliceCounts.containsKey(it) }) break
+            }
         }
     }
 
@@ -210,15 +248,22 @@ fun ReaderScreen(
         pagerState.currentPage
     }
 
-    // 保存进度：页面变化时 + 切后台时；同时刷新"最近阅读"
-    LaunchedEffect(currentPage, pages.size) {
-        if (pages.isNotEmpty()) {
-            viewModel.saveProgress(currentPage)
-            viewModel.recordRecentRead(currentPage)
-        }
+    // 保存进度：滚动页码变化做 1 秒防抖（连续快速滑动不再逐屏写盘、
+    // 也不再高频全量重写"最近阅读"列表），切后台仍立即保存兜底
+    LaunchedEffect(pages.size, scrollMode) {
+        snapshotFlow { currentPage }
+            .distinctUntilChanged()
+            .debounce(1_000)
+            .collect { page ->
+                if (pages.isNotEmpty()) {
+                    viewModel.saveProgress(page)
+                    viewModel.recordRecentRead(page)
+                }
+            }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.saveProgress(currentPage)
+        viewModel.recordRecentRead(currentPage)
     }
 
     // 预加载前后 2 页
@@ -254,6 +299,14 @@ fun ReaderScreen(
                     .coerceIn(0, (pages.size - 1).coerceAtLeast(0))
                 scope.launch { pagerState.animateScrollToPage(target) }
             }
+        }
+    }
+
+    // 翻页后复位缩放平移，避免上一页的偏移带到新页
+    LaunchedEffect(pagerState.currentPage) {
+        if (zoomScale <= 1f) {
+            panX = 0f
+            panY = 0f
         }
     }
 
@@ -326,10 +379,31 @@ fun ReaderScreen(
                         onTap = { offset -> onTap(offset.x, size.width) },
                         onDoubleTap = {
                             if (!scrollMode) {
-                                zoomScale = if (zoomScale > 1f) 1f else 2f
+                                if (zoomScale > 1f) {
+                                    zoomScale = 1f
+                                    panX = 0f
+                                    panY = 0f
+                                } else {
+                                    zoomScale = 2f
+                                }
                             }
                         },
                     )
+                }
+                // 缩放态下的捏合缩放与拖拽平移（仅翻页模式；滚动流交给 LazyColumn 处理）
+                .pointerInput(scrollMode) {
+                    if (scrollMode) return@pointerInput
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        zoomScale = (zoomScale * zoom).coerceIn(1f, 4f)
+                        val maxX = (zoomScale - 1f) * size.width / 2f
+                        val maxY = (zoomScale - 1f) * size.height / 2f
+                        panX = (panX + pan.x).coerceIn(-maxX, maxX)
+                        panY = (panY + pan.y).coerceIn(-maxY, maxY)
+                        if (zoomScale <= 1f) {
+                            panX = 0f
+                            panY = 0f
+                        }
+                    }
                 },
         ) {
             when {
@@ -376,11 +450,15 @@ fun ReaderScreen(
                 else -> {
                     HorizontalPager(
                         state = pagerState,
+                        // 放大后关闭翻页滑动，把拖拽交给上方的平移手势，否则边缘内容看不全
+                        userScrollEnabled = zoomScale <= 1f,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
                                 scaleX = zoomScale
                                 scaleY = zoomScale
+                                translationX = panX
+                                translationY = panY
                             },
                     ) { page ->
                         AsyncImage(

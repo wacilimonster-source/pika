@@ -2,7 +2,6 @@
 
 import com.pika.core.pica.ComicRankType
 import com.pika.core.pica.ComicSortType
-import com.pika.core.pica.PicaApi
 import kotlinx.serialization.json.JsonObject
 
 /**

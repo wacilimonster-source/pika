@@ -103,7 +103,8 @@ fun UpdateDialog(
                     error = null
                     scope.launch {
                         runCatching {
-                            UpdateManager.download(context, info.apkUrl) { p, done, total ->
+                            // 下载 + SHA-256 校验：update.json 提供 sha256 时强校验
+                            UpdateManager.downloadAndVerify(context, info) { p, done, total ->
                                 progress = p
                                 downloadedBytes = done
                                 totalBytes = total

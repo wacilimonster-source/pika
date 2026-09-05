@@ -63,6 +63,9 @@ fun DownloadScreen(
     onComicClick: (comicId: String, order: Int) -> Unit = { _, _ -> },
 ) {
     val tasks by DownloadManager.tasks.collectAsState()
+    // 显式订阅派生状态：总占用 / 总速度独立刷新，不依赖 tasks 的隐式读取
+    val totalBytes by DownloadManager.totalBytesFlow.collectAsState()
+    val totalSpeed by DownloadManager.totalSpeedFlow.collectAsState()
 
     Scaffold(
         topBar = {
@@ -99,7 +102,7 @@ fun DownloadScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "已占用 ${formatBytes(DownloadManager.totalBytes)}",
+                            text = "已占用 ${formatBytes(totalBytes)}",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Spacer(Modifier.height(4.dp))
@@ -109,7 +112,7 @@ fun DownloadScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    val speed = DownloadManager.totalSpeed
+                    val speed = totalSpeed
                     if (speed > 0) {
                         Text(
                             text = "↓ ${formatBytes(speed)}/s",

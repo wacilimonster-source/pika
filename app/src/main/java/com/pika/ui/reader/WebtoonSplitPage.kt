@@ -66,14 +66,17 @@ fun WebtoonSplitPage(
 
     // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
     var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
-    // 解码像素上限：单张位图高度封顶（约 4 倍屏高），防超长图整图解码 OOM 闪退；
+    // 解码像素上限：单张位图高度封顶，防超长图整图解码 OOM 闪退；
     // 超出的部分按比例缩略，分割渲染仍完整展示，仅清晰度略降。
+    // 上限按设备内存等级自适应（lowMemory 设备降到 4k，减轻 35MB/张 的位图压力）
+    val context = LocalContext.current
+    val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(LocalContext.current)
             .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
             .size(coil.size.Size(
                 width = Int.MAX_VALUE,
-                height = MAX_DECODE_HEIGHT_PX,
+                height = decodeHeightCap,
             ))
             .build(),
     )
@@ -200,5 +203,21 @@ internal fun computeSliceCount(imageHeightRatio: Float, viewportAspect: Float): 
     return if (raw <= 1.4f) 1 else ceil(raw).toInt().coerceIn(1, 6)
 }
 
-/** 单张位图解码高度上限（px）：1080 宽 × 8192 高 ≈ 35MB，避免超长图 OOM */
+/** 单张位图解码高度上限（px）：1080 宽 × 8192 高 ≈ 35MB */
 private const val MAX_DECODE_HEIGHT_PX = 8192
+
+/**
+ * 按设备内存等级自适应解码上限：
+ * - 大内存设备（memoryClass ≥ 256MB）维持 8192，长图切片清晰度最优；
+ * - 小内存设备降到 4096（约 17MB/张），显著降低缓存驱逐导致的重复解码与 GC 抖动。
+ */
+private fun maxDecodeHeightPx(context: android.content.Context): Int {
+    val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+        as? android.app.ActivityManager
+    val memClass = am?.memoryClass ?: 192
+    return when {
+        memClass >= 256 -> MAX_DECODE_HEIGHT_PX
+        memClass >= 128 -> 6144
+        else -> 4096
+    }
+}

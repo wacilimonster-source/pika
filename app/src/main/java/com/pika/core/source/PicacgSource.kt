@@ -15,7 +15,12 @@ import com.pika.network.Doc
 import com.pika.network.PicaClient
 import com.pika.network.SearchPayload
 import com.pika.network.comicsQuery
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * 哔咔源：包装 PicaClient，映射为统一模型。
@@ -162,18 +167,36 @@ class PicacgSource : Source {
         return data.comic.toDetail()
     }
 
-    override suspend fun chapters(id: String): List<ComicChapter> {
+    /**
+     * 章节列表：首页拿到总页数后并发拉取剩余页（Semaphore 限 3 路，避免触发限流）。
+     * 并发失败的页退回串行重试（safeCall 自带切域名重试），保证不丢章。
+     */
+    override suspend fun chapters(id: String): List<ComicChapter> = coroutineScope {
         val first = PicaClient.safeCall { PicaClient.api.chapters(id, page = 1) }
         val docs = mutableListOf<com.pika.network.Chapter>()
         docs += first.eps.docs
-        var page = 1
-        while (page < first.eps.pages) {
-            page++
-            val more = PicaClient.safeCall { PicaClient.api.chapters(id, page) }
-            docs += more.eps.docs
-            if (more.eps.docs.isEmpty()) break
+        val totalPages = first.eps.pages
+        if (totalPages > 1) {
+            val sem = Semaphore(3)
+            val byPage = (2..totalPages).map { p ->
+                async {
+                    sem.withPermit {
+                        p to runCatching {
+                            PicaClient.safeCall { PicaClient.api.chapters(id, p) }
+                        }.getOrNull()?.eps?.docs
+                    }
+                }
+            }.awaitAll()
+            for ((p, docsP) in byPage.sortedBy { it.first }) {
+                if (docsP != null) docs += docsP
+            }
+            // 并发失败的页退回串行重试
+            val okPages = byPage.filter { it.second != null }.map { it.first }.toSet()
+            for (p in (2..totalPages).filter { it !in okPages }) {
+                docs += PicaClient.safeCall { PicaClient.api.chapters(id, p) }.eps.docs
+            }
         }
-        return docs.mapIndexed { index, c ->
+        docs.mapIndexed { index, c ->
             com.pika.core.model.ComicChapter(
                 id = c.uid.ifBlank { c.id },
                 title = c.title,
@@ -182,23 +205,41 @@ class PicacgSource : Source {
         }
     }
 
-    override suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> {
+    /**
+     * 章节图片：同章节列表，按页号并发拉取后按页序拼接，保证图片顺序不变。
+     */
+    override suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> = coroutineScope {
         val first = PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, page = 1) }
-        val out = mutableListOf<ComicPage>()
-        var page = 1
-        while (page <= first.pages.pages) {
-            val data = if (page == 1) first else {
-                PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, page) }
+        val totalPages = first.pages.pages
+        // 按页号缓存，拼接时严格按页序，保证 index 连续且顺序正确
+        val byPage = HashMap<Int, com.pika.network.FetchChapterImagesResponse>()
+        byPage[1] = first
+        if (totalPages > 1) {
+            val sem = Semaphore(3)
+            (2..totalPages).map { p ->
+                async {
+                    sem.withPermit {
+                        p to runCatching {
+                            PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) }
+                        }.getOrNull()
+                    }
+                }
+            }.awaitAll().forEach { (p, resp) -> if (resp != null) byPage[p] = resp }
+            // 并发失败的页退回串行重试
+            for (p in (2..totalPages).filter { !byPage.containsKey(it) }) {
+                byPage[p] = PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) }
             }
-            data.pages.docs.forEachIndexed { i, doc ->
+        }
+        val out = mutableListOf<ComicPage>()
+        for (p in 1..totalPages) {
+            val data = byPage[p] ?: continue
+            data.pages.docs.forEach { doc ->
                 doc.media?.let { m ->
                     out += ComicPage(index = out.size, imageUrl = m.directUrl)
                 }
             }
-            if (data.pages.docs.isEmpty()) break
-            page++
         }
-        return out
+        out
     }
 
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pika.core.AppScope
 import com.pika.core.source.SourceType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -21,6 +22,12 @@ private object Keys {
 
 /**
  * DataStore 封装：当前活动源 / 各源登录态 / 设置项 / 设备 UUID
+ *
+ * 访问范式：
+ * - `init()` 在后台协程预热内存缓存；预热完成后所有 getter 都是纯内存读取，零阻塞。
+ * - getter 保留 `runBlocking` 兜底分支，仅在"预热未完成 / 登出清空缓存"的极小窗口内触发，
+ *   且 DataStore 首次读取后会驻留内存，兜底读取开销为微秒级，不构成热路径阻塞。
+ * - 网络层等已在协程上下文的调用方请使用 suspend 版本（如 [getOrCreateAppUuidAsync]）。
  */
 class SourcePrefs private constructor(private val appContext: Context) {
 
@@ -29,8 +36,8 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
         fun init(context: Context) {
             instance = SourcePrefs(context.applicationContext)
-            // 启动时一次性把热点值读入内存，之后的 getter 全部走缓存，不再阻塞读盘
-            instance.loadCache()
+            // 冷启动主线程不再同步读盘：热点值由后台协程回填（首次读取涉及文件 IO + 反序列化）
+            AppScope.launch { instance.loadCache() }
         }
 
         fun current(): SourcePrefs = instance
@@ -66,7 +73,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
             }
         set(value) {
             cachedSource = value
-            runBlocking { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
+            AppScope.launch { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
         }
 
     suspend fun setActiveSource(value: SourceType) {
@@ -76,13 +83,11 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
     // ---------- 设备 UUID（持久化，首次生成） ----------
 
-    /** 获取或生成设备 UUID（用于 app-uuid 请求头） */
-    fun getOrCreateAppUuid(): String {
+    /** 协程上下文中的推荐入口：读盘/写盘均挂起，不阻塞调用线程 */
+    suspend fun getOrCreateAppUuidAsync(): String {
         cachedAppUuid?.let { return it }
 
-        val existing = runBlocking {
-            appContext.dataStore.data.first()[Keys.APP_UUID]
-        }
+        val existing = appContext.dataStore.data.first()[Keys.APP_UUID]
         if (!existing.isNullOrBlank()) {
             cachedAppUuid = existing
             return existing
@@ -90,10 +95,14 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
         val uuid = java.util.UUID.randomUUID().toString()
         cachedAppUuid = uuid
-        runBlocking {
-            appContext.dataStore.edit { it[Keys.APP_UUID] = uuid }
-        }
+        appContext.dataStore.edit { it[Keys.APP_UUID] = uuid }
         return uuid
+    }
+
+    /** 同步版本：仅供热路径之外、无法改造为协程的调用方（优先用 [getOrCreateAppUuidAsync]） */
+    fun getOrCreateAppUuid(): String {
+        cachedAppUuid?.let { return it }
+        return runBlocking { getOrCreateAppUuidAsync() }
     }
 
     // ---------- 哔咔登录态 ----------

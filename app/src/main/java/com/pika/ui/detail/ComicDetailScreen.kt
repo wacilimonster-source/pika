@@ -261,11 +261,15 @@ fun ComicDetailScreen(
                     }
                 }
                 items(chapters, key = { it.id }) { chapter ->
+                    // 显式声明依赖 downloadTasks：任务列表变化时重算，不依赖隐式订阅
+                    val downloaded = remember(downloadTasks, comicId, chapter.id) {
+                        viewModel.isDownloaded(comicId, chapter)
+                    }
                     ChapterRow(
                         chapter = chapter,
                         onClick = { onOpenReader(comicId, chapter.order) },
                         onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
-                        downloaded = viewModel.isDownloaded(comicId, chapter),
+                        downloaded = downloaded,
                     )
                 }
                 if (loading && chapters.isEmpty()) {

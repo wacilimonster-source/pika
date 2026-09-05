@@ -1,6 +1,7 @@
 package com.pika.core.download
 
 import android.content.Context
+import com.pika.core.log.LogStore
 import com.pika.core.source.SourceManager
 import com.pika.network.BcTls
 import kotlinx.coroutines.CoroutineScope
@@ -8,7 +9,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -65,11 +69,15 @@ object DownloadManager {
     private val _tasks = MutableStateFlow<List<TaskRuntime>>(emptyList())
     val tasks: StateFlow<List<TaskRuntime>> = _tasks
 
-    /** 全部下载内容占用空间（字节） */
-    val totalBytes: Long get() = _tasks.value.sumOf { it.totalBytes }
+    // 派生状态显式化为 StateFlow：UI 直接订阅，避免依赖"某个恰好被读取的 tasks
+    // collectAsState()"这类隐式耦合（一旦重构移入 if 分支，刷新会静默失效）。
+    val totalBytesFlow: StateFlow<Long> = _tasks
+        .map { list -> list.sumOf { it.totalBytes } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), 0L)
 
-    /** 当前总速度（字节/秒） */
-    val totalSpeed: Long get() = _tasks.value.sumOf { it.bytesPerSecond }
+    val totalSpeedFlow: StateFlow<Long> = _tasks
+        .map { list -> list.sumOf { it.bytesPerSecond } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     const val CONCURRENCY = 2
 
@@ -230,22 +238,34 @@ object DownloadManager {
         _tasks.value.firstOrNull { it.key == "$comicId#$order" }
 
     // ── 调度 ──────────────────────────────────────────────────────────────
+
+    /**
+     * 把空闲并发槽补满：单次 pump 可能启动多个任务（此前每次只启动 1 个，
+     * 导致 CONCURRENCY 名存实亡、整本下载实为串行）。
+     */
     private fun pump() {
         scope.launch {
-            var startKey: String? = null
+            val toStart = mutableListOf<String>()
             mutex.withLock {
                 val running = _tasks.value.count { it.status == DlStatus.DOWNLOADING }
-                if (running >= CONCURRENCY) return@withLock
-                val next = _tasks.value.firstOrNull { it.status == DlStatus.PENDING }
-                    ?: return@withLock
-                _tasks.value = _tasks.value.map {
-                    if (it.key == next.key) it.copy(status = DlStatus.DOWNLOADING) else it
+                val slots = (CONCURRENCY - running).coerceAtLeast(0)
+                if (slots > 0) {
+                    val keys = _tasks.value
+                        .filter { it.status == DlStatus.PENDING }
+                        .take(slots)
+                        .map { it.key }
+                        .toSet()
+                    if (keys.isNotEmpty()) {
+                        _tasks.value = _tasks.value.map {
+                            if (it.key in keys) it.copy(status = DlStatus.DOWNLOADING) else it
+                        }
+                        persist()
+                        toStart += keys
+                    }
                 }
-                persist()
-                startKey = next.key
             }
-            // 锁外用锁内记下的 key 启动，避免重新挑任务时挑到已在跑的任务
-            startKey?.let { runTask(it) }
+            // 锁外启动，避免重新挑任务时挑到已在跑的任务
+            toStart.forEach { runTask(it) }
         }
     }
 
@@ -327,18 +347,18 @@ object DownloadManager {
             val code = conn.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
             val tmp = File(dest.parentFile, dest.name + ".part")
-            conn.inputStream.use { input ->
-                tmp.outputStream().use { output ->
-                    val buf = ByteArray(64 * 1024)
-                    var read: Int
-                    while (input.read(buf).also { read = it } != -1) {
-                        output.write(buf, 0, read)
-                    }
+            try {
+                conn.inputStream.use { input ->
+                    tmp.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
                 }
-            }
-            if (!tmp.renameTo(dest)) {
-                tmp.copyTo(dest, overwrite = true)
+                if (!tmp.renameTo(dest)) {
+                    tmp.copyTo(dest, overwrite = true)
+                    tmp.delete()
+                }
+            } catch (e: Exception) {
+                // 失败即清理半成品，避免 .part 残留占用空间且磁盘占用不可见
                 tmp.delete()
+                throw e
             }
             return dest.length()
         } finally {
@@ -350,12 +370,15 @@ object DownloadManager {
     private fun manifestFile(): File = File(rootDir(), "manifest.json")
 
     private fun persist() {
-        runCatching {
+        try {
             manifestFile().parentFile?.mkdirs()
             val tasks = _tasks.value
                 .filter { it.status != DlStatus.CANCELED }
                 .map { it.task }
             manifestFile().writeText(json.encodeToString(ListSerializer(DownloadTask.serializer()), tasks))
+        } catch (e: Exception) {
+            // 静默吞掉会导致"内存正常、重启全丢"且无从排查，至少落日志
+            LogStore.log("DownloadManager", "E", "persist failed: ${e.message}")
         }
     }
 
@@ -383,13 +406,33 @@ object DownloadManager {
     }
 
     // ── 速度采样 ──────────────────────────────────────────────────────────
+
+    /**
+     * 速度采样：无活跃任务时进入低频空转（5 秒一次且不做任何状态写入），
+     * 避免应用全程每秒唤醒、争抢 mutex 并重建任务列表触发无谓的 StateFlow 更新。
+     */
     private fun startSpeedSampler() {
         scope.launch {
             var prevBytes = 0L
             var prevAt = 0L
             while (true) {
+                val snapshot = _tasks.value
+                if (snapshot.none { it.status == DlStatus.DOWNLOADING }) {
+                    // 从活跃转为空闲：清零一次速度，随后低频休眠
+                    if (prevAt != 0L) {
+                        mutex.withLock {
+                            _tasks.value = _tasks.value.map {
+                                if (it.bytesPerSecond != 0L) it.copy(bytesPerSecond = 0) else it
+                            }
+                        }
+                        prevAt = 0L
+                        prevBytes = 0L
+                    }
+                    delay(5_000)
+                    continue
+                }
                 val now = System.currentTimeMillis()
-                val bytes = _tasks.value.sumOf { it.totalBytes }
+                val bytes = snapshot.sumOf { it.totalBytes }
                 if (prevAt != 0L && now - prevAt >= 1500) {
                     val speed = ((bytes - prevBytes) * 1000L / (now - prevAt)).coerceAtLeast(0L)
                     mutex.withLock {

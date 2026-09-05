@@ -37,13 +37,31 @@ object UpdatedAtCache {
     private var persistJob: Job? = null
     private var versionJob: Job? = null
 
+    /** 磁盘数据是否已加载完成（init 在后台协程反序列化，完成前 put 先入 pendingPuts） */
+    @Volatile private var ready = false
+    private val pendingPuts = LinkedHashMap<String, String>()
+
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        synchronized(map) {
-            runCatching {
-                val str = prefs?.getString(KEY_MAP, null) ?: return
-                map.clear()
-                json.decodeFromString<Map<String, String>>(str).forEach { (k, v) -> map[k] = v }
+        // 冷启动主线程不再同步读盘 + 反序列化最多 2000 条（低端机可达数十至上百毫秒），
+        // 改为后台加载；期间 put() 的写入先暂存 pendingPuts，加载完成后合并（内存新值优先）
+        scope.launch {
+            synchronized(map) {
+                runCatching {
+                    val str = prefs?.getString(KEY_MAP, null)
+                    if (str != null) {
+                        map.clear()
+                        json.decodeFromString<Map<String, String>>(str).forEach { (k, v) -> map[k] = v }
+                    }
+                }
+                synchronized(pendingPuts) {
+                    pendingPuts.forEach { (k, v) ->
+                        map.remove(k)
+                        map[k] = v
+                    }
+                    pendingPuts.clear()
+                }
+                ready = true
             }
         }
     }
@@ -53,14 +71,23 @@ object UpdatedAtCache {
     /** 拉到更新时间就记录（同值重复记录不触发 version，避免列表无谓刷新） */
     fun put(comicId: String, updatedAt: String) {
         if (updatedAt.isBlank()) return
+        val needsDebounce: Boolean
         synchronized(map) {
-            if (map[comicId] == updatedAt) return
-            map.remove(comicId)
-            map[comicId] = updatedAt
-            while (map.size > MAX_ENTRIES) {
-                map.remove(map.keys.first())
+            if (map[comicId] == updatedAt) {
+                needsDebounce = false
+            } else if (!ready) {
+                synchronized(pendingPuts) { pendingPuts[comicId] = updatedAt }
+                needsDebounce = true
+            } else {
+                map.remove(comicId)
+                map[comicId] = updatedAt
+                while (map.size > MAX_ENTRIES) {
+                    map.remove(map.keys.first())
+                }
+                needsDebounce = true
             }
         }
+        if (!needsDebounce) return
         // debounce：批量回填时合并为一次落盘 / 一次 version 通知
         versionJob?.cancel()
         versionJob = scope.launch {

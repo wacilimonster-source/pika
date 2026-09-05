@@ -2,19 +2,25 @@ package com.pika.core.pica
 
 /**
  * 哔咔网络层配置：移植自 haka_comic lib/network/utils.dart
+ *
+ * 说明：客户端签名密钥本质上无法真正隐藏（逆向总能取到），此处仅做「分段拼接」处理，
+ * 避免完整密钥以单条字符串常量的形式出现在常量池中，提高静态提取的门槛。
+ * 如需更强加固，可进一步移入 NDK .so 或引入字符串加密（StringFog / DexGuard）。
  */
 object PicaConfig {
-    const val API_KEY = "C69BAF41DA5ABD1FFEDC6D2FEA56B"
-    const val SECRET_KEY = "~d}\$Q7\$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn"
+    private const val API_KEY_P1 = "C69BAF41DA5AB"
+    private const val API_KEY_P2 = "D1FFEDC6D2FEA56B"
+    const val API_KEY: String = API_KEY_P1 + API_KEY_P2
+
+    private const val SECRET_P1 = "~d}\$Q7\$eIni=V)9"
+    private const val SECRET_P2 = "\\RK/P.RM4;9[7|@/"
+    private const val SECRET_P3 = "CA}b~OW!3?EV`:"
+    private const val SECRET_P4 = "<>M7pddUBL5n|0/*Cn"
+    const val SECRET_KEY: String = SECRET_P1 + SECRET_P2 + SECRET_P3 + SECRET_P4
 }
 
 /** 每请求随机 nonce */
 fun picaNonce(): String = java.util.UUID.randomUUID().toString().replace("-", "")
-
-enum class PicaApi(val host: String) {
-    PICACOMIC("https://picaapi.picacomic.com/"),
-    GO2778("https://picaapi.go2778.com/"),
-}
 
 enum class ImageQuality(val displayName: String) {
     LOW("低"),

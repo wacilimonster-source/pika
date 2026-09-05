@@ -51,7 +51,7 @@ fun RecentReadsScreen(
     var recentReads by remember { mutableStateOf<List<RecentRead>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        recentReads = ReaderPrefs.current().recentReads()
+        recentReads = ReaderPrefs.current().recentReadsAsync()
     }
 
     Scaffold(

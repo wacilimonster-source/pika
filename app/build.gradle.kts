@@ -13,19 +13,26 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 71
-        versionName = "1.5.45"
+        versionCode = 72
+        versionName = "1.5.46"
     }
 
     signingConfigs {
         // 使用 Android 默认 debug keystore 签名 release
         // 与已安装 App 同签名，保证应用内更新可覆盖安装
         // 注意：默认 debug keystore 的别名/密码为公开默认值，非保密信息
+        // keystore 路径不入库：默认取当前用户目录下的 Android 公共 debug keystore
+        // （由 Android SDK 自动生成，别名/密码均为公开默认值，非保密信息），
+        // 需要自定义签名时用环境变量覆盖：
+        //   PIKA_KEYSTORE / PIKA_KS_PW / PIKA_KEY_ALIAS / PIKA_KEY_PW
         create("release") {
-            storeFile = file("C:/Users/wacil/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            storeFile = file(
+                System.getenv("PIKA_KEYSTORE")
+                    ?: "${System.getProperty("user.home")}/.android/debug.keystore"
+            )
+            storePassword = System.getenv("PIKA_KS_PW") ?: "android"
+            keyAlias = System.getenv("PIKA_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("PIKA_KEY_PW") ?: "android"
         }
     }
 

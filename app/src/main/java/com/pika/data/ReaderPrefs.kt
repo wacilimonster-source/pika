@@ -7,10 +7,12 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 
@@ -54,15 +56,37 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         fun current(): ReaderPrefs = instance
     }
 
+    /** 后台写盘作用域：setter 只更新内存缓存后投递到这里，绝不在调用线程同步等待落盘 */
+    private val ioScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+
     /** 阅读进度：comicId -> (order, pageIndex)；pageIndex 从 0 开始 */
     data class Progress(val order: Int, val pageIndex: Int)
 
+    // 进程内进度缓存：读进度走内存，saveProgress 时同步回写，避免每次读盘
+    private val progressCache = java.util.concurrent.ConcurrentHashMap<String, Progress>()
+
     fun lastProgress(comicId: String): Progress? {
+        progressCache[comicId]?.let { return it }
         val raw = runCatching {
             runBlocking {
                 appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)]
             }
         }.getOrNull() ?: return null
+        return parseProgress(raw)?.also { progressCache[comicId] = it }
+    }
+
+    /** 协程上下文中的推荐入口：挂起读盘，不阻塞调用线程 */
+    suspend fun lastProgressAsync(comicId: String): Progress? {
+        progressCache[comicId]?.let { return it }
+        val raw = runCatching {
+            appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)]
+        }.getOrNull() ?: return null
+        return parseProgress(raw)?.also { progressCache[comicId] = it }
+    }
+
+    private fun parseProgress(raw: String): Progress? {
         val parts = raw.split(":")
         if (parts.size != 2) return null
         val order = parts[0].toIntOrNull() ?: return null
@@ -71,6 +95,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     }
 
     suspend fun saveProgress(comicId: String, order: Int, pageIndex: Int) {
+        progressCache[comicId] = Progress(order, pageIndex)
         appContext.readerDataStore.edit {
             it[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + comicId)] = "$order:$pageIndex"
         }
@@ -106,6 +131,10 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     @Volatile private var cachedBrightness: Float? = null
     @Volatile private var cachedRecentReads: List<RecentRead>? = null
 
+    // 高频写盘合并 Job：亮度滑条逐帧触发 setter，用取消+重投递把 60 次/秒的写盘合并成 1 次
+    private var readerModeJob: kotlinx.coroutines.Job? = null
+    private var brightnessJob: kotlinx.coroutines.Job? = null
+
     /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
     var readerMode: Int
         get() = cachedReaderMode
@@ -116,8 +145,10 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             }.getOrNull() ?: 0
         set(value) {
             cachedReaderMode = value
-            runCatching {
-                runBlocking {
+            // 单次事件：投递后台落盘，不阻塞调用线程（此前为 runBlocking 同步写）
+            readerModeJob?.cancel()
+            readerModeJob = ioScope.launch {
+                runCatching {
                     appContext.readerDataStore.edit {
                         it[intPreferencesKey(ReaderKeys.READER_MODE)] = value
                     }
@@ -136,8 +167,12 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         set(value) {
             val v = value.coerceIn(0.2f, 1.0f)
             cachedBrightness = v
-            runCatching {
-                runBlocking {
+            // 关键修复：Slider 拖动时逐帧回调，此前 runBlocking 会让主线程每帧同步等落盘，
+            // 表现为滑条严重卡顿（低端机可 ANR）。改为内存即时生效 + 后台合并落盘。
+            brightnessJob?.cancel()
+            brightnessJob = ioScope.launch {
+                delay(300) // 拖动停止 300ms 后才落盘，合并高频写
+                runCatching {
                     appContext.readerDataStore.edit {
                         it[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] = v
                     }
@@ -174,6 +209,19 @@ class ReaderPrefs private constructor(private val appContext: Context) {
                     json.decodeFromString<List<RecentRead>>(raw)
                 }.getOrDefault(emptyList())
             }
+        }.getOrDefault(emptyList())
+        cachedRecentReads = list
+        return list
+    }
+
+    /** 协程上下文中的推荐入口：挂起读盘，不阻塞调用线程（冷启动首次读取涉及文件 IO） */
+    suspend fun recentReadsAsync(): List<RecentRead> {
+        cachedRecentReads?.let { return it }
+        val list = runCatching {
+            val raw = appContext.readerDataStore.data.first()
+                .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
+            if (raw.isNullOrBlank()) emptyList()
+            else runCatching { json.decodeFromString<List<RecentRead>>(raw) }.getOrDefault(emptyList())
         }.getOrDefault(emptyList())
         cachedRecentReads = list
         return list

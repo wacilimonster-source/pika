@@ -38,7 +38,8 @@ object JmClient {
     }
 
     private val client: OkHttpClient by lazy {
-        BcTls.install()
+        // TLS 由 PiKAApp.onCreate 单点安装；此处兜底校验，缺了就补装并记日志
+        if (!BcTls.isAvailable()) BcTls.install()
         BcTls.applyTo(
             OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)

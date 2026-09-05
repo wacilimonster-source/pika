@@ -77,8 +77,12 @@ class HomeViewModel : ViewModel() {
     private val _refreshTick = MutableStateFlow(0)
     val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
 
-    /** 自动刷新节流：ON_RESUME 触发时距上次刷新不足阈值则跳过（下拉刷新不受影响） */
-    private var lastAutoRefreshAt = System.currentTimeMillis()
+    /**
+     * 自动刷新节流：ON_RESUME 触发时距上次刷新不足阈值则跳过（下拉刷新不受影响）。
+     * 初值 0L = "从未刷新"；时间戳由 [refresh] 单点负责更新，
+     * 这样 LaunchedEffect(Unit) 的首次 refresh 与 refreshOnResume 不会重复触发。
+     */
+    private var lastAutoRefreshAt = 0L
 
     fun refreshOnResume() {
         val now = System.currentTimeMillis()
@@ -88,7 +92,6 @@ class HomeViewModel : ViewModel() {
             loadRank(_rankType.value, force = true, startDelayMs = 2_000)
         }
         if (now - lastAutoRefreshAt < 30_000) return
-        lastAutoRefreshAt = now
         refresh()
     }
 
@@ -215,6 +218,9 @@ class HomeViewModel : ViewModel() {
 
     /** 下拉刷新：所有来源重新从第 1 页拉取，取前120条 */
     fun refresh() {
+        // 刷新时间戳由 refresh 单点维护：无论从下拉、LaunchedEffect 还是 refreshOnResume
+        // 进入，节流判定都基于真实刷新时刻，避免初值语义误导导致的重复刷新或漏刷新
+        lastAutoRefreshAt = System.currentTimeMillis()
         rebuildTargets()
         if (targets.isEmpty()) {
             _followFeed.value = emptyList()

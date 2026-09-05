@@ -11,7 +11,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.Proxy
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
@@ -87,7 +86,7 @@ class PicaHttpEngine(
         val nonce = picaNonce()
         val timestamp = picaTimestamp()
         val signature = picaSignature(pathForSign, timestamp, nonce, method)
-        val appUuid = SourcePrefs.current().getOrCreateAppUuid()
+        val appUuid = SourcePrefs.current().getOrCreateAppUuidAsync()
         val token = tokenProvider()
 
         conn.requestMethod = method

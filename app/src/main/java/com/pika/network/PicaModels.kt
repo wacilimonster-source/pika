@@ -1,6 +1,5 @@
 package com.pika.network
 
-import com.pika.core.pica.PicaApi
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -62,12 +61,9 @@ data class ImageDetail(
             }
         }
 
-    /** web 代理地址 */
+    /** web 代理地址（picacomic → go2778 域名替换） */
     val proxyUrl: String
         get() = directUrl.replaceFirst("picacomic", "go2778")
-
-    fun url(api: PicaApi): String =
-        if (api == PicaApi.PICACOMIC) directUrl else proxyUrl
 }
 
 @Serializable

@@ -82,11 +82,21 @@ class ComicDetailViewModel : ViewModel() {
         loadJob = null
         val gen = ++loadGeneration
         _error.value = null
+        // 切换漫画时清理评论区临时状态：楼中楼缓存/回复目标/加载中标记，
+        // 否则旧楼数据残留内存，且回复框可能仍指向已不存在的旧评论
+        _subComments.value = emptyMap()
+        _loadingSubIds.value = emptySet()
+        _replyingTo.value = null
+        _commentEndReached.value = false
+        _commentError.value = null
+        _comments.value = emptyList()
+        _recommendations.value = emptyList()
+        commentPage = 1
         // 读取本地历史进度（不阻塞主线程）
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (gen != loadGeneration) return@launch
             _lastProgress.value = runCatching {
-                com.pika.data.ReaderPrefs.current().lastProgress(comicId)
+                com.pika.data.ReaderPrefs.current().lastProgressAsync(comicId)
             }.getOrNull()
         }
         loadJob = viewModelScope.launch {
