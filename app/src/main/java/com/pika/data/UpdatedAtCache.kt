@@ -2,9 +2,15 @@ package com.pika.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -26,6 +32,10 @@ object UpdatedAtCache {
 
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version.asStateFlow()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var persistJob: Job? = null
+    private var versionJob: Job? = null
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -51,8 +61,17 @@ object UpdatedAtCache {
                 map.remove(map.keys.first())
             }
         }
-        _version.value++
-        persist()
+        // debounce：批量回填时合并为一次落盘 / 一次 version 通知
+        versionJob?.cancel()
+        versionJob = scope.launch {
+            delay(300)
+            _version.value++
+        }
+        persistJob?.cancel()
+        persistJob = scope.launch {
+            delay(500)
+            persist()
+        }
     }
 
     private fun persist() {

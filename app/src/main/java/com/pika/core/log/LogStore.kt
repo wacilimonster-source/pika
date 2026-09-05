@@ -34,10 +34,12 @@ object LogStore {
         _logs.value = updated
     }
 
+    @Synchronized
     fun clear() {
         _logs.value = emptyList()
     }
 
+    @Synchronized
     fun allText(): String {
         val sb = StringBuilder()
         for (e in _logs.value) {

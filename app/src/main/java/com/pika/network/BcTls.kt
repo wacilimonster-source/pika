@@ -22,17 +22,10 @@ import javax.net.ssl.X509TrustManager
  *
  * 因此只需把 TLS 实现换成 BouncyCastle（纯 DEX，打包进 APK，无需 NDK/外部进程）。
  *
- * 注意：这里使用「信任所有证书」的 TrustManager，仅用于绕开 Android 上 OpenSSL/BC
- * 找不到系统 CA 目录的问题；由于仍走 Cloudflare 真实域名，OkHttp 的主机名校验依然生效。
- * 如需严格校验，可改为平台默认 TrustManagerFactory。
+ * 注意：TrustManager 使用平台默认 TrustManagerFactory（系统 CA 校验链），
+ * BCJSSE 只负责替换 TLS 协议栈实现（绕开 BoringSSL 指纹），证书校验保持完整。
  */
 object BcTls {
-    private val permissiveTrustManager = object : X509TrustManager {
-        override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-        override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-    }
-
     var sslSocketFactory: javax.net.ssl.SSLSocketFactory? = null
         private set
     private var trustManager: X509TrustManager? = null
@@ -44,12 +37,17 @@ object BcTls {
         try {
             Security.addProvider(BouncyCastleProvider())
             Security.addProvider(BouncyCastleJsseProvider())
+            // 用系统默认 CA 信任链做证书校验，避免"信任所有证书"
+            val tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+            tmf.init(null as java.security.KeyStore?)
+            val tms = tmf.trustManagers
             val ctx = SSLContext.getInstance("TLS", "BCJSSE")
-            ctx.init(null, arrayOf(permissiveTrustManager), SecureRandom())
+            ctx.init(null, tms, SecureRandom())
             sslSocketFactory = ctx.socketFactory
-            trustManager = permissiveTrustManager
+            trustManager = tms.filterIsInstance<X509TrustManager>().firstOrNull()
+                ?: throw IllegalStateException("系统 TrustManagerFactory 未提供 X509TrustManager")
             installed = true
-            Log.i("BcTls", "BouncyCastle TLS 已安装 — 绕过 Cloudflare BoringSSL 拦截")
+            Log.i("BcTls", "BouncyCastle TLS 已安装（系统 CA 校验）— 绕过 Cloudflare BoringSSL 拦截")
         } catch (e: Throwable) {
             Log.e("BcTls", "BouncyCastle TLS 安装失败: ${e.message}")
         }

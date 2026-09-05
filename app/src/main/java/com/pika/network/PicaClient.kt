@@ -26,6 +26,7 @@ object PicaClient {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        loadPersistedHost()?.let { baseUrl = it }
         BcTls.install()
         Log.i("PicaClient", "initialized, bcTls=${BcTls.isAvailable()}")
     }
@@ -36,6 +37,7 @@ object PicaClient {
             _api = null
         }
 
+    @Volatile
     private var _api: PicaApi? = null
 
     val api: PicaApi
@@ -50,7 +52,8 @@ object PicaClient {
         (rateLimitedUntil - System.currentTimeMillis()).coerceAtLeast(0L)
 
     suspend fun <T> safeCall(block: suspend () -> ApiResponse<T>): T {
-        var attempt = 0
+        var rateLimitAttempt = 0
+        var ioAttempt = 0
         while (true) {
             val cooldown = rateLimitRemaining()
             if (cooldown > 0) {
@@ -62,13 +65,14 @@ object PicaClient {
                     LogStore.log("PicaClient", "E", "HTTP ${response.code}: ${response.message}")
                     throw PicaException(response.message)
                 }
+                persistHost(baseUrl)
                 return response.data ?: throw PicaException("空响应数据")
             } catch (e: PicaException) {
                 val message = e.message.orEmpty()
                 val isRateLimit = message.contains("too many requests", ignoreCase = true)
                         || message.contains("1023")
-                if (isRateLimit && attempt == 0) {
-                    attempt++
+                if (isRateLimit && rateLimitAttempt == 0) {
+                    rateLimitAttempt++
                     Log.i("PicaClient", "rate limited, switching host and retry")
                     LogStore.log("PicaClient", "W", "rate limited, switching host and retry")
                     delay(2_000)
@@ -82,15 +86,15 @@ object PicaClient {
                 }
                 throw e
             } catch (e: java.io.IOException) {
-                attempt++
-                if (attempt <= 2) {
-                    Log.i("PicaClient", "network error, retry $attempt: ${e.message}")
-                    LogStore.log("PicaClient", "W", "network error, retry $attempt: ${e.message}")
-                    delay(1_000L * attempt)
+                ioAttempt++
+                if (ioAttempt <= 2) {
+                    Log.i("PicaClient", "network error, retry $ioAttempt: ${e.message}")
+                    LogStore.log("PicaClient", "W", "network error, retry $ioAttempt: ${e.message}")
+                    delay(1_000L * ioAttempt)
                     switchHost()
                     continue
                 }
-                LogStore.log("PicaClient", "E", "network failed after $attempt attempts: ${e.message}")
+                LogStore.log("PicaClient", "E", "network failed after $ioAttempt attempts: ${e.message}")
                 throw PicaException("网络连接失败：${e.message}")
             }
         }
@@ -104,5 +108,22 @@ object PicaClient {
         }
         Log.i("PicaClient", "switched host -> $baseUrl")
         LogStore.log("PicaClient", "I", "switched host -> $baseUrl")
+    }
+
+    /** 成功后记录域名，下次冷启动从它开始，避免反复撞已知不稳的域名 */
+    private fun persistHost(host: String) {
+        val ctx = appContext ?: return
+        runCatching {
+            ctx.getSharedPreferences("pika_runtime", Context.MODE_PRIVATE)
+                .edit().putString("pica_last_host", host).apply()
+        }
+    }
+
+    private fun loadPersistedHost(): String? {
+        val ctx = appContext ?: return null
+        return runCatching {
+            ctx.getSharedPreferences("pika_runtime", Context.MODE_PRIVATE)
+                .getString("pica_last_host", null)
+        }.getOrNull()?.takeIf { it == PicaApiHosts.PICACOMIC || it == PicaApiHosts.GO2778 }
     }
 }

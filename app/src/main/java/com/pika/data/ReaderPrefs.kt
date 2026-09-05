@@ -83,31 +83,39 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 
-    /** 一次性读取全部进度/读完标记（启动预热内存缓存用；progress_ 为已读，finished_ 覆盖为已读完） */
+    /** 一次性读取全部进度/读完标记（启动预热内存缓存用；finished_ 优先于 progress_，避免被降级覆盖） */
     suspend fun loadAllStatuses(): Map<String, ReadStatus> = runCatching {
         val prefs = appContext.readerDataStore.data.first()
         val result = mutableMapOf<String, ReadStatus>()
+        // 先处理 progress_，再处理 finished_：后者无条件覆盖，与迭代顺序无关
         prefs.asMap().forEach { (key, _) ->
-            when {
-                key.name.startsWith(ReaderKeys.FINISHED_PREFIX) -> {
-                    result[key.name.removePrefix(ReaderKeys.FINISHED_PREFIX)] = ReadStatus.FINISHED
-                }
-                key.name.startsWith(ReaderKeys.PROGRESS_PREFIX) -> {
-                    result[key.name.removePrefix(ReaderKeys.PROGRESS_PREFIX)] = ReadStatus.READ
-                }
+            if (key.name.startsWith(ReaderKeys.PROGRESS_PREFIX)) {
+                result[key.name.removePrefix(ReaderKeys.PROGRESS_PREFIX)] = ReadStatus.READ
+            }
+        }
+        prefs.asMap().forEach { (key, _) ->
+            if (key.name.startsWith(ReaderKeys.FINISHED_PREFIX)) {
+                result[key.name.removePrefix(ReaderKeys.FINISHED_PREFIX)] = ReadStatus.FINISHED
             }
         }
         result
     }.getOrDefault(emptyMap())
 
+    // ── 热点值内存缓存：避免 getter/setter 在主线程 runBlocking 读盘 ──────
+    @Volatile private var cachedReaderMode: Int? = null
+    @Volatile private var cachedBrightness: Float? = null
+    @Volatile private var cachedRecentReads: List<RecentRead>? = null
+
     /** 阅读模式：0=滚动流（条漫），1=横滑翻页 */
     var readerMode: Int
-        get() = runCatching {
-            runBlocking {
-                appContext.readerDataStore.data.first()[intPreferencesKey(ReaderKeys.READER_MODE)]
-            }
-        }.getOrNull() ?: 0
+        get() = cachedReaderMode
+            ?: runCatching {
+                runBlocking {
+                    appContext.readerDataStore.data.first()[intPreferencesKey(ReaderKeys.READER_MODE)]
+                }
+            }.getOrNull() ?: 0
         set(value) {
+            cachedReaderMode = value
             runCatching {
                 runBlocking {
                     appContext.readerDataStore.edit {
@@ -119,16 +127,19 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
     /** 阅读亮度（1.0 为原亮度，越小越暗） */
     var brightness: Float
-        get() = runCatching {
-            runBlocking {
-                appContext.readerDataStore.data.first()[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
-            }
-        }.getOrNull() ?: 1.0f
+        get() = cachedBrightness
+            ?: runCatching {
+                runBlocking {
+                    appContext.readerDataStore.data.first()[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
+                }
+            }.getOrNull() ?: 1.0f
         set(value) {
+            val v = value.coerceIn(0.2f, 1.0f)
+            cachedBrightness = v
             runCatching {
                 runBlocking {
                     appContext.readerDataStore.edit {
-                        it[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] = value.coerceIn(0.2f, 1.0f)
+                        it[floatPreferencesKey(ReaderKeys.BRIGHTNESS)] = v
                     }
                 }
             }
@@ -152,16 +163,21 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     // ── 最近阅读（首页"继续阅读"） ─────────────────────────────────────────
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
-    fun recentReads(): List<RecentRead> = runCatching {
-        runBlocking {
-            val raw = appContext.readerDataStore.data.first()
-                .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
-            if (raw.isNullOrBlank()) return@runBlocking emptyList()
-            runCatching {
-                json.decodeFromString<List<RecentRead>>(raw)
-            }.getOrDefault(emptyList())
-        }
-    }.getOrDefault(emptyList())
+    fun recentReads(): List<RecentRead> {
+        cachedRecentReads?.let { return it }
+        val list = runCatching {
+            runBlocking {
+                val raw = appContext.readerDataStore.data.first()
+                    .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
+                if (raw.isNullOrBlank()) return@runBlocking emptyList()
+                runCatching {
+                    json.decodeFromString<List<RecentRead>>(raw)
+                }.getOrDefault(emptyList())
+            }
+        }.getOrDefault(emptyList())
+        cachedRecentReads = list
+        return list
+    }
 
     /** 记录/刷新最近阅读（最近 6 条，按时间倒序） */
     suspend fun recordRecentRead(
@@ -180,6 +196,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             val entry = RecentRead(comicId, title, coverUrl, author, order, pageIndex, System.currentTimeMillis())
             val updated = (listOf(entry) + current.filterNot { it.comicId == comicId }).take(6)
             prefs[key] = json.encodeToString(updated)
+            cachedRecentReads = updated
         }
     }
 }

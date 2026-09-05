@@ -365,6 +365,12 @@ class HomeViewModel : ViewModel() {
     ): List<ComicSummary> {
         val categories = if (target.tag == null) emptyList() else listOf(target.tag)
         val words = target.name.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+        // 关键词全为空白：无法搜索，直接置结束，避免多词分支 wordIds[0] 越界
+        if (words.isEmpty()) {
+            targetPages[target.key] = startPage
+            targetEnded[target.key] = true
+            return emptyList()
+        }
         // 单词且无标签：直接取第 1 页（关注流语义：各来源最新作品）
         if (words.size <= 1 && target.tag == null) {
             val result = searchWithRetry(source, target.name, startPage, emptyList())
@@ -409,8 +415,10 @@ class HomeViewModel : ViewModel() {
         val common = wordIds[0].filter { id -> wordIds.all { it.contains(id) } }
         targetPages[target.key] = 50
         targetEnded[target.key] = true
+        // 先建索引再查找，避免对每个交集 id 做全表线性扫描（O(n²) → O(n)）
+        val firstSetById = wordSets[0].associateBy { it.id }
         return common
-            .mapNotNull { id -> wordSets[0].firstOrNull { it.id == id } }
+            .mapNotNull { firstSetById[it] }
             .sortedByComicSort(ComicSort.DD)
     }
 

@@ -27,6 +27,22 @@ class JmcomicSource : Source {
 
     override val type: SourceType = SourceType.JMCOMIC
 
+    // ---------- album 短 TTL 内存缓存（详情页会以同一 id 请求 2~3 次） ----------
+    private val albumCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, com.pika.network.JmAlbumResponse>>()
+    private val ALBUM_TTL_MS = 120_000L
+
+    private suspend fun albumCached(albumId: String): com.pika.network.JmAlbumResponse {
+        val now = System.currentTimeMillis()
+        albumCache[albumId]?.let { (at, resp) ->
+            if (now - at < ALBUM_TTL_MS) return resp
+        }
+        val resp = JmClient.album(albumId)
+        albumCache[albumId] = now to resp
+        // 清理过期项，防止无限膨胀
+        albumCache.entries.removeIf { now - it.value.first >= ALBUM_TTL_MS }
+        return resp
+    }
+
     override val isLoggedIn: Boolean
         get() = !SourcePrefs.current().jmToken.isNullOrEmpty()
 
@@ -54,6 +70,9 @@ class JmcomicSource : Source {
     /** 服务端支持 mr/mv/tf 排序：DD->mr, LD->tf, VD->mv（DA 无升序参数，沿用 mr） */
     override val supportedSorts: List<ComicSort> = listOf(ComicSort.DD, ComicSort.LD, ComicSort.VD)
 
+    /** 禁漫接口无完结字段，"完结/连载"筛选对本源无意义 */
+    override val supportsStatusFilter: Boolean = false
+
     override suspend fun browse(
         page: Int,
         category: String?,
@@ -61,8 +80,8 @@ class JmcomicSource : Source {
         author: String?,
         tag: String?,
     ): PageResult<ComicSummary> {
-        val data = runCatching { JmClient.browse(page, category, sort) }.getOrNull()
-            ?: return PageResult(emptyList(), page, page)
+        // 网络异常直接透传，让 VM 的错误态与"真的空列表"可区分
+        val data = JmClient.browse(page, category, sort)
         val items = data.data.content.map { it.toSummary() }
         // 服务端 total 恒为 10000（硬上限，不可信），按当页条数决定是否还有下一页
         val pages = if (items.size < 80) page else page + 1
@@ -80,8 +99,7 @@ class JmcomicSource : Source {
         uploader: String?,
         finished: Boolean?,
     ): PageResult<ComicSummary> {
-        val data = runCatching { JmClient.search(keyword, page, sort) }.getOrNull()
-            ?: return PageResult(emptyList(), page, page)
+        val data = JmClient.search(keyword, page, sort)
         val items = data.data.content.map { it.toSummary() }
         val pages = if (items.size < 80) page else page + 1
         return PageResult(items = items, page = page, pages = pages)
@@ -90,8 +108,7 @@ class JmcomicSource : Source {
     override suspend fun hotWords(): List<String> = emptyList()
 
     override suspend fun comicDetail(id: String): ComicDetail {
-        val a = runCatching { JmClient.album(id) }.getOrNull()?.data
-            ?: throw JmException("禁漫详情加载失败")
+        val a = albumCached(id).data
         val albumId = a.id.ifBlank { id }
         return ComicDetail(
             id = albumId,
@@ -112,7 +129,7 @@ class JmcomicSource : Source {
     }
 
     override suspend fun chapters(id: String): List<ComicChapter> {
-        val a = runCatching { JmClient.album(id) }.getOrNull()?.data ?: return emptyList()
+        val a = albumCached(id).data
         val albumId = a.id.ifBlank { id }
         return if (a.series.isNotEmpty()) {
             a.series.mapIndexed { i, s ->
@@ -125,11 +142,11 @@ class JmcomicSource : Source {
     }
 
     override suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> {
-        val a = runCatching { JmClient.album(comicId) }.getOrNull()?.data ?: return emptyList()
+        val a = albumCached(comicId).data
         val albumId = a.id.ifBlank { comicId }
         // order(1-based) -> 章节 photo id；单章本子回退用 album id
         val photoId = a.series.getOrNull(order - 1)?.id ?: albumId
-        val chapter = runCatching { JmClient.chapter(photoId) }.getOrNull()?.data ?: return emptyList()
+        val chapter = JmClient.chapter(photoId).data
         return chapter.images.mapIndexed { i, filename ->
             ComicPage(index = i, imageUrl = JmCrypto.imageUrl(photoId, filename))
         }
@@ -143,13 +160,13 @@ class JmcomicSource : Source {
             "D30" -> "mv_m"
             else -> "mv_t"
         }
-        val data = runCatching { JmClient.rankList(order) }.getOrNull() ?: return emptyList()
+        val data = JmClient.rankList(order)
         return data.data.content.map { it.toSummary() }
     }
 
     /** 相关推荐：详情的 related_list（约 20 条） */
     override suspend fun recommendations(id: String): List<ComicSummary> {
-        val a = runCatching { JmClient.album(id) }.getOrNull()?.data ?: return emptyList()
+        val a = albumCached(id).data
         return a.relatedList.map {
             ComicSummary(
                 id = it.id,
@@ -162,8 +179,7 @@ class JmcomicSource : Source {
 
     /** 评论：/forum?mode=all&aid= */
     override suspend fun comments(comicId: String, page: Int): PageResult<ComicComment> {
-        val data = runCatching { JmClient.comments(comicId, page) }.getOrNull()?.data
-            ?: return PageResult(emptyList(), page, page)
+        val data = JmClient.comments(comicId, page).data
         val items = data.list.map {
             ComicComment(
                 id = it.id,
@@ -179,8 +195,7 @@ class JmcomicSource : Source {
     // ---------- 需登录：收藏 / 签到 / 历史 ----------
 
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {
-        val data = runCatching { JmClient.favorites(page) }.getOrNull()
-            ?: return PageResult(emptyList(), page, page)
+        val data = JmClient.favorites(page)
         val items = data.data.content.map { it.toSummary() }
         val pages = if (items.size < 80) page else page + 1
         return PageResult(items = items, page = page, pages = pages)
@@ -202,8 +217,7 @@ class JmcomicSource : Source {
 
     /** 云端浏览历史（JM 独有） */
     override suspend fun cloudHistory(page: Int): PageResult<ComicSummary> {
-        val data = runCatching { JmClient.watchList(page) }.getOrNull()
-            ?: return PageResult(emptyList(), page, page)
+        val data = JmClient.watchList(page)
         val items = data.data.content.map { it.toSummary() }
         val pages = if (items.size < 80) page else page + 1
         return PageResult(items = items, page = page, pages = pages)

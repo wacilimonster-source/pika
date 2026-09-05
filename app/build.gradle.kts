@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
@@ -13,14 +13,14 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 69
-        versionName = "1.5.43"
+        versionCode = 70
+        versionName = "1.5.44"
     }
 
     signingConfigs {
-        // 使用 Android 默认 debug keystore 签名 release，
-        // 与已安装 App 同签名，保证应用内更新可覆盖安装。
-        // 注意：默认 debug keystore 的别名/密码为公开默认值，非保密信息。
+        // 使用 Android 默认 debug keystore 签名 release
+        // 与已安装 App 同签名，保证应用内更新可覆盖安装
+        // 注意：默认 debug keystore 的别名/密码为公开默认值，非保密信息
         create("release") {
             storeFile = file("C:/Users/wacil/.android/debug.keystore")
             storePassword = "android"
@@ -78,8 +78,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.kotlinx)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.coil.compose)

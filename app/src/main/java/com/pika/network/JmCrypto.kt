@@ -56,6 +56,9 @@ object JmCrypto {
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"))
         val out = cipher.doFinal(raw)
         val pad = out[out.lastIndex].toInt() and 0xFF
+        if (pad !in 1..16 || pad > out.size) {
+            throw IllegalStateException("解密失败：padding 非法 (pad=$pad, size=${out.size})，密钥或时间戳可能不匹配")
+        }
         return String(out, 0, out.size - pad, Charsets.UTF_8)
     }
 
@@ -68,7 +71,7 @@ object JmCrypto {
         "https://${hostFor(albumId)}/media/albums/$albumId.jpg"
 
     private fun hostFor(id: String): String {
-        val h = if (id.hashCode() < 0) -id.hashCode() else id.hashCode()
-        return IMAGE_HOSTS[h % IMAGE_HOSTS.size]
+        val h = Math.floorMod(id.hashCode(), IMAGE_HOSTS.size)
+        return IMAGE_HOSTS[h]
     }
 }

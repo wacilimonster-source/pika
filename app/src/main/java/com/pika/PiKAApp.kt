@@ -9,13 +9,20 @@ import com.pika.data.SourcePrefs
 import com.pika.core.source.SourceManager
 import com.pika.network.BcTls
 import com.pika.network.PicaClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class PiKAApp : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
-        com.pika.data.ReaderStatus.loadAll(this)
+        // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
+        appScope.launch { com.pika.data.ReaderStatus.loadAll(this@PiKAApp) }
         CategorySettings.init(this)
         com.pika.data.AuthorFavourites.init(this)
         com.pika.data.FollowSettings.init(this)

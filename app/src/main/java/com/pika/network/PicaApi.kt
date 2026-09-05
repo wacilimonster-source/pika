@@ -1,124 +1,71 @@
-package com.pika.network
+﻿package com.pika.network
 
 import com.pika.core.pica.ComicRankType
 import com.pika.core.pica.ComicSortType
 import com.pika.core.pica.PicaApi
 import kotlinx.serialization.json.JsonObject
-import retrofit2.http.Body
-import retrofit2.http.GET
-import retrofit2.http.POST
-import retrofit2.http.PUT
-import retrofit2.http.Path
-import retrofit2.http.Query
-import retrofit2.http.QueryMap
 
+/**
+ * 哔咔 API 方法契约。
+ * 传输层已由 PicaHttpApi（HttpsURLConnection）实现；路径信息见 PicaHttpApi 内部映射，
+ * 此接口仅作为签名契约，不再使用 Retrofit 注解（Retrofit 已从依赖中移除）。
+ */
 interface PicaApi {
-    @POST("auth/sign-in")
-    suspend fun login(@Body body: LoginPayload): ApiResponse<LoginResponse>
+    suspend fun login(body: LoginPayload): ApiResponse<LoginResponse>
 
-    @POST("auth/register")
-    suspend fun register(@Body body: RegisterPayload): ApiResponse<JsonObject>
+    suspend fun register(body: RegisterPayload): ApiResponse<JsonObject>
 
-    @GET("categories")
     suspend fun categories(): ApiResponse<CategoriesResponse>
 
-    @GET("comics")
-    suspend fun comics(@QueryMap params: Map<String, String>): ApiResponse<ComicsResponse>
+    suspend fun comics(params: Map<String, String>): ApiResponse<ComicsResponse>
 
-    @GET("comics/{id}")
-    suspend fun comic(@Path("id") id: String): ApiResponse<ComicDetailsResponse>
+    suspend fun comic(id: String): ApiResponse<ComicDetailsResponse>
 
-    @GET("comics/{id}/eps")
-    suspend fun chapters(
-        @Path("id") id: String,
-        @Query("page") page: Int,
-    ): ApiResponse<ChaptersResponse>
+    suspend fun chapters(id: String, page: Int): ApiResponse<ChaptersResponse>
 
-    @GET("comics/{id}/order/{order}/pages")
-    suspend fun chapterImages(
-        @Path("id") id: String,
-        @Path("order") order: Int,
-        @Query("page") page: Int,
-    ): ApiResponse<FetchChapterImagesResponse>
+    suspend fun chapterImages(id: String, order: Int, page: Int): ApiResponse<FetchChapterImagesResponse>
 
-    @POST("comics/advanced-search")
-    suspend fun search(
-        @Query("page") page: Int,
-        @Body body: SearchPayload,
-    ): ApiResponse<SearchResponse>
+    suspend fun search(page: Int, body: SearchPayload): ApiResponse<SearchResponse>
 
-    @GET("users/profile")
     suspend fun profile(): ApiResponse<UserProfileResponse>
 
-    @GET("users/favourite")
-    suspend fun favourites(@QueryMap params: Map<String, String>): ApiResponse<ComicsResponse>
+    suspend fun favourites(params: Map<String, String>): ApiResponse<ComicsResponse>
 
-    @GET("comics/leaderboard")
-    suspend fun leaderboard(@QueryMap params: Map<String, String>): ApiResponse<ComicRankResponse>
+    suspend fun leaderboard(params: Map<String, String>): ApiResponse<ComicRankResponse>
 
-    @GET("keywords")
     suspend fun hotSearch(): ApiResponse<HotSearchWordsResponse>
 
-    @GET("comics/random")
     suspend fun random(): ApiResponse<RandomComicsResponse>
 
-    @POST("users/punch-in")
     suspend fun punchIn(): ApiResponse<JsonObject>
 
-    @POST("comics/{id}/favourite")
-    suspend fun favorite(@Path("id") id: String): ApiResponse<ActionResponse>
+    suspend fun favorite(id: String): ApiResponse<ActionResponse>
 
-    @GET("comics/{id}/recommendation")
-    suspend fun recommendation(@Path("id") id: String): ApiResponse<RecommendComics>
+    suspend fun recommendation(id: String): ApiResponse<RecommendComics>
 
     // ---------- 评论 ----------
 
-    @GET("comics/{id}/comments")
-    suspend fun comments(
-        @Path("id") id: String,
-        @Query("page") page: Int,
-    ): ApiResponse<CommentsResponse>
+    suspend fun comments(id: String, page: Int): ApiResponse<CommentsResponse>
 
-    @POST("comics/{id}/comments")
-    suspend fun sendComment(
-        @Path("id") id: String,
-        @Body body: SendCommentPayload,
-    ): ApiResponse<Comment>
+    suspend fun sendComment(id: String, body: SendCommentPayload): ApiResponse<Comment>
 
-    @POST("comments/{id}")
-    suspend fun replyComment(
-        @Path("id") id: String,
-        @Body body: SendCommentPayload,
-    ): ApiResponse<Comment>
+    suspend fun replyComment(id: String, body: SendCommentPayload): ApiResponse<Comment>
 
-    @GET("comments/{id}/childrens")
-    suspend fun commentChildren(
-        @Path("id") id: String,
-        @Query("page") page: Int,
-    ): ApiResponse<CommentsResponse>
+    suspend fun commentChildren(id: String, page: Int): ApiResponse<CommentsResponse>
 
-    @GET("users/my-comments")
-    suspend fun myComments(@Query("page") page: Int): ApiResponse<PersonalCommentsResponse>
+    suspend fun myComments(page: Int): ApiResponse<PersonalCommentsResponse>
 
     // ---------- 账号 ----------
 
-    @POST("auth/forgot-password")
-    suspend fun forgotPassword(@Body body: ForgotPasswordPayload): ApiResponse<JsonObject>
+    suspend fun forgotPassword(body: ForgotPasswordPayload): ApiResponse<JsonObject>
 
-    @PUT("users/profile")
-    suspend fun updateProfile(@Body body: UpdateProfilePayload): ApiResponse<JsonObject>
+    suspend fun updateProfile(body: UpdateProfilePayload): ApiResponse<JsonObject>
 
-    @PUT("users/password")
-    suspend fun updatePassword(@Body body: UpdatePasswordPayload): ApiResponse<JsonObject>
+    suspend fun updatePassword(body: UpdatePasswordPayload): ApiResponse<JsonObject>
 
-    @PUT("users/avatar")
-    suspend fun updateAvatar(@Body body: UpdateAvatarPayload): ApiResponse<JsonObject>
+    suspend fun updateAvatar(body: UpdateAvatarPayload): ApiResponse<JsonObject>
 
-    @PUT("users/{id}/title")
-    suspend fun updateTitle(
-        @Path("id") id: String,
-        @Body body: UpdateTitlePayload,
-    ): ApiResponse<JsonObject>
+    suspend fun updateTitle(id: String, body: UpdateTitlePayload): ApiResponse<JsonObject>
 }
 
 /** 排序/排行查询参数构造 */

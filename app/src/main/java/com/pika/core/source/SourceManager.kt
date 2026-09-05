@@ -9,8 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
  * 单一活动源管理器：设置页切换，全局生效。
  */
 object SourceManager {
-    private val _activeSource =
-        MutableStateFlow<SourceType>(SourcePrefs.current().activeSource)
+    // 初始值给默认源，init() 中从（已内存缓存的）SourcePrefs 回填，避免单例首次触达时阻塞读盘
+    private val _activeSource = MutableStateFlow(SourceType.PICACG)
 
     private val _unauthorizedTick = MutableStateFlow(0)
 
@@ -25,6 +25,7 @@ object SourceManager {
     )
 
     fun init() {
+        _activeSource.value = SourcePrefs.current().activeSource
         Log.d("SourceManager", "active source: ${_activeSource.value}")
     }
 

@@ -30,11 +30,11 @@ object FollowFeedCache {
 
     fun save(feed: List<ComicSummary>) {
         val p = prefs ?: return
-        p.edit().putString(KEY_FEED, json.encodeToString(feed.take(120))).commit()
+        p.edit().putString(KEY_FEED, json.encodeToString(feed.take(120))).apply()
     }
 
     fun clear() {
         val p = prefs ?: return
-        p.edit().remove(KEY_FEED).commit()
+        p.edit().remove(KEY_FEED).apply()
     }
 }

@@ -53,6 +53,10 @@ interface Source {
     val supportedSorts: List<ComicSort>
         get() = ComicSort.entries.toList()
 
+    /** 源是否提供完结状态字段（禁漫无该字段，浏览页应禁用连载状态筛选） */
+    val supportsStatusFilter: Boolean
+        get() = true
+
     /** 关键词搜索（额外筛选参数：排序/分类/标签/作者/汉化组/上传者/完结状态；源不支持时忽略） */
     suspend fun search(
         keyword: String,

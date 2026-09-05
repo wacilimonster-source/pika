@@ -221,8 +221,12 @@ private fun UpdateSection() {
                 scope.launch {
                     state = UpdateUiState.Checking
                     dialogOpen = true
-                    val info = UpdateManager.check()
-                    state = if (info == null) UpdateUiState.UpToDate else UpdateUiState.Found(info)
+                    val result = UpdateManager.checkResult()
+                    state = when (result) {
+                        is UpdateManager.CheckResult.Available -> UpdateUiState.Found(result.info)
+                        UpdateManager.CheckResult.UpToDate -> UpdateUiState.UpToDate
+                        is UpdateManager.CheckResult.Failed -> UpdateUiState.Error
+                    }
                 }
             }
             .padding(horizontal = 8.dp),
@@ -270,12 +274,16 @@ private fun UpdateSection() {
                         }
                     }
                     UpdateUiState.Downloading -> Column {
-                        LinearProgressIndicator(
-                            progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text("${(progress * 100).toInt()}%")
+                        if (progress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = { progress.coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text("${(progress * 100).toInt()}%")
+                        } else {
+                            Text("下载中…（总大小未知）")
+                        }
                     }
                     UpdateUiState.Downloaded -> Text("APK 已下载，点击安装完成更新。")
                     UpdateUiState.Error -> Text("网络异常或服务器未就绪，请稍后重试。")
@@ -290,7 +298,7 @@ private fun UpdateSection() {
                             state = UpdateUiState.Downloading
                             scope.launch {
                                 runCatching {
-                                    UpdateManager.download(context, url) { p -> progress = p }
+                                    UpdateManager.download(context, url) { p, _, _ -> progress = p }
                                         .also { apk ->
                                             state = UpdateUiState.Downloaded
                                             UpdateManager.install(context, apk)

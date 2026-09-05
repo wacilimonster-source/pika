@@ -32,17 +32,9 @@ class PicaHttpEngine(
         coerceInputValues = true
     }
 
-    /** 同步执行请求，返回原始响应字节。 */
+    /** 执行请求（内部为阻塞 IO，统一切到 Dispatchers.IO）。 */
     @Throws(IOException::class)
     suspend fun execute(
-        method: String,
-        path: String,
-        query: Map<String, String> = emptyMap(),
-        bodyJson: String? = null,
-    ): RawResponse = executeInternal(method, path, query, bodyJson)
-
-    /** 协程包装。 */
-    suspend fun executeAsync(
         method: String,
         path: String,
         query: Map<String, String> = emptyMap(),
@@ -50,6 +42,14 @@ class PicaHttpEngine(
     ): RawResponse = withContext(Dispatchers.IO) {
         executeInternal(method, path, query, bodyJson)
     }
+
+    /** 兼容别名，与 execute 等价。 */
+    suspend fun executeAsync(
+        method: String,
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        bodyJson: String? = null,
+    ): RawResponse = execute(method, path, query, bodyJson)
 
     private suspend fun executeInternal(
         method: String,
@@ -120,19 +120,28 @@ class PicaHttpEngine(
 
         if (code == 401) {
             onUnauthorized()
+            conn.disconnect()
+            throw PicaException("登录已过期(401)，请重新登录")
         }
 
         val stream = if (code in 200..299) conn.inputStream else conn.errorStream
         val bodyBytes = try {
-            stream?.use { it.readBytes() } ?: ByteArray(0)
+            stream?.use { it.readBytes() }
+                ?: ByteArray(0)
         } catch (e: IOException) {
             conn.disconnect()
             throw e
         }
+        // errorStream 为 null（如 5xx / 连接被重置）时补充状态行，避免上层错误信息为空
+        val finalBody = if (bodyBytes.isEmpty() && code !in 200..299) {
+            ("HTTP $code ${conn.responseMessage ?: "Unknown"}").toByteArray(Charsets.UTF_8)
+        } else {
+            bodyBytes
+        }
 
         return RawResponse(
             code = code,
-            body = bodyBytes,
+            body = finalBody,
             headers = conn.headerFields
                 .filter { it.key != null }
                 .flatMap { (k, vs) -> vs.map { k to it } },
@@ -143,7 +152,9 @@ class PicaHttpEngine(
     private fun buildQueryString(query: Map<String, String>): String =
         query.entries.joinToString("&") { (k, v) -> "${encode(k)}=${encode(v)}" }
 
-    private fun encode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
+    /** RFC 3986 percent-encoding（空格 → %20，而非表单的 +），保证 URL 与签名原文一致 */
+    private fun encode(s: String): String =
+        java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
     data class RawResponse(
         val code: Int,

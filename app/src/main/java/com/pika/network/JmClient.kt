@@ -96,8 +96,10 @@ object JmClient {
         val root = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull() ?: return text
         val dataEl = root["data"]
         if (dataEl !is JsonPrimitive || !dataEl.isString) return text
-        val plain = runCatching { JmCrypto.decrypt(dataEl.content, ts) }.getOrNull() ?: return text
-        val newData = runCatching { Json.parseToJsonElement(plain) }.getOrNull() ?: return text
+        val plain = runCatching { JmCrypto.decrypt(dataEl.content, ts) }
+            .getOrElse { throw JmException("禁漫响应解密失败（密钥/时间戳可能漂移）：${it.message}") }
+        val newData = runCatching { Json.parseToJsonElement(plain) }
+            .getOrElse { throw JmException("禁漫解密结果非法：${it.message}") }
         val newRoot = buildJsonObject {
             root.forEach { (k, v) -> put(k, v) }
             put("data", newData)
@@ -110,16 +112,14 @@ object JmClient {
     suspend fun categories(): JmCategoriesResponse =
         json.decodeFromString(execute("/categories"))
 
-    /** 浏览 / 分类流：/categories/filter */
+    /** 浏览 / 分类流：/categories/filter（DA 为客户端倒序实现） */
     suspend fun browse(page: Int, category: String?, sort: ComicSort): JmListResponse {
-        val o = sortToO(sort)
         val q = buildString {
             append("/categories/filter?page=").append(page)
-            append("&o=").append(o)
             append("&t=a")
             if (!category.isNullOrBlank()) append("&c=").append(URLEncoder.encode(category, "UTF-8"))
         }
-        return json.decodeFromString(execute(q))
+        return fetchList(q, sort)
     }
 
     /** 排行榜：/categories/filter 配 o=mv_t/mv_w/mv_m */
@@ -130,10 +130,8 @@ object JmClient {
 
     /** 搜索：/search（main_tag=0 综合维度） */
     suspend fun search(keyword: String, page: Int, sort: ComicSort): JmListResponse {
-        val o = sortToO(sort)
-        val q = "/search?search_query=${URLEncoder.encode(keyword, "UTF-8")}" +
-            "&page=$page&main_tag=0&o=$o&t=a"
-        return json.decodeFromString(execute(q))
+        val q = "/search?search_query=${URLEncoder.encode(keyword, "UTF-8")}&page=$page&main_tag=0&t=a"
+        return fetchList(q, sort)
     }
 
     /** 详情：/album?id= （扁平结构，series 即章节列表） */
@@ -194,9 +192,23 @@ object JmClient {
     suspend fun watchList(page: Int): JmListResponse =
         json.decodeFromString(execute("/watch_list?page=$page"))
 
+    /**
+     * 列表请求统一入口：附加排序参数；服务端无升序参数（DA），客户端倒序实现。
+     * 注意：倒序只对当前页生效，跨页语义为"按最新在前分页的逆序"。
+     */
+    private suspend fun fetchList(q: String, sort: ComicSort): JmListResponse {
+        val full = "$q&o=${sortToO(sort)}"
+        val resp = json.decodeFromString<JmListResponse>(execute(full))
+        return if (sort == ComicSort.DA) {
+            resp.copy(data = resp.data.copy(content = resp.data.content.asReversed()))
+        } else {
+            resp
+        }
+    }
+
     private fun sortToO(sort: ComicSort): String = when (sort) {
         ComicSort.DD -> "mr"   // 最新
-        ComicSort.DA -> "mr"   // 无升序参数，沿用最新（客户端可再倒序）
+        ComicSort.DA -> "mr"   // 服务端无升序参数，fetchList 中客户端倒序
         ComicSort.LD -> "tf"   // 最多喜欢
         ComicSort.VD -> "mv"   // 最多观看
     }

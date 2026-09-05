@@ -15,6 +15,7 @@ import com.pika.network.Doc
 import com.pika.network.PicaClient
 import com.pika.network.SearchPayload
 import com.pika.network.comicsQuery
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 哔咔源：包装 PicaClient，映射为统一模型。
@@ -57,8 +58,27 @@ class PicacgSource : Source {
         SourcePrefs.current().clearPicaLogin()
     }
 
+    // 分类接口结果内存缓存（几乎不变的数据，categories/tags 两个入口共享）
+    private var categoriesCache: com.pika.network.CategoriesResponse? = null
+    private var categoriesAt: Long = 0L
+    private val categoriesMutex = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun cachedCategories(): com.pika.network.CategoriesResponse =
+        categoriesMutex.withLock {
+            val now = System.currentTimeMillis()
+            val cache = categoriesCache
+            if (cache != null && now - categoriesAt < 10 * 60_000L) {
+                cache
+            } else {
+                PicaClient.safeCall { PicaClient.api.categories() }.also {
+                    categoriesCache = it
+                    categoriesAt = now
+                }
+            }
+        }
+
     override suspend fun categories(): List<ComicCategory> {
-        val data = PicaClient.safeCall { PicaClient.api.categories() }
+        val data = cachedCategories()
         return data.categories
             .filter { it.active != false }
             .map { it.toComicCategory() }
@@ -66,7 +86,7 @@ class PicacgSource : Source {
 
     /** 官方标签词表：分类接口返回的非 Web 分类名（Web 分类为广告/外链入口，不可作标签筛选） */
     override suspend fun tags(): List<String> {
-        val data = PicaClient.safeCall { PicaClient.api.categories() }
+        val data = cachedCategories()
         return data.categories
             .filter { it.active != false && it.isWeb != true }
             .map { it.title }
@@ -182,9 +202,8 @@ class PicacgSource : Source {
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {
         val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
         LogStore.log("PicacgSource", "D", "favourite response: action=\"${resp.action}\"")
-        if (resp.action.contains("藏")) return true
-        if (resp.action.isNotBlank()) return true
-        return false
+        // 哔咔端点为切换型：以响应 action 文案回写真实状态，避免本地状态与服务端失步后越点越错
+        return resp.action.contains("收藏") && !resp.action.contains("取消")
     }
 
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {
@@ -311,8 +330,15 @@ class PicacgSource : Source {
 
     override suspend fun updateAvatar(base64: String) {
         PicaClient.safeCall {
+            // 按真实图片格式标注 mime，避免 PNG/WebP 头像被错误标成 jpeg
+            val mime = when {
+                base64.startsWith("iVBOR") -> "image/png"
+                base64.startsWith("UklGR") -> "image/webp"
+                base64.startsWith("R0lGO") -> "image/gif"
+                else -> "image/jpeg"
+            }
             PicaClient.api.updateAvatar(
-                com.pika.network.UpdateAvatarPayload(avatar = "data:image/jpeg;base64,$base64"),
+                com.pika.network.UpdateAvatarPayload(avatar = "data:$mime;base64,$base64"),
             )
         }
     }

@@ -65,10 +65,18 @@ object UpdateManager {
         get() = BuildConfig.VERSION_NAME
 
     /**
-     * 检查更新：拉取远端信息并对比版本号。
-     * 返回 null 表示已是最新或检查失败。
+     * 检查更新结果：区分"已是最新"与"检查失败"。
      */
-    suspend fun check(): UpdateInfo? = withContext(Dispatchers.IO) {
+    sealed class CheckResult {
+        data class Available(val info: UpdateInfo) : CheckResult()
+        data object UpToDate : CheckResult()
+        data class Failed(val reason: String) : CheckResult()
+    }
+
+    /**
+     * 检查更新：拉取远端信息并对比版本号。
+     */
+    suspend fun checkResult(): CheckResult = withContext(Dispatchers.IO) {
         val info = runCatching {
             val urlWithTs = "$UPDATE_URL?ts=${System.currentTimeMillis()}"
             val request = Request.Builder()
@@ -80,18 +88,26 @@ object UpdateManager {
                 if (!resp.isSuccessful) return@runCatching null
                 json.decodeFromString(UpdateInfo.serializer(), text)
             }
-        }.getOrNull() ?: return@withContext null
+        }.getOrNull() ?: return@withContext CheckResult.Failed("网络异常或服务器未就绪")
 
-        if (info.version.isBlank() || info.apkUrl.isBlank()) return@withContext null
-        if (!isNewer(info.version, currentVersionName)) return@withContext null
-        info
+        if (info.version.isBlank() || info.apkUrl.isBlank()) {
+            return@withContext CheckResult.Failed("远端更新信息不完整")
+        }
+        if (!isNewer(info.version, currentVersionName)) return@withContext CheckResult.UpToDate
+        CheckResult.Available(info)
     }
 
+    /** 兼容旧调用：null 表示无更新或检查失败 */
+    suspend fun check(): UpdateInfo? =
+        (checkResult() as? CheckResult.Available)?.info
+
     /**
-     * 下载 APK 到 cache 目录，带进度回调（0f..1f）。
+     * 下载 APK 到 cache 目录。
+     * onProgress(progress, downloadedBytes, totalBytes)：totalBytes<=0 表示总长未知，
+     * 此时 progress 为负数，调用方应按"已下载字节数"展示。
      * 依次尝试多个下载源（GitHub raw → jsDelivr CDN），单个源失败自动切换。
      */
-    suspend fun download(context: Context, url: String, onProgress: (Float) -> Unit): File {
+    suspend fun download(context: Context, url: String, onProgress: (Float, Long, Long) -> Unit): File {
         var lastError: Exception? = null
         for (candidate in candidateUrls(url)) {
             try {
@@ -105,7 +121,7 @@ object UpdateManager {
         throw lastError ?: java.io.IOException("下载失败：无可用下载源")
     }
 
-    private suspend fun downloadFrom(context: Context, url: String, onProgress: (Float) -> Unit): File =
+    private suspend fun downloadFrom(context: Context, url: String, onProgress: (Float, Long, Long) -> Unit): File =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { resp ->
@@ -124,7 +140,9 @@ object UpdateManager {
                             output.write(buffer, 0, read)
                             done += read
                             if (total > 0) {
-                                onProgress(done.toFloat() / total.toFloat())
+                                onProgress(done.toFloat() / total.toFloat(), done, total)
+                            } else {
+                                onProgress(-1f, done, -1L)
                             }
                         }
                     }

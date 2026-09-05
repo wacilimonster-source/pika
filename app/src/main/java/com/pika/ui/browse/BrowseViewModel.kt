@@ -143,7 +143,9 @@ class BrowseViewModel : ViewModel() {
                 _endReached.value = p >= result.pages
                 applyFilterAndSort()
             } catch (e: Exception) {
-                if (token == loadToken && _comics.value.isEmpty()) {
+                if (token == loadToken) {
+                    // 失败要解锁 endReached，否则 loadMore 被永久拦截，分页失效
+                    _endReached.value = false
                     _error.value = e.message ?: "加载失败"
                 }
             } finally {
@@ -159,6 +161,8 @@ class BrowseViewModel : ViewModel() {
     }
 
     fun setStatus(status: ComicStatus) {
+        // 源无完结字段时（如禁漫）忽略状态筛选，避免筛选结果永远为空且无提示
+        if (status != ComicStatus.ALL && !SourceManager.current().supportsStatusFilter) return
         if (_status.value == status) return
         _status.value = status
         if (rawItems.isNotEmpty()) {

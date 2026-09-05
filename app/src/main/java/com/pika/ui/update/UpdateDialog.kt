@@ -43,6 +43,8 @@ fun UpdateDialog(
     val apkFile = remember { java.io.File(context.cacheDir, "pika-update.apk") }
     var downloading by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var downloadedBytes by remember { mutableStateOf(0L) }
+    var totalBytes by remember { mutableStateOf(-1L) }
     var downloaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -57,13 +59,22 @@ fun UpdateDialog(
                 )
                 if (downloading) {
                     Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "${(progress * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (totalBytes > 0) {
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        // 总长未知：按已下载字节数展示
+                        Text(
+                            text = "已下载 %.1f MB…".format(downloadedBytes / 1024f / 1024f),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 error?.let {
                     Spacer(Modifier.height(8.dp))
@@ -92,7 +103,11 @@ fun UpdateDialog(
                     error = null
                     scope.launch {
                         runCatching {
-                            UpdateManager.download(context, info.apkUrl) { p -> progress = p }
+                            UpdateManager.download(context, info.apkUrl) { p, done, total ->
+                                progress = p
+                                downloadedBytes = done
+                                totalBytes = total
+                            }
                         }.onSuccess {
                             downloaded = true
                             downloading = false

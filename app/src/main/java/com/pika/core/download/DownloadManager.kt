@@ -75,7 +75,8 @@ object DownloadManager {
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        restoreTasks()
+        // 目录遍历可能较慢，放到后台协程，避免阻塞冷启动主线程
+        scope.launch { restoreTasks() }
         startSpeedSampler()
     }
 
@@ -88,10 +89,15 @@ object DownloadManager {
     fun pageFile(comicId: String, order: Int, index: Int): File =
         File(chapterDir(comicId, order), "page_${index + 1}.jpg")
 
-    /** 章节是否已有本地文件（离线可读） */
+    /** 章节是否已完整下载（离线可读）：按任务记录的页数校验，避免半下载误判 */
     fun isDownloaded(comicId: String, order: Int): Boolean {
+        val task = taskFor(comicId, order)
+        if (task?.status == DlStatus.COMPLETED) return true
         val dir = chapterDir(comicId, order)
-        return dir.listFiles()?.any { it.name.startsWith("page_") && it.length() > 0 } == true
+        val files = dir.listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
+            ?: return false
+        val expected = task?.task?.pageCount ?: 0
+        return if (expected > 0) files.size >= expected else files.isNotEmpty()
     }
 
     /** 某漫画的全部任务（按章节号排序） */
@@ -191,7 +197,15 @@ object DownloadManager {
         scope.launch {
             mutex.withLock {
                 _tasks.value = _tasks.value.map {
-                    if (it.key == key && !it.isFinished) it.copy(status = DlStatus.PENDING, error = "") else it
+                    if (it.key == key && !it.isFinished) {
+                        it.copy(
+                            status = DlStatus.PENDING,
+                            error = "",
+                            downloadedPages = 0,
+                            totalBytes = 0,
+                            bytesPerSecond = 0,
+                        )
+                    } else it
                 }
                 persist()
             }
@@ -218,6 +232,7 @@ object DownloadManager {
     // ── 调度 ──────────────────────────────────────────────────────────────
     private fun pump() {
         scope.launch {
+            var startKey: String? = null
             mutex.withLock {
                 val running = _tasks.value.count { it.status == DlStatus.DOWNLOADING }
                 if (running >= CONCURRENCY) return@withLock
@@ -227,9 +242,10 @@ object DownloadManager {
                     if (it.key == next.key) it.copy(status = DlStatus.DOWNLOADING) else it
                 }
                 persist()
+                startKey = next.key
             }
-            val task = _tasks.value.firstOrNull { it.status == DlStatus.DOWNLOADING }
-            if (task != null) runTask(task.key)
+            // 锁外用锁内记下的 key 启动，避免重新挑任务时挑到已在跑的任务
+            startKey?.let { runTask(it) }
         }
     }
 
@@ -353,7 +369,8 @@ object DownloadManager {
                 val dir = chapterDir(task.comicId, task.order)
                 val pages = dir.listFiles()?.count { it.name.startsWith("page_") } ?: 0
                 val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-                val finished = pages >= task.pageCount
+                // pageCount==0（真实页数未拉到过）时不能判为 COMPLETED，否则磁盘上一页都没有
+                val finished = task.pageCount > 0 && pages >= task.pageCount
                 TaskRuntime(
                     task = task,
                     status = if (finished) DlStatus.COMPLETED else DlStatus.FAILED,

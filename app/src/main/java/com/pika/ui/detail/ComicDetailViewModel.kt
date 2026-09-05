@@ -60,6 +60,13 @@ class ComicDetailViewModel : ViewModel() {
     var loadedComicId: String = ""
         private set
 
+    /** 加载代数：切换漫画时自增，旧协程回调前校验，防止脏数据覆盖新漫画状态 */
+    private var loadGeneration = 0
+    private var loadJob: kotlinx.coroutines.Job? = null
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     var commentSupported: Boolean = true
         private set
 
@@ -70,45 +77,63 @@ class ComicDetailViewModel : ViewModel() {
     fun load(comicId: String) {
         if (loadedComicId == comicId && _comic.value != null) return
         loadedComicId = comicId
+        // 取消上一本漫画还在跑的请求，避免旧结果覆盖新漫画状态
+        loadJob?.cancel()
+        loadJob = null
+        val gen = ++loadGeneration
+        _error.value = null
         // 读取本地历史进度（不阻塞主线程）
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (gen != loadGeneration) return@launch
             _lastProgress.value = runCatching {
                 com.pika.data.ReaderPrefs.current().lastProgress(comicId)
             }.getOrNull()
         }
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
+            val chaptersJob = launch {
+                _loading.value = true
+                try {
+                    val list = SourceManager.current().chapters(comicId)
+                    if (gen != loadGeneration) return@launch
+                    _chapters.value = list
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 章节失败保留已有数据
+                } finally {
+                    if (gen == loadGeneration) _loading.value = false
+                }
+            }
             try {
-                _comic.value = SourceManager.current().comicDetail(comicId).also {
+                val detail = SourceManager.current().comicDetail(comicId)
+                if (gen != loadGeneration) return@launch
+                _comic.value = detail.also {
                     // 列表接口不返回更新时间，详情拉到就记录，供关注流回填展示
                     if (it.updatedAt.isNotBlank()) {
                         com.pika.data.UpdatedAtCache.put(it.id, it.updatedAt)
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // 详情失败：显示空态
+                if (gen == loadGeneration) {
+                    _error.value = e.message ?: "加载失败"
+                }
             }
+            chaptersJob.join()
         }
-        viewModelScope.launch {
-            _loading.value = true
-            try {
-                _chapters.value = SourceManager.current().chapters(comicId)
-            } catch (e: Exception) {
-                // 章节失败保留已有数据
-            } finally {
-                _loading.value = false
-            }
-        }
-        loadRecommendations(comicId)
-        loadComments(comicId, page = 1)
+        loadRecommendations(comicId, gen)
+        loadComments(comicId, page = 1, gen = gen)
     }
 
     /** 相关推荐（源不支持时静默失败） */
-    fun loadRecommendations(comicId: String) {
+    fun loadRecommendations(comicId: String, gen: Int = loadGeneration) {
         viewModelScope.launch {
             try {
-                _recommendations.value = SourceManager.current().recommendations(comicId)
+                val list = SourceManager.current().recommendations(comicId)
+                if (gen == loadGeneration) _recommendations.value = list
             } catch (e: Exception) {
-                _recommendations.value = emptyList()
+                if (gen == loadGeneration) _recommendations.value = emptyList()
             }
         }
     }
@@ -125,7 +150,8 @@ class ComicDetailViewModel : ViewModel() {
             coverUrl = comic?.coverUrl ?: "",
             order = chapter.order,
             epTitle = chapter.title,
-            pageCount = comic?.pagesCount ?: _comic.value?.pagesCount ?: 1,
+            // 单章页数运行时才可知，传 0 由 runTask 拉取真实页数后回填
+            pageCount = 0,
         )
     }
 
@@ -156,13 +182,10 @@ class ComicDetailViewModel : ViewModel() {
         if (comicId.isEmpty()) return
         viewModelScope.launch {
             try {
-                val ok = SourceManager.current().favourite(comicId, !_favourited.value)
-                if (ok) {
-                    _favourited.value = !_favourited.value
-                    LogStore.log("Detail", "I", "favourite toggled: comic=$comicId, favourited=${_favourited.value}")
-                } else {
-                    LogStore.log("Detail", "W", "favourite returned false: comic=$comicId")
-                }
+                val now = SourceManager.current().favourite(comicId, !_favourited.value)
+                // 以源返回的真实状态回写，避免切换型接口本地失步
+                _favourited.value = now
+                LogStore.log("Detail", "I", "favourite toggled: comic=$comicId, favourited=$now")
             } catch (e: UnsupportedOperationException) {
                 favouriteSupported = false
                 LogStore.log("Detail", "I", "favourite not supported by current source")
@@ -182,8 +205,8 @@ class ComicDetailViewModel : ViewModel() {
 
     // ── 评论 ──────────────────────────────────────────────────────────────
 
-    /** 分页加载评论（page=1 时重置） */
-    fun loadComments(comicId: String, page: Int) {
+    /** 分页加载评论（page=1 时重置；gen 用于防止旧漫画的评论写入新页面） */
+    fun loadComments(comicId: String, page: Int, gen: Int = loadGeneration) {
         if (_commentLoading.value) return
         if (page > 1 && _commentEndReached.value) return
         viewModelScope.launch {
@@ -191,6 +214,7 @@ class ComicDetailViewModel : ViewModel() {
             _commentError.value = null
             try {
                 val result = SourceManager.current().comments(comicId, page)
+                if (gen != loadGeneration) return@launch
                 _comments.value = if (page == 1) result.items else _comments.value + result.items
                 _commentEndReached.value = page >= result.pages
                 commentPage = page
@@ -198,9 +222,9 @@ class ComicDetailViewModel : ViewModel() {
                 commentSupported = false
                 _commentError.value = null
             } catch (e: Exception) {
-                _commentError.value = e.message ?: "评论加载失败"
+                if (gen == loadGeneration) _commentError.value = e.message ?: "评论加载失败"
             } finally {
-                _commentLoading.value = false
+                if (gen == loadGeneration) _commentLoading.value = false
             }
         }
     }
