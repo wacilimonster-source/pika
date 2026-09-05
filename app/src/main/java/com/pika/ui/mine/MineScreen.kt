@@ -58,6 +58,8 @@ fun MineScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
+    var showLogoutDialog by remember { mutableStateOf(false) }
+    var deleteSavedCredentials by remember { mutableStateOf(false) }
     var user by remember { mutableStateOf<ComicUser?>(null) }
     var profileLoading by remember { mutableStateOf(false) }
     var dailyMsg by remember { mutableStateOf<String?>(null) }
@@ -203,11 +205,45 @@ fun MineScreen(
         MenuRow("设置", onClick = onOpenSettings)
         if (loggedIn) {
             MenuRow("退出登录") {
-                scope.launch {
-                    SourceManager.onUnauthorized()
-                }
+                showLogoutDialog = true
             }
         }
+    }
+
+    if (showLogoutDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("退出登录") },
+            text = {
+                Column {
+                    Text("确定退出当前账号吗？")
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(
+                            checked = deleteSavedCredentials,
+                            onCheckedChange = { deleteSavedCredentials = it },
+                        )
+                        Text(
+                            "同时删除保存的账号密码",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showLogoutDialog = false
+                    scope.launch {
+                        SourceManager.logout(deleteSavedCredentials)
+                    }
+                }) { Text("退出") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

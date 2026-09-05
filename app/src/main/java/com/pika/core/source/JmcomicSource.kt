@@ -49,6 +49,8 @@ class JmcomicSource : Source {
     override suspend fun login(email: String, password: String) {
         val session = JmClient.login(email, password)
         SourcePrefs.current().setJmLogin(session)
+        // 保存账号凭据，供登出后会话失效时静默重登/一键填充
+        com.pika.data.SecureAccountStore.save(SourceType.JMCOMIC, email.trim(), password)
     }
 
     override suspend fun logout() {

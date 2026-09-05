@@ -32,6 +32,8 @@ class PicacgSource : Source {
             PicaClient.api.login(com.pika.network.LoginPayload(email = email, password = password))
         }
         SourcePrefs.current().setPicaLogin(token = data.token, email = email)
+        // 保存账号凭据，供登出后会话失效时静默重登/一键填充
+        com.pika.data.SecureAccountStore.save(SourceType.PICACG, email.trim(), password)
     }
 
     override suspend fun register(email: String, password: String, name: String, gender: String) {

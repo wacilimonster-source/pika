@@ -53,6 +53,9 @@ object JmClient {
     val baseUrl: String
         get() = SourcePrefs.current().jmBaseUrl ?: DEFAULT_BASE
 
+    /** 会话失效钩子（由 SourceManager 注入，避免网络层反向依赖上层）：401 时静默重登 */
+    var onUnauthorizedHook: (suspend () -> Unit)? = null
+
     private val headers: Map<String, String> get() = buildMap {
         put("device", "ANDROID;9.0;SMR;unknown;deadbeef12345678;2.1.3")
         put("os-version", "9.0")
@@ -62,10 +65,11 @@ object JmClient {
         put("User-Agent", "okhttp/3.12.0 leak(200.0);Android version:9.0;MAX2;100;jmc;3.23.0")
     }
 
-    /** 统一请求：带签名头 + 解密响应 */
+    /** 统一请求：带签名头 + 解密响应；会话过期(401)时触发钩子重登并重试一次 */
     private suspend fun execute(
         relative: String,
         form: Map<String, String>? = null,
+        retriedAuth: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
         val sign = JmCrypto.sign()
         val builder = Request.Builder()
@@ -85,6 +89,10 @@ object JmClient {
         }
 
         client.newCall(builder.build()).execute().use { resp ->
+            if (resp.code == 401 && !retriedAuth) {
+                onUnauthorizedHook?.invoke()
+                return@withContext execute(relative, form, retriedAuth = true)
+            }
             val text = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw JmException("禁漫接口 ${resp.code}: ${text.take(200)}")
             decryptEnvelope(text, sign.ts)

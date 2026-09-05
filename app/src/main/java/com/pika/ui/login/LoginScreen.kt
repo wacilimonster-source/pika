@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,17 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 已保存账号：预填邮箱/密码，一键登录
+    val savedEmail = remember(activeSource) { SourceManager.savedAccountEmail() }
+    LaunchedEffect(activeSource) {
+        val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.pika.data.SecureAccountStore.load(activeSource)
+        }
+        if (saved != null) {
+            email = saved.first
+            password = saved.second
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -57,6 +69,14 @@ fun LoginScreen(
             text = "登录 ${activeSource.displayName}",
             style = MaterialTheme.typography.headlineSmall,
         )
+        if (savedEmail != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "已保存账号：$savedEmail",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
