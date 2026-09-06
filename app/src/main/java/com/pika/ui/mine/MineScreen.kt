@@ -50,7 +50,6 @@ fun MineScreen(
     onOpenFollowManage: () -> Unit = {},
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     onOpenProfile: () -> Unit = {},
-    onOpenMyComments: () -> Unit = {},
     onOpenRecentReads: () -> Unit = {},
     onOpenCloudHistory: () -> Unit = {},
 ) {
@@ -193,10 +192,9 @@ fun MineScreen(
             }
             Spacer(Modifier.height(8.dp))
         }
-        MenuRow("收藏", onClick = onOpenFavourites)
+        MenuRow("收藏的作品", onClick = onOpenFavourites)
         MenuRow("收藏的作者", onClick = onOpenAuthorFavourites)
         MenuRow("关注管理", onClick = onOpenFollowManage)
-        MenuRow("我的评论", onClick = onOpenMyComments)
         MenuRow("阅读历史", onClick = onOpenRecentReads)
         if (isJm) {
             MenuRow("云端历史", onClick = onOpenCloudHistory)

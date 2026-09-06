@@ -35,6 +35,7 @@ import com.pika.ui.reader.ReaderScreen
 import com.pika.ui.search.SearchScreen
 import com.pika.ui.settings.LogScreen
 import com.pika.ui.settings.SettingsScreen
+import com.pika.ui.settings.SourceManageScreen
 
 private data class TabItem(
     val route: String,
@@ -158,7 +159,6 @@ fun MainScreen() {
                         navController.navigate("reader/${Uri.encode(comicId)}/$order")
                     },
                     onOpenProfile = { navController.navigate("profile") },
-                    onOpenMyComments = { navController.navigate("my-comments") },
                     onOpenRecentReads = { navController.navigate("recent-reads") },
                     onOpenCloudHistory = { navController.navigate("cloud-history") },
                 )
@@ -166,16 +166,6 @@ fun MainScreen() {
             composable("profile") {
                 com.pika.ui.profile.ProfileScreen(
                     onBack = { navController.popBackStack() },
-                )
-            }
-            composable("my-comments") {
-                com.pika.ui.comments.MyCommentsScreen(
-                    onBack = { navController.popBackStack() },
-                    onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}") {
-                            launchSingleTop = true
-                        }
-                    },
                 )
             }
             composable("recent-reads") {
@@ -255,6 +245,18 @@ fun MainScreen() {
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenLog = { navController.navigate("log") },
+                    onOpenSourceManage = { navController.navigate("settings/source") },
+                    onOpenLogin = {
+                        navController.navigate("login") { launchSingleTop = true }
+                    },
+                )
+            }
+            composable("settings/source") {
+                SourceManageScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenLogin = {
+                        navController.navigate("login") { launchSingleTop = true }
+                    },
                 )
             }
             composable("log") {
