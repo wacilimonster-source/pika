@@ -124,23 +124,28 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
+        // 整个「复选框 + 说明文字」都可点：真机实测发现点文字无反应，
+        // 用户会以为开关坏了（小屏上复选框本身只有 ~20dp 命中区）。
+        val toggleSave: (Boolean) -> Unit = { checked ->
+            rememberPassword = checked
+            com.pika.data.SecureAccountStore.saveEnabled = checked
+            if (!checked) {
+                // 关闭即清除已保存凭据，避免“以为没存”却仍留在磁盘/Keystore
+                com.pika.data.SecureAccountStore.clear(activeSource)
+                savedEmail = null
+            } else {
+                savedEmail = SourceManager.savedAccountEmail()
+            }
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { toggleSave(!rememberPassword) },
         ) {
             Checkbox(
                 checked = rememberPassword,
-                onCheckedChange = { checked ->
-                    rememberPassword = checked
-                    com.pika.data.SecureAccountStore.saveEnabled = checked
-                    if (!checked) {
-                        // 关闭即清除已保存凭据，避免"以为没存"却仍留在磁盘/Keystore
-                        com.pika.data.SecureAccountStore.clear(activeSource)
-                        savedEmail = null
-                    } else {
-                        savedEmail = SourceManager.savedAccountEmail()
-                    }
-                },
+                onCheckedChange = toggleSave,
             )
             Text(
                 text = "保存账号密码（便于下次一键登录）",
