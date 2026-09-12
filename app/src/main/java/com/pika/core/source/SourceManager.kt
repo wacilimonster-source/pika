@@ -27,13 +27,18 @@ object SourceManager {
     fun init() {
         _activeSource.value = SourcePrefs.current().activeSource
         // 禁漫会话过期(401)时走静默重登
-        com.pika.network.JmClient.onUnauthorizedHook = { onUnauthorized() }
+        com.pika.network.JmClient.onUnauthorizedHook = { onUnauthorized(SourceType.JMCOMIC) }
         Log.d("SourceManager", "active source: ${_activeSource.value}")
     }
 
-    /** 切换数据源（suspend，调用方需在协程中） */
+    /**
+     * 切换数据源（suspend，调用方需在协程中）。
+     *
+     * 内存态先于落盘：这样调用方在 `launch { switch(...) }` 之后立刻导航也能读到新源，
+     * 不会出现「登录页展示旧源 / 把新源账号提交给旧源」的竞态。
+     */
     suspend fun switch(type: SourceType) {
-        SourcePrefs.current().setActiveSource(type)
+        SourcePrefs.current().markActiveSource(type)
         _activeSource.value = type
     }
 
@@ -43,14 +48,19 @@ object SourceManager {
 
     fun picaToken(): String? = SourcePrefs.current().picaToken
 
-    /** 401 / 会话失效处理：先用已保存凭据静默重登；失败才登出并通知 UI（重入保护） */
+    /**
+     * 401 / 会话失效处理：先用已保存凭据静默重登；失败才登出并通知 UI（重入保护）。
+     *
+     * [type] 必须是**发出该 401 请求的数据源**，不能读全局活动源：
+     * 用户在 A 源阅读时切到 B 源，A 的遗留请求（章节 fan-out / 图片预取 / 下载）返回 401，
+     * 若按活动源判定就会「用 B 的凭据去登录 B」，既掩盖了 A 的会话失效，又会无谓登出 B。
+     */
     private var reloginInProgress = false
 
-    suspend fun onUnauthorized() {
+    suspend fun onUnauthorized(type: SourceType = _activeSource.value) {
         if (reloginInProgress) return
         reloginInProgress = true
         try {
-            val type = _activeSource.value
             val creds = com.pika.data.SecureAccountStore.load(type)
             if (creds != null) {
                 try {
@@ -61,23 +71,38 @@ object SourceManager {
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    val msg = e.message.orEmpty()
                     Log.w("SourceManager", "silent re-login failed: $type, ${e.message}")
                     // 凭据被服务端判定无效（改密/封号）→ 删除保存的账号；网络问题则保留
-                    if (msg.contains("密码", ignoreCase = true) ||
-                        msg.contains("password", ignoreCase = true) ||
-                        msg.contains("账号", ignoreCase = true) ||
-                        msg.contains("用户名", ignoreCase = true)
-                    ) {
+                    if (isCredentialRejected(e)) {
                         com.pika.data.SecureAccountStore.clear(type)
                     }
                 }
             }
             sources.getValue(type).logout()
-            _unauthorizedTick.value += 1
+            // 仅当失效的正是用户当前所在的源时才通知 UI 跳登录页
+            if (type == _activeSource.value) _unauthorizedTick.value += 1
         } finally {
             reloginInProgress = false
         }
+    }
+
+    /**
+     * 判断异常是否代表「凭据被拒绝」。
+     *
+     * 优先用结构化错误码（401/403）—— 与 [com.pika.network.PicaException.isRateLimit] 同一范式；
+     * 文案匹配只作兜底（服务端文案一改即失效）。
+     * 注意必须排除限流：【限流不是凭据无效】，误判会把好账号清掉。
+     */
+    private fun isCredentialRejected(e: Throwable): Boolean {
+        val pe = e as? com.pika.network.PicaException
+        if (pe != null) {
+            if (pe.isRateLimit) return false
+            if (pe.httpCode == 401 || pe.httpCode == 403) return true
+            if (pe.errorCode == 401 || pe.errorCode == 403) return true
+        }
+        val msg = e.message.orEmpty()
+        return listOf("密码", "password", "账号", "用户名", "username")
+            .any { msg.contains(it, ignoreCase = true) }
     }
 
     /** 用户主动登出：默认保留保存的凭据（下次登录可一键填充/静默恢复） */

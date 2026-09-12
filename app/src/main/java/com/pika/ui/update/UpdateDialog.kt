@@ -15,7 +15,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +23,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pika.core.update.UpdateManager
 import kotlinx.coroutines.launch
@@ -40,7 +38,9 @@ fun UpdateDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val apkFile = remember { java.io.File(context.cacheDir, "pika-update.apk") }
+    // 不能用固定路径猜（此前猜 cacheDir，而下载实际落在 filesDir，导致 apkFile.exists()
+    // 恒为 false、点「立即安装」被静默关窗）。改为记住 downloadAndVerify 的返回值。
+    var apkFile by remember { mutableStateOf<java.io.File?>(null) }
     var downloading by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var downloadedBytes by remember { mutableStateOf(0L) }
@@ -89,10 +89,13 @@ fun UpdateDialog(
         confirmButton = {
             when {
                 downloaded -> Button(onClick = {
-                    if (apkFile.exists() && !UpdateManager.install(context, apkFile)) {
-                        error = "安装失败，请手动打开 APK"
-                    } else {
-                        onDismiss()
+                    val f = apkFile
+                    when {
+                        f == null || !f.exists() ->
+                            error = "安装包丢失，请重新下载"
+                        !UpdateManager.install(context, f) ->
+                            error = "安装失败，请手动打开 APK"
+                        else -> onDismiss()
                     }
                 }) { Text("立即安装") }
 
@@ -102,14 +105,16 @@ fun UpdateDialog(
                     downloading = true
                     error = null
                     scope.launch {
-                        runCatching {
+                        // runCatchingCancellable：弹窗关闭导致的取消不能被当成"下载失败"
+                        com.pika.core.runCatchingCancellable {
                             // 下载 + SHA-256 校验：update.json 提供 sha256 时强校验
                             UpdateManager.downloadAndVerify(context, info) { p, done, total ->
                                 progress = p
                                 downloadedBytes = done
                                 totalBytes = total
                             }
-                        }.onSuccess {
+                        }.onSuccess { apk ->
+                            apkFile = apk          // 记住真实路径，安装时不再猜
                             downloaded = true
                             downloading = false
                         }.onFailure { e ->

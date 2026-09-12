@@ -113,6 +113,8 @@ fun ForgotPasswordScreen(
                         try {
                             SourceManager.current().forgotPassword(email.trim())
                             result = "已发送重置邮件，请前往邮箱查看"
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             error = e.message ?: "发送失败"
                         } finally {

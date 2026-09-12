@@ -21,6 +21,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,18 +50,26 @@ fun RankScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyGridState()
 
+    /** 请求代际：连点日/周/月榜时旧响应不得覆盖新选择 */
+    var loadGen by remember { mutableIntStateOf(0) }
+
     fun load(t: String) {
+        val gen = ++loadGen
         loading = true
         error = null
         scope.launch {
             try {
-                comics = SourceManager.current().rank(t)
+                val list = SourceManager.current().rank(t)
+                if (gen != loadGen) return@launch
+                comics = list
             } catch (e: UnsupportedOperationException) {
-                error = "当前源不支持排行榜"
+                if (gen == loadGen) error = "当前源不支持排行榜"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                error = e.message ?: "加载失败"
+                if (gen == loadGen) error = e.message ?: "加载失败"
             } finally {
-                loading = false
+                if (gen == loadGen) loading = false
             }
         }
     }

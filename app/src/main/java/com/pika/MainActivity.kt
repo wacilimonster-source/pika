@@ -33,7 +33,8 @@ class MainActivity : ComponentActivity() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                val ts = SimpleDateFormat("MM-dd_HH-mm-ss", Locale.US).format(Date())
+                // 文件名带毫秒：秒级时间戳下同一秒内的两次崩溃会互相覆盖，丢样本
+                val ts = SimpleDateFormat("MM-dd_HH-mm-ss-SSS", Locale.US).format(Date())
                 val file = File(dir, "crash_$ts.log")
                 file.writeText(throwable.stackTraceToString())
                 dir.listFiles()?.sortedByDescending { it.lastModified() }

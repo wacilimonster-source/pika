@@ -51,9 +51,24 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
         fun init(context: Context) {
             instance = ReaderPrefs(context.applicationContext)
+            // 与 SourcePrefs 同一范式：后台预热热点值，避免 getter 在主线程 runBlocking 读盘。
+            // 此前 ReaderPrefs 没有任何预热，而 readerMode / brightness 是在**组合期**同步读的
+            // （ReaderScreen / SettingsScreen 的 remember 初值），冷启动首次进入必然主线程做文件 IO。
+            instance.ioScope.launch { instance.loadCache() }
         }
 
         fun current(): ReaderPrefs = instance
+    }
+
+    /** 后台预热：只填热点值，recentReads 体积大仍走懒加载 */
+    private fun loadCache() {
+        runCatching {
+            runBlocking {
+                val prefs = appContext.readerDataStore.data.first()
+                cachedReaderMode = prefs[intPreferencesKey(ReaderKeys.READER_MODE)]
+                cachedBrightness = prefs[floatPreferencesKey(ReaderKeys.BRIGHTNESS)]
+            }
+        }
     }
 
     /** 后台写盘作用域：setter 只更新内存缓存后投递到这里，绝不在调用线程同步等待落盘 */

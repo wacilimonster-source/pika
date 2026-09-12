@@ -48,9 +48,13 @@ fun CategoryReorderDialog(
         val orderMap = currentSettings.order.withIndex().associate { (i, id) -> id to i }
         categories.sortedBy { orderMap[it.id] ?: Int.MAX_VALUE }
     }
-    // 使用 Pair(id, title) 便于显示
-    var order by remember { mutableStateOf(items.map { it.id to it.title }) }
-    var hidden by remember { mutableStateOf(currentSettings.hidden) }
+    // 使用 Pair(id, title) 便于显示。
+    // key 必须包含 categories/currentSettings：此前只在首次组合时初始化，
+    // 若对话框打开时分类尚未加载完成，会永久停留在空列表。
+    var order by remember(categories, currentSettings) {
+        mutableStateOf(items.map { it.id to it.title })
+    }
+    var hidden by remember(currentSettings) { mutableStateOf(currentSettings.hidden) }
     // 追踪正在拖拽的项的 ID
     var draggedId by remember { mutableStateOf<String?>(null) }
     // 拖拽偏移量（像素）
@@ -72,7 +76,8 @@ fun CategoryReorderDialog(
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 400.dp),
                 ) {
-                    items(order.size) { index ->
+                    // 提供稳定 key（分类 id）：否则拖拽重排后列表项状态会错位
+                    items(order.size, key = { index -> order[index].first }) { index ->
                         val (catId, catTitle) = order[index]
                         val isHidden = catId in hidden
                         val isDragged = draggedId == catId

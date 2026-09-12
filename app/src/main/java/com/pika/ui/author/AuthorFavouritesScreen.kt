@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,8 +58,11 @@ fun AuthorFavouritesScreen(
     onBack: () -> Unit,
     onOpenAuthor: (String) -> Unit = {},
 ) {
-    var entries by remember { mutableStateOf(AuthorFavourites.get()) }
+    // 组合期不读盘：初值空，LaunchedEffect 中加载
+    var entries by remember { mutableStateOf<List<AuthorEntry>>(emptyList()) }
     var pendingRemove by remember { mutableStateOf<AuthorEntry?>(null) }
+
+    LaunchedEffect(Unit) { entries = AuthorFavourites.get() }
 
     Scaffold(
         topBar = {

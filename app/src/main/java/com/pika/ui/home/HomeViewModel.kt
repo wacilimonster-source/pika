@@ -178,8 +178,12 @@ class HomeViewModel : ViewModel() {
      * startDelayMs > 0 时延迟启动：用于回前台场景，避开与关注流刷新的请求撞车
      * （两者同时开跑会顶到哔咔约 2 次/秒的限流线，排行榜先撞还会触发 60 秒全局冷却拖垮关注流）。
      */
+    /** 排行榜请求代际：快速切榜时旧响应不得覆盖新选择（与 ComicDetailViewModel 的 gen 范式一致） */
+    private var rankGeneration = 0
+
     fun loadRank(type: String, force: Boolean = false, startDelayMs: Long = 0) {
         if (!force && _rankType.value == type && _rankComics.value.isNotEmpty() && _rankError.value == null) return
+        val gen = ++rankGeneration
         _rankType.value = type
         if (!force && _rankComics.value.isNotEmpty()) _rankComics.value = emptyList()
         _rankLoading.value = true
@@ -187,15 +191,20 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 if (startDelayMs > 0) kotlinx.coroutines.delay(startDelayMs)
-                _rankComics.value = SourceManager.current().rank(type)
+                val list = SourceManager.current().rank(type)
+                if (gen != rankGeneration) return@launch   // 已被更新的选择取代，丢弃
+                _rankComics.value = list
                 rankLoadedAt = System.currentTimeMillis()
                 // 刷新完成（换榜/强刷均适用）：通知 UI 回到顶部，从新版第 1 名开始展示
                 _rankRefreshTick.value++
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (gen != rankGeneration) return@launch
                 if (!force) _rankComics.value = emptyList()
                 _rankError.value = e.message ?: "加载排行榜失败"
             } finally {
-                _rankLoading.value = false
+                if (gen == rankGeneration) _rankLoading.value = false
             }
         }
     }
@@ -293,10 +302,12 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _randomComics.value = SourceManager.current().randomComics()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _randomComics.value = emptyList()
             } finally {
-                _randomLoading.value = false
+                if (isActive) _randomLoading.value = false
             }
         }
     }
@@ -397,7 +408,9 @@ class HomeViewModel : ViewModel() {
                 async {
                     semaphore.withPermit {
                         kotlinx.coroutines.delay(250)
-                        val first = runCatching { searchWithRetry(source, word, 1, categories) }.getOrNull()
+                        val first = com.pika.core.runCatchingCancellable {
+                            searchWithRetry(source, word, 1, categories)
+                        }.getOrNull()
                         word to (first?.pages ?: 1).coerceIn(1, 50)
                     }
                 }
@@ -408,9 +421,14 @@ class HomeViewModel : ViewModel() {
                 wordPageCounts.map { (word, pages) ->
                     async {
                         (1..pages).mapNotNull { p ->
+                            // 服务端已限流冷却：继续请求必然全失败并不断续期冷却，
+                            // 拖垮首页/搜索/排行榜（此前缺此检查）。
+                            if (com.pika.network.PicaClient.rateLimitRemaining() > 0) return@mapNotNull null
                             semaphore.withPermit {
                                 kotlinx.coroutines.delay(250)
-                                runCatching { searchWithRetry(source, word, p, categories) }.getOrNull()?.items
+                                com.pika.core.runCatchingCancellable {
+                                    searchWithRetry(source, word, p, categories)
+                                }.getOrNull()?.items
                             }
                         }.flatten()
                     }

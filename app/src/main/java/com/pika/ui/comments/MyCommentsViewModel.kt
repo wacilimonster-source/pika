@@ -6,6 +6,7 @@ import com.pika.core.model.MyComicComment
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MyCommentsViewModel : ViewModel() {
@@ -37,10 +38,12 @@ class MyCommentsViewModel : ViewModel() {
                 page = p
             } catch (e: UnsupportedOperationException) {
                 _error.value = "当前源不支持我的评论"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = e.message ?: "加载失败"
             } finally {
-                _loading.value = false
+                if (isActive) _loading.value = false
             }
         }
     }

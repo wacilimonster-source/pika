@@ -106,7 +106,8 @@ fun LogScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    items(logs.reversed(), key = { "${it.timestamp}_${it.tag}_${it.level}" }) { entry ->
+                    // key 用自增 ID（timestamp 毫秒级会撞车）；asReversed() 不新建列表（reversed() 每次重组都拷贝）
+                    items(logs.asReversed(), key = { it.id }) { entry ->
                         LogRow(entry, timeFmt)
                     }
                 }

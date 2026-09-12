@@ -16,7 +16,8 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     private val engine = PicaHttpEngine(
         baseUrl = baseUrl,
         tokenProvider = { SourceManager.picaToken() },
-        onUnauthorized = { SourceManager.onUnauthorized() },
+        // 明确告知"这个 401 来自哔咔源"，避免上层按全局活动源误判（切源窗口会串源）
+        onUnauthorized = { SourceManager.onUnauthorized(com.pika.core.source.SourceType.PICACG) },
     )
 
     private val json = Json {
@@ -45,7 +46,7 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         query: Map<String, String> = emptyMap(),
         bodyJson: String? = null,
     ): ApiResponse<T> {
-        val resp = engine.executeAsync(method, path, query, bodyJson)
+        val resp = engine.execute(method, path, query, bodyJson)
         try {
             if (resp.code !in 200..299) {
                 throw PicaException("${resp.code}: ${resp.bodyString}", httpCode = resp.code)

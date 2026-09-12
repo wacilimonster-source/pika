@@ -123,6 +123,10 @@ fun DownloadScreen(
                 }
             }
 
+            // 展开态上提到分支外：此前 remember 位于 else 分支内，
+            // tasks 在"空 ↔ 非空"之间切换时会被重置，展开状态丢失
+            var expandedComic by remember { mutableStateOf<Set<String>>(emptySet()) }
+
             if (tasks.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -151,7 +155,6 @@ fun DownloadScreen(
                     .groupBy { it.task.comicId }
                     .entries
                     .sortedByDescending { it.value.maxOfOrNull { t -> t.task.createdAt } ?: 0L }
-                var expandedComic by remember { mutableStateOf<Set<String>>(emptySet()) }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),

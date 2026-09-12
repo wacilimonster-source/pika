@@ -9,6 +9,7 @@ import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -86,6 +87,8 @@ class BrowseViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _categories.value = SourceManager.current().categories()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // 分类失败不阻塞浏览
             }
@@ -142,6 +145,9 @@ class BrowseViewModel : ViewModel() {
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = p >= result.pages
                 applyFilterAndSort()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 被新一次跳页取代：放行，且不得污染 endReached/error
+                throw e
             } catch (e: Exception) {
                 if (token == loadToken) {
                     // 失败要解锁 endReached，否则 loadMore 被永久拦截，分页失效
@@ -149,7 +155,7 @@ class BrowseViewModel : ViewModel() {
                     _error.value = e.message ?: "加载失败"
                 }
             } finally {
-                if (token == loadToken) _loading.value = false
+                if (isActive && token == loadToken) _loading.value = false
             }
         }
     }

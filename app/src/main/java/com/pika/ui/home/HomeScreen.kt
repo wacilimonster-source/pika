@@ -39,9 +39,12 @@ import com.pika.ui.browse.ComicGridView
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
 /**
- * 首页：顶部标签「关注 / 排行榜」。
- * 关注（默认）：关注信息流（作者/关键词/分类标签最新更新，按时间排序的聚合网格，滚动加载）。
- * 排行榜：日榜 / 周榜 / 月榜切换。
+ * 首页：顶部标签「关注 / 排行榜 / 随便看看」。
+ * 排行榜（默认，index=1）：日榜 / 周榜 / 月榜切换。
+ * 关注：关注信息流（作者/关键词/分类标签最新更新，按时间排序的聚合网格，滚动加载）。
+ * 随便看看：随机推荐。
+ *
+ * 注：默认落在「排行榜」（selectedTab 初值 1），与代码实际行为一致。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +54,8 @@ fun HomeScreen(
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val followFeed by viewModel.followFeed.collectAsState()
-    val followEndReached by viewModel.followEndReached.collectAsState()
+    // 注：关注流列表固定不分页（refresh 后取前 120 条并置 endReached=true），
+    // 因此不再收集 followEndReached —— 原先收集了却在渲染处硬编码 true，属无效订阅。
     val followLoading by viewModel.followLoading.collectAsState()
     val followEmptyHint by viewModel.followEmptyHint.collectAsState()
     val followError by viewModel.followError.collectAsState()
@@ -75,7 +79,14 @@ fun HomeScreen(
     // 保存当前 Tab 的滚动位置（导航离开时）
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(selectedTab, followGridState.firstVisibleItemIndex)
+            // 必须按当前 Tab 取对应列表：原实现固定取关注网格，
+            // 在排行榜/随便看看页离开时记录的是关注页位置（通常 0），回来位置丢失
+            val index = when (selectedTab) {
+                0 -> followGridState.firstVisibleItemIndex
+                1 -> rankGridState.firstVisibleItemIndex
+                else -> randomGridState.firstVisibleItemIndex
+            }
+            viewModel.saveScrollState(selectedTab, index)
         }
     }
     // 恢复滚动位置
@@ -98,6 +109,11 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         com.pika.core.update.UpdateState.checkOnce()
         viewModel.ensureFollowTargets()
+        // 冷启动错峰：两条链同帧开跑会一起顶到哔咔约 2 次/秒的限流线。
+        // 首屏默认落在排行榜（selectedTab=1），它是**唯一可见内容**，必须立即开跑；
+        // 改让关注流稍后启动——此时它在后台，延迟对用户不可感知。
+        // 若首屏落在关注页（selectedTab 被 rememberSaveable 恢复为 0）则不延迟。
+        if (selectedTab == 1) kotlinx.coroutines.delay(1_200)
         viewModel.refresh()
     }
 
@@ -107,6 +123,7 @@ fun HomeScreen(
 
     LaunchedEffect(selectedTab) {
         if (selectedTab == 1 && rankComics.isEmpty() && rankError == null) {
+            // 错峰由 LaunchedEffect(Unit) 延后关注流实现，排行榜本身不延迟（它是首屏可见内容）
             viewModel.loadRank(rankType)
         } else if (selectedTab == 2) {
             viewModel.ensureRandomLoaded()

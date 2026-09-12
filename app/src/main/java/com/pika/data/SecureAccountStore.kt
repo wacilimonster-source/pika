@@ -15,6 +15,8 @@ import javax.crypto.spec.GCMParameterSpec
  *  - 密码用 AndroidKeyStore 内的 AES-256-GCM 密钥加密后落盘，密钥不可导出
  *  - 邮箱明文存储（仅用于展示/预填）
  *  - 登出不清除，仅用户明确选择"删除保存的账号"时清除
+ *  - 「是否保存」由用户显式控制（[saveEnabled]，默认沿用既有行为 = 保存），
+ *    关闭时 save() 直接跳过并清除已有凭据
  */
 object SecureAccountStore {
 
@@ -22,6 +24,7 @@ object SecureAccountStore {
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
     private const val KEY_PREFIX = "pika_cred_"
     private const val GCM_TAG_BITS = 128
+    private const val KEY_SAVE_ENABLED = "save_enabled"
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -29,13 +32,24 @@ object SecureAccountStore {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    /**
+     * 是否允许保存账号密码。默认 true，保持既有「登出后一键重登」体验不被静默改变；
+     * 用户可在登录页取消勾选关闭（关闭时清除已有凭据）。
+     */
+    var saveEnabled: Boolean
+        get() = prefs?.getBoolean(KEY_SAVE_ENABLED, true) ?: true
+        set(value) {
+            prefs?.edit()?.putBoolean(KEY_SAVE_ENABLED, value)?.apply()
+        }
+
     private fun keyAlias(type: SourceType) = KEY_PREFIX + type.name
     private fun emailKey(type: SourceType) = "email_" + type.name
     private fun passKey(type: SourceType) = "pass_" + type.name
 
-    /** 登录成功后保存凭据（覆盖旧值） */
+    /** 登录成功后保存凭据（覆盖旧值）；用户关闭「保存账号密码」时不落盘 */
     fun save(type: SourceType, email: String, password: String) {
         val p = prefs ?: return
+        if (!saveEnabled) return
         try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(type))
@@ -78,9 +92,6 @@ object SecureAccountStore {
     /** 仅邮箱（登录页展示用，不触发解密失败清理） */
     fun savedEmail(type: SourceType): String? =
         prefs?.getString(emailKey(type), null)
-
-    fun hasSaved(type: SourceType): Boolean =
-        prefs?.contains(passKey(type)) == true
 
     fun clear(type: SourceType) {
         prefs?.edit()

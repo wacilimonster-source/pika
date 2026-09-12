@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
+import com.pika.data.FollowItem
 import com.pika.data.FollowSettings
 
 /** 关注管理：添加/删除关键词关注（支持组合关键词 + 可选标签，且关系） */
@@ -50,12 +51,15 @@ import com.pika.data.FollowSettings
 fun FollowManageScreen(
     onBack: () -> Unit,
 ) {
-    var items by remember { mutableStateOf(FollowSettings.items()) }
+    // 组合期不读盘：初值空，LaunchedEffect 中在 IO 线程加载
+    var items by remember { mutableStateOf<List<FollowItem>>(emptyList()) }
     var showKeywordDialog by remember { mutableStateOf(false) }
 
     fun reload() {
         items = FollowSettings.items()
     }
+
+    LaunchedEffect(Unit) { reload() }
 
     Scaffold(
         topBar = {
@@ -86,7 +90,10 @@ fun FollowManageScreen(
             if (items.isEmpty()) {
                 item { EmptyHint("暂无关键词关注，点击添加") }
             }
-            items(items, key = { it.keywords.joinToString("+") + (it.tag ?: "") }) { item ->
+            // 用不可出现在关键词里的 \u0000 作分隔符：此前用 "+" 拼接有歧义
+            // （["a","b"] + tag"c" 与 ["a","bc"] + 无 tag 都得到 "a+bc"），
+            // LazyColumn 遇重复 key 会抛异常崩溃
+            items(items, key = { it.keywords.joinToString("\u0000") + "\u0000" + (it.tag ?: "") }) { item ->
                 FollowRow(
                     name = item.keywords.joinToString(" + ") + (item.tag?.let { "  [$it]" } ?: ""),
                     onDelete = {
@@ -176,7 +183,9 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
     var tagList by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        tagList = runCatching { SourceManager.current().tags() }.getOrDefault(emptyList())
+        // 对话框关闭时取消加载：不能把取消当成"词表为空"
+        tagList = com.pika.core.runCatchingCancellable { SourceManager.current().tags() }
+            .getOrDefault(emptyList())
     }
 
     AlertDialog(

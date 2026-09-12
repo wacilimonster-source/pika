@@ -36,6 +36,17 @@ data class DownloadTask(
     val order: Int,
     val epTitle: String,
     val pageCount: Int,
+    /**
+     * 入队时所属的数据源（SourceType.name）。
+     *
+     * 必须固化：下载是长生命周期任务（批量入队 / 失败重试 / 重启恢复），
+     * 用户完全可能在下载进行中切换数据源。若运行时才用 `SourceManager.current()`，
+     * 就会拿另一个源的实现去查同名 comicId——轻则必然失败并给出误导性错误，
+     * 重则 ID 恰好撞车，把别的内容写进同一目录。
+     *
+     * 默认值保证历史 manifest.json（无该字段）仍可反序列化，按哔咔处理。
+     */
+    val source: String = "PICACG",
     val createdAt: Long = System.currentTimeMillis(),
 )
 
@@ -126,12 +137,13 @@ object DownloadManager {
         order: Int,
         epTitle: String,
         pageCount: Int,
+        source: String = SourceManager.activeSource.value.name,
     ) {
         scope.launch {
             mutex.withLock {
                 val list = _tasks.value.toMutableList()
                 val idx = list.indexOfFirst { it.key == "$comicId#$order" }
-                val task = DownloadTask(comicId, comicTitle, coverUrl, order, epTitle, pageCount)
+                val task = DownloadTask(comicId, comicTitle, coverUrl, order, epTitle, pageCount, source)
                 if (idx >= 0) {
                     val old = list[idx]
                     list[idx] = old.copy(
@@ -157,6 +169,7 @@ object DownloadManager {
         comicTitle: String,
         coverUrl: String,
         chapters: List<Pair<Int, String>>,
+        source: String = SourceManager.activeSource.value.name,
     ) {
         if (chapters.isEmpty()) return
         scope.launch {
@@ -186,6 +199,7 @@ object DownloadManager {
                                     order = order,
                                     epTitle = epTitle,
                                     pageCount = 0,
+                                    source = source,
                                 ),
                             )
                         )
@@ -274,7 +288,12 @@ object DownloadManager {
             val task = _tasks.value.firstOrNull { it.key == key } ?: return@launch
             val t = task.task
             try {
-                val pages = SourceManager.current().chapterPages(t.comicId, t.order)
+                // 用任务入队时固化的数据源，而不是"此刻的活动源"：
+                // 下载中切换数据源不应改变进行中/待重试任务的来源
+                val sourceType = com.pika.core.source.SourceType.entries
+                    .firstOrNull { it.name == t.source } ?: com.pika.core.source.SourceType.PICACG
+                val source = SourceManager.sourceOf(sourceType)
+                val pages = source.chapterPages(t.comicId, t.order)
                 // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
                 if (t.pageCount != pages.size) {
                     mutex.withLock {

@@ -46,6 +46,12 @@ data class ComicDetail(
     val commentsCount: Long = 0,
     val updatedAt: String = "",
     val createdAt: String = "",
+    /**
+     * 当前用户是否已收藏（源提供时填充）。
+     * 缺省 false：不支持的源保持原行为；支持的源用它初始化详情页心形状态，
+     * 避免「已收藏的作品显示为未收藏、取消收藏需要点两次」。
+     */
+    val isFavourite: Boolean = false,
 )
 
 /** 章节 */

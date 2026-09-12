@@ -111,10 +111,14 @@ fun SettingsScreen(
                         onSelect = { scope.launch { SourceManager.switch(type) } },
                         onLogin = if (loggedIn) null else {
                             {
-                                if (type != activeSource) {
-                                    scope.launch { SourceManager.switch(type) }
+                                // 切源与导航必须串行：原实现先 launch 再同步导航，
+                                // 登录页可能以旧源组合，把新源账号提交给旧源
+                                scope.launch {
+                                    if (type != activeSource) SourceManager.switch(type)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                                        onOpenLogin()
+                                    }
                                 }
-                                onOpenLogin()
                             }
                         },
                     )
@@ -338,7 +342,8 @@ private fun UpdateSection() {
                         androidx.compose.material3.Button(onClick = {
                             state = UpdateUiState.Downloading
                             scope.launch {
-                                runCatching {
+                                // 用 runCatchingCancellable：对话框关闭导致的取消不能被当成"下载失败"
+                                com.pika.core.runCatchingCancellable {
                                     // 下载 + SHA-256 校验：update.json 提供 sha256 时强校验
                                     UpdateManager.downloadAndVerify(context, info) { p, _, _ -> progress = p }
                                         .also { apk ->

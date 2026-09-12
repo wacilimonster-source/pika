@@ -89,10 +89,16 @@ fun CategoryScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val categories by viewModel.categories.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(com.pika.data.CategorySettings.get()) }
+    // 组合期不做磁盘/SharedPreferences 读取：初值给空设置，在 LaunchedEffect 中加载
+    var settings by remember { mutableStateOf(com.pika.data.CategorySettings.Settings()) }
 
     LaunchedEffect(activeSource) {
         viewModel.loadCategories()
+    }
+    LaunchedEffect(Unit) {
+        settings = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.pika.data.CategorySettings.get()
+        }
     }
 
     val displayCategories = remember(categories, settings) {
@@ -160,7 +166,13 @@ fun CategoryScreen(
     }
 }
 
-/** 分类漫画流：固定一个分类，分页浏览，支持排序 + 连载状态筛选。 */
+/**
+ * 分类漫画流：固定一个分类，分页浏览，当前仅提供排序筛选。
+ *
+ * 注：BrowseViewModel 具备连载状态筛选（setStatus / supportsStatusFilter），但本页面
+ * 未渲染状态筛选入口，因此该能力在此处于"已实现未接线"状态。此前注释声称"支持排序 +
+ * 连载状态筛选"，与界面不符。要启用需在此补状态 chip 并在 ComicGridView 的筛选区呈现。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoryComicsScreen(

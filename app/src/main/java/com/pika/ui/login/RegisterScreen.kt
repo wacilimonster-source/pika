@@ -65,7 +65,9 @@ fun RegisterScreen(
             error = "昵称长度至少 2 个字符"
             return
         }
-        if (!Regex("^[a-zA-Z0-9]+$").matches(email)) {
+        // 校验用 trim 后的值：提交时用的是 email.trim()，此前校验未 trim，
+        // 首尾带空格的合法邮箱会被误报"只能字母和数字"
+        if (!Regex("^[a-zA-Z0-9]+$").matches(email.trim())) {
             error = "用户名只能包含字母和数字（将作为登录邮箱）"
             return
         }
@@ -88,6 +90,8 @@ fun RegisterScreen(
                     gender = gender,
                 )
                 onLoggedIn()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = when {
                     e.message?.contains("already exist", ignoreCase = true) == true -> "该用户名已被注册"

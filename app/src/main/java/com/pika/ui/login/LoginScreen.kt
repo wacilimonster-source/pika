@@ -3,14 +3,22 @@ package com.pika.ui.login
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -24,6 +32,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.launch
@@ -45,15 +56,20 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // 已保存账号：预填邮箱/密码，一键登录
-    val savedEmail = remember(activeSource) { SourceManager.savedAccountEmail() }
+    // 密码默认掩码显示，可点眼睛临时查看
+    var passwordVisible by remember { mutableStateOf(false) }
+    // 是否保存账号密码（全局偏好，默认沿用既有行为 = 保存）
+    var rememberPassword by remember { mutableStateOf(com.pika.data.SecureAccountStore.saveEnabled) }
+    // 已保存账号（邮箱仅用于展示，非敏感）
+    var savedEmail by remember(activeSource) { mutableStateOf(SourceManager.savedAccountEmail()) }
     LaunchedEffect(activeSource) {
+        // 邮箱不涉及敏感信息，直接回填；密码仅在「保存账号密码」开启时回填
         val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             com.pika.data.SecureAccountStore.load(activeSource)
         }
         if (saved != null) {
             email = saved.first
-            password = saved.second
+            if (rememberPassword) password = saved.second
         }
     }
 
@@ -92,9 +108,47 @@ fun LoginScreen(
             onValueChange = { password = it },
             label = { Text("密码") },
             singleLine = true,
+            // 默认掩码：此前缺失该属性，打开登录页即明文显示已保存密码（截图/旁人可见）
+            visualTransformation = if (passwordVisible) VisualTransformation.None
+            else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(
+                        imageVector = if (passwordVisible) Icons.Filled.VisibilityOff
+                        else Icons.Filled.Visibility,
+                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                    )
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Checkbox(
+                checked = rememberPassword,
+                onCheckedChange = { checked ->
+                    rememberPassword = checked
+                    com.pika.data.SecureAccountStore.saveEnabled = checked
+                    if (!checked) {
+                        // 关闭即清除已保存凭据，避免"以为没存"却仍留在磁盘/Keystore
+                        com.pika.data.SecureAccountStore.clear(activeSource)
+                        savedEmail = null
+                    } else {
+                        savedEmail = SourceManager.savedAccountEmail()
+                    }
+                },
+            )
+            Text(
+                text = "保存账号密码（便于下次一键登录）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
 
         error?.let {
             Text(
@@ -117,6 +171,8 @@ fun LoginScreen(
                     try {
                         SourceManager.current().login(email.trim(), password)
                         onLoggedIn()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         error = e.message ?: "登录失败"
                     } finally {

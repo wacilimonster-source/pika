@@ -31,6 +31,15 @@ object BcTls {
     private var trustManager: X509TrustManager? = null
     private var installed = false
 
+    /** 最近一次安装失败原因（供设置页网络诊断展示；null = 未失败） */
+    @Volatile
+    var lastError: String? = null
+        private set
+
+    /** 每请求路径只告警一次，避免降级后刷屏 */
+    @Volatile
+    private var warnedFallback = false
+
     @Synchronized
     fun install() {
         if (installed) return
@@ -47,10 +56,24 @@ object BcTls {
             trustManager = tms.filterIsInstance<X509TrustManager>().firstOrNull()
                 ?: throw IllegalStateException("系统 TrustManagerFactory 未提供 X509TrustManager")
             installed = true
+            lastError = null
             Log.i("BcTls", "BouncyCastle TLS 已安装（系统 CA 校验）— 绕过 Cloudflare BoringSSL 拦截")
         } catch (e: Throwable) {
-            Log.e("BcTls", "BouncyCastle TLS 安装失败: ${e.message}")
+            // 失败必须落到 LogStore：BCJSSE 是绕开 Cloudflare 的**唯一依赖**，
+            // 装配失败会让整个哔咔源全量失败，而症状看起来只是"网络/限流"，
+            // 仅写 android.util.Log 会让排查成本极高。
+            val msg = "${e.javaClass.simpleName}: ${e.message}"
+            lastError = msg
+            Log.e("BcTls", "BouncyCastle TLS 安装失败: $msg")
+            com.pika.core.log.LogStore.log("BcTls", "E", "BouncyCastle TLS 安装失败: $msg")
         }
+    }
+
+    /** 确保可用：未安装或曾失败时重试一次（与 JmClient / UpdateManager 的调用方式对齐） */
+    fun ensureInstalled(): Boolean {
+        if (isAvailable()) return true
+        install()
+        return isAvailable()
     }
 
     fun isAvailable(): Boolean = sslSocketFactory != null && trustManager != null
@@ -62,10 +85,21 @@ object BcTls {
         if (sf != null && tm != null) {
             builder.sslSocketFactory(sf, tm)
         } else {
-            Log.w("BcTls", "BC TLS 不可用，回退平台默认（可能被 1023 拦截）")
+            warnFallbackOnce()
         }
         return builder
     }
+
+    /** 降级告警只打一次：降级后每个请求都会走到这里，逐次打印会淹没日志 */
+    private fun warnFallbackOnce() {
+        if (warnedFallback) return
+        warnedFallback = true
+        Log.w("BcTls", "BC TLS 不可用，回退平台默认（可能被 1023 拦截）")
+        com.pika.core.log.LogStore.log("BcTls", "W", "BC TLS 不可用，回退平台默认（可能被 Cloudflare 拦截）")
+    }
+
+    /** 供 PicaHttpEngine 等每请求路径复用同一份"只告警一次"逻辑 */
+    fun warnFallbackShared() = warnFallbackOnce()
 
     /** 供 Coil 图片加载使用（同样走 BC TLS，避免漫画图片被 Cloudflare 拦截） */
     val imageLoaderClient: OkHttpClient by lazy {

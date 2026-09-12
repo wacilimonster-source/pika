@@ -58,6 +58,8 @@ fun CloudHistoryScreen(
                 comics = if (next == 1) r.items else comics + r.items
                 page = next
                 endReached = next >= r.pages
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (comics.isEmpty()) error = e.message ?: "加载失败"
             } finally {

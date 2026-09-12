@@ -96,10 +96,13 @@ fun SourceManageScreen(
                         loggedIn = loggedIn,
                         savedEmail = savedEmail,
                         onLogin = {
-                            if (type != activeSource) {
-                                scope.launch { SourceManager.switch(type) }
+                            // 串行化：先切源再导航，避免登录页以旧源组合（把账号提交给旧源）
+                            scope.launch {
+                                if (type != activeSource) SourceManager.switch(type)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                                    onOpenLogin()
+                                }
                             }
-                            onOpenLogin()
                         },
                     )
                 }
@@ -149,6 +152,7 @@ private fun JmDomainEditor() {
     val scope = rememberCoroutineScope()
     var jmBase by remember { mutableStateOf("") }
     var savedTick by remember { mutableIntStateOf(0) }
+    var baseError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         jmBase = SourcePrefs.current().jmBaseUrl ?: JmClient.DEFAULT_BASE
@@ -181,11 +185,18 @@ private fun JmDomainEditor() {
             Button(
                 onClick = {
                     val v = jmBase.trim().trimEnd('/')
-                    if (v.isNotEmpty()) {
-                        scope.launch {
-                            SourcePrefs.current().setJmBaseUrl(v)
-                            savedTick += 1
-                        }
+                    if (v.isEmpty()) {
+                        // 此前输入为空时点击保存毫无反应，用户不知为何
+                        baseError = "域名不能为空"
+                        savedTick = 0
+                        return@Button
+                    }
+                    baseError = null
+                    scope.launch {
+                        SourcePrefs.current().setJmBaseUrl(v)
+                        // 回填规范化后的值，避免输入框仍显示带空格/尾斜杠的原文
+                        jmBase = v
+                        savedTick += 1
                     }
                 },
             ) { Text("保存") }
@@ -194,6 +205,14 @@ private fun JmDomainEditor() {
             Text(
                 text = "已保存",
                 color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+            )
+        }
+        baseError?.let { msg ->
+            Text(
+                text = msg,
+                color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
             )

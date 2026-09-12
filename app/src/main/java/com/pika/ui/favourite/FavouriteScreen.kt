@@ -67,8 +67,12 @@ class FavouriteViewModel : ViewModel() {
         needsRestore = true
     }
 
+    /** 请求代际：连点页码时旧页响应不得覆盖新页（与 ComicDetailViewModel 的 gen 范式一致） */
+    private var loadGeneration = 0
+
     fun jumpToPage(page: Int) {
         needsRestore = false
+        val gen = ++loadGeneration
         _currentPage.value = page
         _endReached.value = true  // 防止加载期间 ComicGridView 触发 loadMore
         viewModelScope.launch {
@@ -76,15 +80,18 @@ class FavouriteViewModel : ViewModel() {
             _error.value = null
             try {
                 val r = SourceManager.current().favourites(page)
+                if (gen != loadGeneration) return@launch
                 _comics.value = r.items  // 替换而非追加
                 _totalPages.value = r.pages.coerceAtLeast(1)
                 _endReached.value = page >= r.pages
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (_comics.value.isEmpty()) {
-                    _error.value = e.message ?: "加载失败"
-                }
+                if (gen != loadGeneration) return@launch
+                // 此前只在列表为空时提示，翻页失败完全静默——改为始终可感知
+                _error.value = e.message ?: "加载失败"
             } finally {
-                _loading.value = false
+                if (gen == loadGeneration) _loading.value = false
             }
         }
     }
@@ -96,21 +103,26 @@ class FavouriteViewModel : ViewModel() {
             _currentPage.value = _savedCurrentPage
             return
         }
+        val gen = ++loadGeneration
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
                 val result = SourceManager.current().favourites(page)
+                if (gen != loadGeneration) return@launch
                 _comics.value = if (page == 1) result.items else _comics.value + result.items
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = page >= result.pages
                 _currentPage.value = page
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (gen != loadGeneration) return@launch
                 if (page == 1 && _comics.value.isEmpty()) {
                     _error.value = e.message ?: "加载失败"
                 }
             } finally {
-                _loading.value = false
+                if (gen == loadGeneration) _loading.value = false
             }
         }
     }

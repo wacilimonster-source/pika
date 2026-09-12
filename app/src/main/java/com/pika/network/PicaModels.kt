@@ -4,10 +4,17 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/**
+ * 说明：集合型字段一律给默认值。
+ * `ignoreUnknownKeys` 只放过「多出来的字段」，不处理**缺失**字段；`coerceInputValues`
+ * 也只在属性**已有默认值**时才能把 null 折算掉。此前这些字段零默认值，服务端一次
+ * 缺字段/返回 null（灰度、加字段、docs:null）就会抛解析异常，让整页加载失败。
+ * 真正的必需标量（如 code）保持严格，避免把真实错误一起吞掉。
+ */
 @Serializable
 data class ApiResponse<T>(
-    val code: Int,
-    val message: String,
+    val code: Int = 0,
+    val message: String = "",
     val data: T? = null,
 )
 
@@ -46,24 +53,25 @@ data class ImageDetail(
     private val normalizedPath: String
         get() = path.split("/").filter { it.isNotEmpty() }.joinToString("/")
 
-    /** 直连地址 */
+    /**
+     * 直连地址。
+     *
+     * 归一化策略：把 fileServer 与 path 两边的 `static` 段各自去重一次，再拼一次——
+     * 避免「fileServer 已含 static」且「path 以 static/ 开头」时拼出 `static/static/`（必然 404）。
+     */
     val directUrl: String
         get() {
             val fs = fileServer.trimEnd('/')
             if (fs.isBlank()) return ""
-            val p = normalizedPath
-            return if (p.startsWith("static/")) {
-                "$fs/$p"
-            } else if (fs.contains("static")) {
-                "$fs/$p"
+            // path 归一化时已去掉前导 '/'；此处再去掉可能与之重复的 "static/" 前缀
+            val p = normalizedPath.trimStart('/').removePrefix("static/")
+            val base = if (fs.endsWith("/static") || fs.substringAfterLast('/').startsWith("static")) {
+                fs
             } else {
-                "$fs/static/$p"
+                "$fs/static"
             }
+            return if (p.isEmpty()) base else "$base/$p"
         }
-
-    /** web 代理地址（picacomic → go2778 域名替换） */
-    val proxyUrl: String
-        get() = directUrl.replaceFirst("picacomic", "go2778")
 }
 
 @Serializable
@@ -79,7 +87,7 @@ data class Category(
 
 @Serializable
 data class CategoriesResponse(
-    val categories: List<Category>,
+    val categories: List<Category> = emptyList(),
 )
 
 @Serializable
@@ -99,12 +107,19 @@ data class Doc(
     val tags: List<String> = emptyList(),
     @SerialName("updated_at") val updatedAt: String = "",
 ) {
-    val comicId: String get() = thumb?.let { id ?: uid } ?: uid
+    /**
+     * 详情页路由用的漫画 ID。
+     *
+     * 判据只允许是「ID 本身是否有效」——此前写成 `thumb?.let { id ?: uid } ?: uid`，
+     * 把「有没有封面」当成了「数据来自哪个接口」的隐式开关：列表项恰好缺封面时，
+     * 导航 ID 会从 id 静默切换成 _id，可能导致详情 404 / 收藏落到另一本 / 去重失效。
+     */
+    val comicId: String get() = id?.takeIf { it.isNotBlank() } ?: uid
 }
 
 @Serializable
 data class ComicsData(
-    val docs: List<Doc>,
+    val docs: List<Doc> = emptyList(),
     val limit: Int = 0,
     val page: Int = 0,
     val pages: Int = 0,
@@ -174,7 +189,7 @@ data class Chapter(
 
 @Serializable
 data class ChaptersData(
-    val docs: List<Chapter>,
+    val docs: List<Chapter> = emptyList(),
     val total: Int = 0,
     val limit: Int = 0,
     val page: Int = 0,
@@ -195,7 +210,7 @@ data class ChapterImage(
 
 @Serializable
 data class ImagesData(
-    val docs: List<ChapterImage>,
+    val docs: List<ChapterImage> = emptyList(),
     val total: Int = 0,
     val limit: Int = 0,
     val page: Int = 0,
@@ -264,7 +279,7 @@ data class SearchComic(
 
 @Serializable
 data class SearchData(
-    val docs: List<SearchComic>,
+    val docs: List<SearchComic> = emptyList(),
     val total: Int = 0,
     val limit: Int = 0,
     val page: Int = 0,
@@ -298,22 +313,22 @@ data class User(
 
 @Serializable
 data class UserProfileResponse(
-    val user: User,
+    val user: User? = null,
 )
 
 @Serializable
 data class ComicRankResponse(
-    val comics: List<Doc>,
+    val comics: List<Doc> = emptyList(),
 )
 
 @Serializable
 data class HotSearchWordsResponse(
-    val keywords: List<String>,
+    val keywords: List<String> = emptyList(),
 )
 
 @Serializable
 data class RandomComicsResponse(
-    val comics: List<Doc>,
+    val comics: List<Doc> = emptyList(),
 )
 
 @Serializable
@@ -336,7 +351,7 @@ data class RecommendComic(
 
 @Serializable
 data class RecommendComics(
-    val comics: List<RecommendComic>,
+    val comics: List<RecommendComic> = emptyList(),
 )
 
 object ComicSortTypeName {
@@ -366,7 +381,7 @@ data class Comment(
 
 @Serializable
 data class CommentsData(
-    val docs: List<Comment>,
+    val docs: List<Comment> = emptyList(),
     val total: Int = 0,
     val limit: Int = 0,
     val page: Int = 0,
@@ -375,7 +390,7 @@ data class CommentsData(
 
 @Serializable
 data class CommentsResponse(
-    val comments: CommentsData,
+    val comments: CommentsData = CommentsData(),
 )
 
 @Serializable
@@ -426,7 +441,7 @@ data class PersonalComment(
 
 @Serializable
 data class PersonalCommentsData(
-    val docs: List<PersonalComment>,
+    val docs: List<PersonalComment> = emptyList(),
     val pages: Int = 0,
     val total: Int = 0,
     val limit: Int = 0,
@@ -435,7 +450,7 @@ data class PersonalCommentsData(
 
 @Serializable
 data class PersonalCommentsResponse(
-    val comments: PersonalCommentsData,
+    val comments: PersonalCommentsData = PersonalCommentsData(),
 )
 
 // ---------- 账号 ----------

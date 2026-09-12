@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -120,6 +121,8 @@ class SearchViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _hotWords.value = SourceManager.current().hotWords()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // 热搜失败忽略
             }
@@ -132,6 +135,8 @@ class SearchViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _tags.value = SourceManager.current().tags()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // 词表失败忽略（视为源不支持）
             }
@@ -152,20 +157,47 @@ class SearchViewModel : ViewModel() {
 
     fun resetFilters() = updateFilter(sort = ComicSort.DD)
 
-    /** 完全重置搜索状态（含标签筛选） */
+    /** 完全重置搜索状态（含标签筛选、在途任务、多词临时数据） */
     fun resetAll() {
+        // 必须取消在途任务并清空判据：多词交集靠 words == _activeSearchWords 判断是否过期，
+        // 只清 UI 状态的话，仍在跑的任务会把刚清空的列表重新填满（"清不掉的结果"）。
+        searchJob?.cancel()
+        multiSearchJob?.cancel()
+        _activeSearchWords = emptyList()
+        _multiAllComics.clear()
+        _confirmedIntersectionIds = emptySet()
+        _multiSearchComplete.value = false
+        _multiLoading.value = false
+        _loading.value = false
         _selectedTag.value = null
         resetFilters()
         _keyword.value = ""
         _comics.value = emptyList()
         _endReached.value = false
         _totalPages.value = 1
+        _currentPage.value = 1
     }
 
     fun search(keyword: String, page: Int) {
         searchJob?.cancel()
         multiSearchJob?.cancel()
         hasSearched = true
+        // 空关键词不发请求：筛选条件变化（selectTag / updateSortOnly / resetFilters）在
+        // 关键词为空时也会调到此处，此前会打一次无意义的空搜索，加剧服务端限流压力。
+        if (keyword.isBlank()) {
+            _keyword.value = ""
+            _activeSearchWords = emptyList()
+            _multiAllComics.clear()
+            _confirmedIntersectionIds = emptySet()
+            _multiSearchComplete.value = true
+            _multiLoading.value = false
+            _loading.value = false
+            _comics.value = emptyList()
+            _endReached.value = true
+            _totalPages.value = 1
+            _currentPage.value = 1
+            return
+        }
         _comics.value = emptyList()
         _loading.value = true
         _multiLoading.value = false
@@ -204,7 +236,8 @@ class SearchViewModel : ViewModel() {
                     computeMultiWordIntersection(source, words, page, tagFilter)
                 }
             } finally {
-                _loading.value = false
+                // isActive 守卫：被新搜索取消的旧协程不得把新搜索刚置的 loading 关掉
+                if (isActive) _loading.value = false
             }
         }
     }
@@ -234,7 +267,9 @@ class SearchViewModel : ViewModel() {
             val wordPageCountDefs = words.map { word ->
                 async {
                     delay(250)
-                    val first = runCatching { searchWithRetry(source, word, startPage, categories) }.getOrNull()
+                    val first = com.pika.core.runCatchingCancellable {
+                        searchWithRetry(source, word, startPage, categories)
+                    }.getOrNull()
                     word to (first?.pages ?: 1).coerceIn(1, 50)
                 }
             }
@@ -247,10 +282,13 @@ class SearchViewModel : ViewModel() {
 
             // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
+                if (rateLimitCooldownExceeded()) break
                 val page = (wordProgress[word] ?: 0) + 1
                 val items = semaphore.withPermit {
                     delay(250)
-                    runCatching { searchWithRetry(source, word, page, categories) }.getOrNull()?.items ?: emptyList()
+                    com.pika.core.runCatchingCancellable {
+                        searchWithRetry(source, word, page, categories)
+                    }.getOrNull()?.items ?: emptyList()
                 }
                 if (items.isNotEmpty()) {
                     wordIdSets[word]?.addAll(items.map { it.id })
@@ -268,6 +306,10 @@ class SearchViewModel : ViewModel() {
             var madeProgress = true
             while (madeProgress) {
                 madeProgress = false
+                // 服务端已进入限流冷却：继续请求必然全失败，且会不断续期冷却时间
+                // （此前无此检查，一次多词搜索最坏 150 个请求，把自己打进全局冷却，
+                //   连累首页/排行榜/详情一起长时间不可用）
+                if (rateLimitCooldownExceeded()) break
                 val pendingWords = wordPageCounts.filter { (w, totalPages) ->
                     (wordProgress[w] ?: 0) < totalPages
                 }
@@ -279,7 +321,9 @@ class SearchViewModel : ViewModel() {
                         val nextPage = (wordProgress[w] ?: 0) + 1
                         val items = semaphore.withPermit {
                             delay(250)
-                            runCatching { searchWithRetry(source, w, nextPage, categories) }.getOrNull()?.items ?: emptyList()
+                            com.pika.core.runCatchingCancellable {
+                                searchWithRetry(source, w, nextPage, categories)
+                            }.getOrNull()?.items ?: emptyList()
                         }
                         w to items
                     }
@@ -435,11 +479,14 @@ class SearchViewModel : ViewModel() {
                     _totalPages.value = result.pages.coerceAtLeast(1)
                     _currentPage.value = next
                     _endReached.value = next >= result.pages
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 取消是新一轮搜索接管，不能当成"加载失败"置 endReached
+                    throw e
                 } catch (e: Exception) {
                     // 累积失败停止自动加载，避免 UI 循环重试刷屏
                     _endReached.value = true
                 } finally {
-                    _loading.value = false
+                    if (isActive) _loading.value = false
                 }
             }
         }
@@ -449,6 +496,10 @@ class SearchViewModel : ViewModel() {
     fun resetFilterPage() {
         _currentPage.value = 1
     }
+
+    /** 服务端限流冷却中（>0 表示仍在冷却）。批量拉取循环应在每次取数前检查并中断 */
+    private fun rateLimitCooldownExceeded(): Boolean =
+        com.pika.network.PicaClient.rateLimitRemaining() > 0
 
     /** 单页搜索，失败自动重试 */
     private suspend fun searchWithRetry(

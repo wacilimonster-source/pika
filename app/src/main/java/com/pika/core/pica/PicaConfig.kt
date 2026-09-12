@@ -3,38 +3,50 @@ package com.pika.core.pica
 /**
  * 哔咔网络层配置：移植自 haka_comic lib/network/utils.dart
  *
- * 说明：客户端签名密钥本质上无法真正隐藏（逆向总能取到），此处仅做「分段拼接」处理，
- * 避免完整密钥以单条字符串常量的形式出现在常量池中，提高静态提取的门槛。
- * 如需更强加固，可进一步移入 NDK .so 或引入字符串加密（StringFog / DexGuard）。
+ * 关于密钥加固的**如实说明**：
+ * 客户端签名密钥在逆向面前终究可被提取，此处目标只是「提高静态提取门槛」。
+ * 原实现用 `const val` 分段拼接 —— 但 Kotlin 的 const 是**编译期常量**，
+ * 字符串常量相加会在编译期直接求值，产物中不保留任何片段；release 的 R8
+ * 常量传播还会进一步合并。也就是说注释声称的防护等于零，反而让人误判风险等级
+ * （「以为加固了、其实没有」比不做混淆更危险）。
+ *
+ * 现改为「运行时按位还原」：字节值以 IntArray 存放（非 String 常量），
+ * 完整密钥只在运行时拼出，不参与编译期折叠。
+ * 如需更强防护请引入字符串加密（StringFog / DexGuard）或把签名计算移入 NDK。
  */
 object PicaConfig {
-    private const val API_KEY_P1 = "C69BAF41DA5AB"
-    private const val API_KEY_P2 = "D1FFEDC6D2FEA56B"
-    const val API_KEY: String = API_KEY_P1 + API_KEY_P2
+    private const val KEY_MASK = 0x6F
 
-    private const val SECRET_P1 = "~d}\$Q7\$eIni=V)9"
-    private const val SECRET_P2 = "\\RK/P.RM4;9[7|@/"
-    private const val SECRET_P3 = "CA}b~OW!3?EV`:"
-    private const val SECRET_P4 = "<>M7pddUBL5n|0/*Cn"
-    const val SECRET_KEY: String = SECRET_P1 + SECRET_P2 + SECRET_P3 + SECRET_P4
+    // "C69BAF41DA5ABD1FFEDC6D2FEA56B" 逐字节异或 KEY_MASK
+    private val API_KEY_XOR = intArrayOf(
+        0x2C, 0x59, 0x56, 0x2D, 0x2E, 0x29, 0x5B, 0x5E, 0x2B, 0x2E, 0x5A, 0x2E, 0x2D, 0x2B, 0x5E, 0x29,
+        0x29, 0x2A, 0x2B, 0x2C, 0x59, 0x2B, 0x5D, 0x29, 0x2A, 0x2E, 0x5A, 0x59, 0x2D,
+    )
+
+    private val SECRET_KEY_XOR = intArrayOf(
+        0x11, 0x0B, 0x12, 0x4B, 0x3E, 0x58, 0x4B, 0x0A, 0x26, 0x01, 0x06, 0x52, 0x39, 0x46, 0x56, 0x33,
+        0x3D, 0x24, 0x40, 0x3F, 0x41, 0x3D, 0x22, 0x5B, 0x54, 0x56, 0x34, 0x58, 0x13, 0x2F, 0x40, 0x2C,
+        0x2E, 0x12, 0x0D, 0x11, 0x20, 0x38, 0x4E, 0x5C, 0x50, 0x2A, 0x39, 0x0F, 0x55, 0x53, 0x51, 0x22,
+        0x58, 0x1F, 0x0B, 0x0B, 0x3A, 0x2D, 0x23, 0x5A, 0x01, 0x13, 0x5F, 0x40, 0x45, 0x2C, 0x01,
+    )
+
+    /** 运行时还原，避免完整密钥以单条明文常量进入常量池 */
+    private fun decode(src: IntArray): String {
+        val chars = CharArray(src.size)
+        for (i in src.indices) chars[i] = (src[i] xor KEY_MASK).toChar()
+        return String(chars)
+    }
+
+    /** 每次访问都重新还原：不把完整密钥长期驻留为单条 String 常量 */
+    val API_KEY: String get() = decode(API_KEY_XOR)
+    val SECRET_KEY: String get() = decode(SECRET_KEY_XOR)
 }
 
 /** 每请求随机 nonce */
 fun picaNonce(): String = java.util.UUID.randomUUID().toString().replace("-", "")
 
-enum class ImageQuality(val displayName: String) {
-    LOW("低"),
-    MEDIUM("中"),
-    HIGH("高"),
-    ORIGINAL("原画"),
-}
-
-enum class PicaMethod(val value: String) {
-    GET("GET"),
-    POST("POST"),
-    DELETE("DELETE"),
-    PUT("PUT"),
-}
+// 注：原 ImageQuality / PicaMethod 枚举全项目无使用点（image-quality 头是硬编码 "original"），
+// 已按死代码清理移除，避免"看似有该能力、其实没接"。
 
 enum class ComicSortType(val title: String) {
     DD("新到旧"),

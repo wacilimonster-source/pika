@@ -8,8 +8,11 @@ import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
 import com.pika.core.log.LogStore
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /** 漫画详情 VM：基本信息 + 章节列表 + 相关推荐 + 评论区（当前源） */
@@ -89,6 +92,10 @@ class ComicDetailViewModel : ViewModel() {
         _replyingTo.value = null
         _commentEndReached.value = false
         _commentError.value = null
+        // 必须复位：loadComments 用 _commentLoading 作重入锁，而它的收尾复位带 gen 守卫
+        // （旧代不复位）。漏掉这一行的话，切书瞬间若旧评论请求在途，_commentLoading 会
+        // 永久停在 true —— 之后所有漫画的评论区都卡在加载中，直到 VM 销毁。
+        _commentLoading.value = false
         _comments.value = emptyList()
         _recommendations.value = emptyList()
         commentPage = 1
@@ -117,6 +124,9 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val detail = SourceManager.current().comicDetail(comicId)
                 if (gen != loadGeneration) return@launch
+                // 用详情接口的真实收藏态初始化心形：此前 _favourited 恒以 false 起始，
+                // 导致已收藏的作品显示为未收藏、首次点击语义相反（需点两次才能取消）
+                _favourited.value = detail.isFavourite
                 _comic.value = detail.also {
                     // 列表接口不返回更新时间，详情拉到就记录，供关注流回填展示
                     if (it.updatedAt.isNotBlank()) {
@@ -134,6 +144,7 @@ class ComicDetailViewModel : ViewModel() {
         }
         loadRecommendations(comicId, gen)
         loadComments(comicId, page = 1, gen = gen)
+        observeDownloaded(comicId)
     }
 
     /** 相关推荐（源不支持时静默失败） */
@@ -142,15 +153,39 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val list = SourceManager.current().recommendations(comicId)
                 if (gen == loadGeneration) _recommendations.value = list
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (gen == loadGeneration) _recommendations.value = emptyList()
             }
         }
     }
 
-    /** 章节是否已下载（有本地文件） */
-    fun isDownloaded(comicId: String, chapter: ComicChapter): Boolean =
-        com.pika.core.download.DownloadManager.isDownloaded(comicId, chapter.order)
+    /**
+     * 已下载章节号集合（供 UI 查表）。
+     *
+     * 此前 UI 在 `remember { }` 里逐项同步调 isDownloaded → 内部 listFiles() 目录遍历，
+     * 章节列表每个 item 组合时都做一次磁盘 IO，滚动与下载进度刷新都会卡顿。
+     * 现改为「章节列表 / 下载任务任一变化时，在 IO 线程重算一次」。
+     */
+    private val _downloadedOrders = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
+    val downloadedOrders: kotlinx.coroutines.flow.StateFlow<Set<Int>> = _downloadedOrders
+
+    private var downloadedJob: kotlinx.coroutines.Job? = null
+
+    fun observeDownloaded(comicId: String) {
+        downloadedJob?.cancel()
+        downloadedJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.flow.combine(_chapters, com.pika.core.download.DownloadManager.tasks) { chs, _ -> chs }
+                .collectLatest { chs ->
+                    val set = chs.asSequence()
+                        .map { it.order }
+                        .filter { com.pika.core.download.DownloadManager.isDownloaded(comicId, it) }
+                        .toSet()
+                    _downloadedOrders.value = set
+                }
+        }
+    }
 
     /** 下载指定章节（入队，由 DownloadManager 调度） */
     fun downloadChapter(comicId: String, comic: ComicDetail?, chapter: ComicChapter) {
@@ -162,6 +197,7 @@ class ComicDetailViewModel : ViewModel() {
             epTitle = chapter.title,
             // 单章页数运行时才可知，传 0 由 runTask 拉取真实页数后回填
             pageCount = 0,
+            source = SourceManager.activeSource.value.name,
         )
     }
 
@@ -172,6 +208,7 @@ class ComicDetailViewModel : ViewModel() {
             comicTitle = comic?.title ?: comicId,
             coverUrl = comic?.coverUrl ?: "",
             chapters = chapters.map { it.order to it.title },
+            source = SourceManager.activeSource.value.name,
         )
     }
 
@@ -199,6 +236,8 @@ class ComicDetailViewModel : ViewModel() {
             } catch (e: UnsupportedOperationException) {
                 favouriteSupported = false
                 LogStore.log("Detail", "I", "favourite not supported by current source")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val msg = e.message ?: "未知错误"
                 _favouriteError.value = msg
@@ -231,6 +270,8 @@ class ComicDetailViewModel : ViewModel() {
             } catch (e: UnsupportedOperationException) {
                 commentSupported = false
                 _commentError.value = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (gen == loadGeneration) _commentError.value = e.message ?: "评论加载失败"
             } finally {
@@ -261,6 +302,8 @@ class ComicDetailViewModel : ViewModel() {
                 _comments.value = emptyList()
                 loadComments(comicId, page = 1)
                 onSent(null)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 onSent(e.message ?: "发送失败")
             } finally {
@@ -282,6 +325,8 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val result = SourceManager.current().commentChildren(commentId, page = 1)
                 _subComments.value = _subComments.value + (commentId to result.items)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // 加载子评论失败静默
             } finally {

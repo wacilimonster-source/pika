@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -249,9 +250,13 @@ fun ReaderScreen(
     }
 
     // 保存进度：滚动页码变化做 1 秒防抖（连续快速滑动不再逐屏写盘、
-    // 也不再高频全量重写"最近阅读"列表），切后台仍立即保存兜底
+    // 也不再高频全量重写"最近阅读"列表），切后台/退出立即保存兜底。
+    //
+    // 关键：状态读取必须发生在 snapshotFlow 的 lambda **内部**才有订阅效果。
+    // 原实现把 currentPage（组合期算好的普通 val）放进去，块内没有任何 State 读取，
+    // 于是 flow 只发射一次、本章内几乎不再保存进度。
     LaunchedEffect(pages.size, scrollMode) {
-        snapshotFlow { currentPage }
+        snapshotFlow { if (scrollMode) scrollVisiblePage.value else pagerState.currentPage }
             .distinctUntilChanged()
             .debounce(1_000)
             .collect { page ->
@@ -264,6 +269,18 @@ fun ReaderScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         viewModel.saveProgress(currentPage)
         viewModel.recordRecentRead(currentPage)
+    }
+    // 退出阅读器兜底：单 Activity + Navigation 下点返回只触发 composable dispose，
+    // 不会触发 Activity 的 ON_STOP，因此必须在这里补写一次，否则章内进度会丢。
+    // rememberUpdatedState 保证读到的是 dispose 那一刻的最新页码，而非首次组合时的闭包值。
+    val latestPage by rememberUpdatedState(currentPage)
+    DisposableEffect(Unit) {
+        onDispose {
+            if (pages.isNotEmpty()) {
+                viewModel.saveProgress(latestPage)
+                viewModel.recordRecentRead(latestPage)
+            }
+        }
     }
 
     // 预加载前后 2 页
@@ -343,11 +360,21 @@ fun ReaderScreen(
                     modifier = Modifier.navigationBarsPadding(),
                     scrollMode = scrollMode,
                     onModeChange = { mode ->
-                        scrollMode = mode
-                        ReaderPrefs.current().readerMode = if (mode) 0 else 1
-                        if (mode) {
+                        if (mode != scrollMode) {
+                            // 切换前先固定当前页码，切过去后定位到同一页
+                            // （此前只做了「翻页→滚动」方向的同步，反向缺失：
+                            //   读到第 50 页切横滑会瞬间跳回第 1 页，并可能写入错误进度）
+                            val target = currentPage
+                            scrollMode = mode
+                            ReaderPrefs.current().readerMode = if (mode) 0 else 1
                             scope.launch {
-                                listState.scrollToItem(rowToPage(pagerState.currentPage))
+                                if (mode) {
+                                    listState.scrollToItem(rowToPage(target))
+                                } else {
+                                    pagerState.scrollToPage(
+                                        target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+                                    )
+                                }
                             }
                         }
                     },

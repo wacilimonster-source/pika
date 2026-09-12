@@ -76,9 +76,18 @@ class SourcePrefs private constructor(private val appContext: Context) {
             AppScope.launch { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
         }
 
-    suspend fun setActiveSource(value: SourceType) {
+    /**
+     * 内存优先切换：立即更新内存缓存 + 投递后台落盘。
+     *
+     * 供「切源后马上导航」这类场景使用——原先的挂起版会先落盘再更新内存，
+     * 而调用方（设置页）是 `launch { switch() }` 后同步导航，导致登录页组合时读到的
+     * 还是旧源，用户可能把新源的账号提交给旧源。
+     */
+    fun markActiveSource(value: SourceType) {
         cachedSource = value
-        appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name }
+        AppScope.launch {
+            runCatching { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
+        }
     }
 
     // ---------- 设备 UUID（持久化，首次生成） ----------

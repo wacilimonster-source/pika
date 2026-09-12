@@ -9,6 +9,7 @@ import com.pika.core.source.SourceManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AuthorViewModel : ViewModel() {
@@ -79,10 +80,12 @@ class AuthorViewModel : ViewModel() {
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = page >= result.pages
                 applyFilterAndSort()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = e.message ?: "加载失败"
             } finally {
-                _loading.value = false
+                if (isActive) _loading.value = false
             }
         }
     }
@@ -91,31 +94,6 @@ class AuthorViewModel : ViewModel() {
         _needsScrollRestore = false
         _endReached.value = true
         loadComics(_author, page)
-    }
-
-    fun loadMore() {
-        if (_loading.value || _endReached.value) return
-        val nextPage = _currentPage.value + 1
-        _loading.value = true
-        loadJob = viewModelScope.launch {
-            try {
-                val result = SourceManager.current().browse(
-                    page = nextPage,
-                    category = null,
-                    sort = _sort.value,
-                    author = _author,
-                    tag = null,
-                )
-                _comics.value = _comics.value + result.items
-                _currentPage.value = nextPage
-                _totalPages.value = result.pages.coerceAtLeast(1)
-                _endReached.value = nextPage >= result.pages
-            } catch (e: Exception) {
-                // 加载失败不展示错误（列表还有数据）
-            } finally {
-                _loading.value = false
-            }
-        }
     }
 
     fun setSort(sort: ComicSort) {

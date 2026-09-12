@@ -75,14 +75,19 @@ fun AuthorComicsScreen(
     }
 
     LaunchedEffect(activeSource, supportedSorts) {
-        if (viewModel.sort.value !in supportedSorts) {
-            viewModel.setSort(supportedSorts.first())
+        // 空列表兜底：supportedSorts 由源声明，异常返回空时会越界崩溃
+        supportedSorts.firstOrNull()?.let { def ->
+            if (viewModel.sort.value !in supportedSorts) viewModel.setSort(def)
         }
     }
 
+    // 注：这里的 unsupported 指"不支持按作者浏览作品"，与 Source.supportsStatusFilter
+    // （是否提供完结状态字段）不是同一能力，故保留按源类型判断。
+    // 若要改为能力位，需在 Source 接口新增 supportsAuthorBrowse 并让禁漫源覆写，属独立改动。
     val unsupported = activeSource == com.pika.core.source.SourceType.JMCOMIC
 
-    var favourited by remember { mutableStateOf(com.pika.data.AuthorFavourites.contains(author)) }
+    // 组合期不读盘：初值 false，LaunchedEffect 中查询
+    var favourited by remember { mutableStateOf(false) }
     LaunchedEffect(author) {
         favourited = com.pika.data.AuthorFavourites.contains(author)
     }

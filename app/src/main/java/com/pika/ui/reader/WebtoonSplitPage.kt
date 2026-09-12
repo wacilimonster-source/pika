@@ -15,8 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,10 +59,14 @@ fun WebtoonSplitPage(
     val density = LocalDensity.current
     val safeSliceCount = sliceCount.coerceAtLeast(1)
 
-    // 图片"高/宽"比。默认取「切片数 × 视口比」，加载完成前的占位高度恰好为一屏，避免跳动
-    var heightRatio by remember(pageIndex, safeSliceCount) {
-        mutableFloatStateOf(safeSliceCount * viewportAspect)
-    }
+    // 图片"高/宽"比。
+    // 测量到真实比例前，用「切片数 × 视口比」占位，高度恰好为一屏，避免跳动。
+    // 关键：真实比例一旦测到就以它为准，**不能再被占位值覆盖**。
+    // 原实现把 heightRatio 的 remember key 设为 (pageIndex, safeSliceCount)，
+    // 切片数从 1 变为 n 时会把已测得的真实比例重置成 n×viewportAspect 的估算值，
+    // 而 LaunchedEffect(intrinsicSize) 因尺寸未变不会重跑，于是分屏高度/偏移按估算值计算。
+    var measuredRatio by remember(pageIndex) { mutableStateOf<Float?>(null) }
+    val heightRatio: Float = measuredRatio ?: (safeSliceCount * viewportAspect)
 
     // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
     var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
@@ -88,7 +92,8 @@ fun WebtoonSplitPage(
     LaunchedEffect(intrinsicSize) {
         if (intrinsicSize != null && intrinsicSize.width > 0f && intrinsicSize.height > 0f) {
             val ratio = intrinsicSize.height / intrinsicSize.width
-            if (heightRatio != ratio) heightRatio = ratio
+            // 写入 measuredRatio（而非可被重置的 heightRatio）
+            measuredRatio = ratio
             if (isPrimary && splitEnabled) {
                 val n = computeSliceCount(ratio, viewportAspect)
                 onSliceCountResolved(pageIndex, n)

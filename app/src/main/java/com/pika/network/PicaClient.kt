@@ -28,15 +28,24 @@ object PicaClient {
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        loadPersistedHost()?.let { baseUrl = it }
-        // TLS 由 PiKAApp.onCreate 单点安装；此处仅校验并记录，不再重复 install
-        if (!BcTls.isAvailable()) {
-            Log.w("PicaClient", "BcTls not installed yet (expect PiKAApp to install it)")
-            LogStore.log("PicaClient", "W", "BcTls not installed at PicaClient.init")
+        loadPersistedHost()?.let {
+            baseUrl = it
+            lastPersistedHost = it
+        }
+        // TLS 由 PiKAApp.onCreate 单点安装；此处校验，不可用则重试一次
+        // （与 JmClient / UpdateManager 的行为对齐：此前这里只告警不重试）
+        if (!BcTls.ensureInstalled()) {
+            Log.w("PicaClient", "BcTls unavailable after retry: ${BcTls.lastError}")
+            LogStore.log("PicaClient", "E", "BcTls unavailable: ${BcTls.lastError ?: "unknown"}")
         }
         Log.i("PicaClient", "initialized, bcTls=${BcTls.isAvailable()}")
     }
 
+    /**
+     * 当前 API 域名。
+     * @Volatile 保证跨线程可见性：switchHost 在 IO 协程改它，ensureApi 可能在其他线程读。
+     */
+    @Volatile
     var baseUrl: String = PicaApiHosts.default
         set(value) {
             field = value
@@ -46,11 +55,12 @@ object PicaClient {
     @Volatile
     private var _api: PicaApi? = null
 
-    // PicaHttpApi 构造成本极低（仅创建 engine 对象），这里用 @Synchronized 兜住
-    // check-then-act 竞态；并发首次访问最多多构造一个等价实例，无功能影响。
-    @Synchronized
-    private fun ensureApi(): PicaApi =
+    /** 与 baseUrl 配套的构造/置空锁，消除 check-then-act 竞态（可能读到过期 baseUrl 重建实例） */
+    private val apiLock = Any()
+
+    private fun ensureApi(): PicaApi = synchronized(apiLock) {
         _api ?: PicaHttpApi(baseUrl).also { _api = it }
+    }
 
     val api: PicaApi
         get() = _api ?: ensureApi()
@@ -80,7 +90,36 @@ object PicaClient {
         }
     }
 
-    suspend fun <T> safeCall(block: suspend () -> ApiResponse<T>): T {
+    /**
+     * 请求入口（**要求响应带 data**）：适用于查询类接口。
+     *
+     * @throws PicaException 限流 / 网络失败 / 业务码非 200 / data 缺失
+     */
+    suspend fun <T> safeCall(block: suspend () -> ApiResponse<T>): T =
+        withRetry(block, requireData = true) ?: throw PicaException("空响应数据")
+
+    /**
+     * 请求入口（**纯确认型**）：适用于「执行即成功、无返回体」的写操作
+     * （发评论 / 改简介 / 改密码 / 改头像 / 改称号 / 忘记密码）。
+     *
+     * 此前这类接口与查询接口共用同一条「data 必须非空」的校验：一旦服务端返回
+     * `{"code":200,"message":"..."}` 而省略 data，就会抛「空响应数据」，
+     * 把**已经成功**的操作报成失败（发评论场景会让用户重复提交）。
+     */
+    suspend fun <T> safeCallUnit(block: suspend () -> ApiResponse<T>) {
+        // 只校验业务 code；返回值（可能为 null）由调用方忽略
+        withRetry(block, requireData = false)
+    }
+
+    /**
+     * 统一的请求执行与容错循环：限流冷却 / 换域名重试 / IO 重试。
+     * 两个公开入口（[safeCall] / [safeCallUnit]）只差 `requireData` 一个开关，
+     * 收敛在此处避免复制那段重试代码。
+     */
+    private suspend fun <T> withRetry(
+        block: suspend () -> ApiResponse<T>,
+        requireData: Boolean,
+    ): T? {
         var rateLimitAttempt = 0
         var ioAttempt = 0
         while (true) {
@@ -94,7 +133,9 @@ object PicaClient {
                     LogStore.log("PicaClient", "E", "HTTP ${response.code}: ${response.message}")
                     throw PicaException(response.message, errorCode = response.code)
                 }
-                persistHost(baseUrl)
+                persistHostIfChanged(baseUrl)
+                // 纯确认型：只校验 code，不要求 data（返回 null 由调用方忽略）
+                if (!requireData) return null
                 return response.data ?: throw PicaException("空响应数据")
             } catch (e: PicaException) {
                 // 结构化判定：HTTP 429 或业务码 1023；文案匹配仅作兜底（旧服务端可能不带 code）
@@ -135,21 +176,33 @@ object PicaClient {
     }
 
     private fun switchHost() {
-        baseUrl = if (baseUrl == PicaApiHosts.PICACOMIC) {
-            PicaApiHosts.GO2778
-        } else {
-            PicaApiHosts.PICACOMIC
+        synchronized(apiLock) {
+            baseUrl = if (baseUrl == PicaApiHosts.PICACOMIC) {
+                PicaApiHosts.GO2778
+            } else {
+                PicaApiHosts.PICACOMIC
+            }
         }
         Log.i("PicaClient", "switched host -> $baseUrl")
         LogStore.log("PicaClient", "I", "switched host -> $baseUrl")
     }
 
-    /** 成功后记录域名，下次冷启动从它开始，避免反复撞已知不稳的域名 */
-    private fun persistHost(host: String) {
+    /**
+     * 成功后记录域名，下次冷启动从它开始，避免反复撞已知不稳的域名。
+     *
+     * 只在域名**变化**时落盘：此前每次成功请求都写一次 SharedPreferences，
+     * 章节 fan-out 等高频路径会把同一份 XML 反复排入落盘队列（纯浪费 IO 与电量）。
+     */
+    @Volatile
+    private var lastPersistedHost: String? = null
+
+    private fun persistHostIfChanged(host: String) {
+        if (lastPersistedHost == host) return
         val ctx = appContext ?: return
         runCatching {
             ctx.getSharedPreferences("pika_runtime", Context.MODE_PRIVATE)
                 .edit().putString("pica_last_host", host).apply()
+            lastPersistedHost = host
         }
     }
 

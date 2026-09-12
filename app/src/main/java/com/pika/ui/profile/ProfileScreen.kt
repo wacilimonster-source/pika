@@ -65,6 +65,8 @@ fun ProfileScreen(
     var user by remember { mutableStateOf<ComicUser?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 提示语义显式化：此前用同一字段承载成功/失败、靠 contains("成功") 区分，文案一改即失效
+    var messageIsError by remember { mutableStateOf(true) }
     var showSloganDialog by remember { mutableStateOf(false) }
     var showTitleDialog by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -89,17 +91,24 @@ fun ProfileScreen(
                                 android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
                             )
                             avatarBitmap = withContext(Dispatchers.IO) {
-                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                // 采样解码：5MB 的 JPEG 全尺寸解出可达数十 MB，
+                                // 先取尺寸算 inSampleSize，避免上传大图时 OOM
+                                decodeAvatarSampled(bytes, maxDimPx = 1024)
                             }
                             error = "头像更新成功"
+                            messageIsError = false
                         } finally {
                             loading = false
                         }
                     } else {
                         error = "图片需小于 5MB"
+                        messageIsError = true
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     error = "头像更新失败：${e.message}"
+                    messageIsError = true
                 }
             }
         }
@@ -111,10 +120,15 @@ fun ProfileScreen(
         scope.launch {
             try {
                 user = SourceManager.current().profile()
+                messageIsError = false
             } catch (e: UnsupportedOperationException) {
                 error = "当前源不支持个人资料"
+                messageIsError = true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "加载失败"
+                messageIsError = true
             } finally {
                 loading = false
             }
@@ -196,7 +210,8 @@ fun ProfileScreen(
                     Text(
                         text = it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (it.contains("成功")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        color = if (messageIsError) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
@@ -220,9 +235,13 @@ fun ProfileScreen(
                     try {
                         SourceManager.current().updateSlogan(value.trim())
                         error = "简介更新成功"
+                        messageIsError = false
                         user = user?.copy(slogan = value.trim())
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         error = "更新失败：${e.message}"
+                        messageIsError = true
                     } finally {
                         loading = false
                     }
@@ -242,9 +261,13 @@ fun ProfileScreen(
                     try {
                         SourceManager.current().updateTitle(value.trim())
                         error = "称号更新成功"
+                        messageIsError = false
                         user = user?.copy(title = value.trim())
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         error = "更新失败：${e.message}"
+                        messageIsError = true
                     } finally {
                         loading = false
                     }
@@ -262,8 +285,12 @@ fun ProfileScreen(
                     try {
                         SourceManager.current().updatePassword(old, new)
                         error = "密码修改成功"
+                        messageIsError = false
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         error = "修改失败：${e.message}"
+                        messageIsError = true
                     } finally {
                         loading = false
                     }
@@ -410,4 +437,21 @@ private fun ChangePasswordDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
+}
+
+/**
+ * 按目标最大边长采样解码头像，避免 5MB 大图全尺寸解码（可达数十 MB 位图）导致 OOM。
+ * 只做 bounds 采样，不做二次精确缩放（头像展示尺寸足够）。
+ */
+private fun decodeAvatarSampled(bytes: ByteArray, maxDimPx: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    while (longest / (sample * 2) >= maxDimPx) sample *= 2
+    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    return runCatching {
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }.getOrNull()
 }

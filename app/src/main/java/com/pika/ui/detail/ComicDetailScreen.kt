@@ -96,6 +96,7 @@ fun ComicDetailScreen(
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
+    val downloadedOrders by viewModel.downloadedOrders.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -261,15 +262,13 @@ fun ComicDetailScreen(
                     }
                 }
                 items(chapters, key = { it.id }) { chapter ->
-                    // 显式声明依赖 downloadTasks：任务列表变化时重算，不依赖隐式订阅
-                    val downloaded = remember(downloadTasks, comicId, chapter.id) {
-                        viewModel.isDownloaded(comicId, chapter)
-                    }
+                    // 查 VM 在 IO 线程预算好的集合：此前在组合期同步调 isDownloaded
+                    // （内部 listFiles 目录遍历），列表每项都会做一次磁盘 IO
                     ChapterRow(
                         chapter = chapter,
                         onClick = { onOpenReader(comicId, chapter.order) },
                         onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
-                        downloaded = downloaded,
+                        downloaded = chapter.order in downloadedOrders,
                     )
                 }
                 if (loading && chapters.isEmpty()) {

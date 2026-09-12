@@ -8,9 +8,11 @@ import coil.request.ImageRequest
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicPage
 import com.pika.core.source.SourceManager
+import com.pika.core.runCatchingCancellable
 import com.pika.data.ReaderPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -66,7 +68,7 @@ class ReaderViewModel : ViewModel() {
                 withContext(Dispatchers.IO) {
                     // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）
                     // 注意必须先于 _pages 赋值，保证 pages 就绪时 UI 能读到待恢复页码
-                    runCatching {
+                    runCatchingCancellable {
                         ReaderPrefs.current().lastProgressAsync(comicId)?.let { p ->
                             if (p.order == order) pendingRestorePage = p.pageIndex
                         }
@@ -85,7 +87,7 @@ class ReaderViewModel : ViewModel() {
                     _chapters.value = SourceManager.current().chapters(comicId)
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
-                        runCatching {
+                        runCatchingCancellable {
                             val detail = SourceManager.current().comicDetail(comicId)
                             if (_coverUrl.value.isBlank()) {
                                 _coverUrl.value = detail.coverUrl.orEmpty()
@@ -104,10 +106,13 @@ class ReaderViewModel : ViewModel() {
                     }
                 }
                 _epTitle.value = _chapters.value.firstOrNull { it.order == order }?.title.orEmpty()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 切章/退出时取消旧加载：必须放行，否则旧协程会继续写 _pages/_loading
+                throw e
             } catch (e: Exception) {
                 // 加载失败保持空列表
             } finally {
-                _loading.value = false
+                if (isActive) _loading.value = false
             }
         }
         // 预取章节标题无需等 chapters 加载完：标题留空则由 UI 兜底
@@ -136,7 +141,9 @@ class ReaderViewModel : ViewModel() {
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
         progressJob = viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
+            // runCatchingCancellable 会重新抛出取消：被后续 saveProgress 取代时立即停止，
+            // 而普通写盘失败仍按原行为继续更新内存已读标记
+            runCatchingCancellable {
                 ReaderPrefs.current().saveProgress(comicId, currentOrder, safePage)
             }
             // 打开过阅读器即已读（内存状态只升不降）
@@ -145,7 +152,7 @@ class ReaderViewModel : ViewModel() {
             val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
             if (currentOrder == lastOrder && safePage >= pages.size - 1) {
                 if (com.pika.data.ReaderStatus.of(comicId) != com.pika.data.ReadStatus.FINISHED) {
-                    runCatching { ReaderPrefs.current().saveFinished(comicId) }
+                    runCatchingCancellable { ReaderPrefs.current().saveFinished(comicId) }
                     com.pika.data.ReaderStatus.markFinished(comicId)
                 }
             }
@@ -170,7 +177,7 @@ class ReaderViewModel : ViewModel() {
         val orderNow = currentOrder
         val pageNow = lastRecordedPage
         recentJob = viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
+            runCatchingCancellable {
                 ReaderPrefs.current().recordRecentRead(
                     comicId = comicIdNow,
                     title = _comicTitle.value.ifBlank { "第 $orderNow 话" },
@@ -183,17 +190,28 @@ class ReaderViewModel : ViewModel() {
         }
     }
 
-    /** 预取前后 N 页图片到内存/磁盘缓存（弱网也顺滑）。 */
+    /**
+     * 预取前后 N 页图片到内存/磁盘缓存（弱网也顺滑）。
+     *
+     * 必须与展示请求使用**相同的解码尺寸上限**：此前预取不带 .size()，
+     * Coil 会按原图尺寸解码，且显式 memoryCacheKey(url) 与展示请求共用同一缓存键，
+     * 导致超大长图以原图进入内存缓存、解码上限失效（OOM 风险），
+     * 也会让 WebtoonSplitPage 的比例计算因缓存尺寸不一致而失准。
+     */
     fun preloadNearby(context: Context, visiblePage: Int, range: Int = 2) {
         val pages = _pages.value
         if (pages.isEmpty()) return
         val loader = Coil.imageLoader(context)
+        val cap = maxDecodeHeightPx(context)
         for (i in (visiblePage - range)..(visiblePage + range)) {
             if (i < 0 || i >= pages.size) continue
             val url = pages[i].imageUrl
+            // 本地文件（已下载）无需预取
+            if (url.startsWith("file:")) continue
             loader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
+                    .size(coil.size.Size(width = Int.MAX_VALUE, height = cap))
                     .memoryCacheKey(url)
                     .diskCacheKey(url)
                     .build()
@@ -201,15 +219,16 @@ class ReaderViewModel : ViewModel() {
         }
     }
 
-    /** 清除当前加载状态（退出阅读器时避免陈旧数据）。 */
-    fun clear() {
-        loadJob?.cancel()
-        loadJob = null
-        loadedKey = ""
-        pendingRestorePage = -1
-        _pages.value = emptyList()
-        _chapters.value = emptyList()
-        _epTitle.value = ""
-        _loading.value = false
+    /** 与 WebtoonSplitPage 保持一致的解码高度上限（按设备内存分级） */
+    private fun maxDecodeHeightPx(context: Context): Int {
+        val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+            as? android.app.ActivityManager
+        val memClass = am?.memoryClass ?: 192
+        return when {
+            memClass >= 256 -> 8192
+            memClass >= 128 -> 6144
+            else -> 4096
+        }
     }
+
 }

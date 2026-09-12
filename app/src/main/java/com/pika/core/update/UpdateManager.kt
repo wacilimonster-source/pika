@@ -101,10 +101,6 @@ object UpdateManager {
         CheckResult.Available(info)
     }
 
-    /** 兼容旧调用：null 表示无更新或检查失败 */
-    suspend fun check(): UpdateInfo? =
-        (checkResult() as? CheckResult.Available)?.info
-
     /**
      * 下载 APK 并校验完整性。
      * onProgress(progress, downloadedBytes, totalBytes)：totalBytes<=0 表示总长未知，
