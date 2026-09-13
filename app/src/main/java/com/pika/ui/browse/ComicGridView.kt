@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicSummary
 
-/** 漫画网格：3 列卡片 + 触底自动加载更多 */
+/** 漫画网格：每行数量随设置（2/3，默认 2）+ 触底自动加载更多 */
 @Composable
 fun ComicGridView(
     comics: List<ComicSummary>,
@@ -55,8 +55,9 @@ fun ComicGridView(
     showTailLoading: Boolean = true,
 ) {
     val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
+    val columns by com.pika.data.GridSettings.columnsFlow.collectAsState()
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(8.dp),
@@ -65,7 +66,12 @@ fun ComicGridView(
     ) {
         items(comics, key = { it.id }) { comic ->
             val readStatus = remember(comic.id, statusVersion) { com.pika.data.ReaderStatus.of(comic.id) }
-            ComicCard(comic = comic, readStatus = readStatus, onClick = { onComicClick(comic.id) })
+            ComicCard(
+                comic = comic,
+                readStatus = readStatus,
+                largeTitle = columns == 2,
+                onClick = { onComicClick(comic.id) },
+            )
         }
         if (loading && showTailLoading) {
             item {
@@ -76,11 +82,13 @@ fun ComicGridView(
         }
     }
 
-    LaunchedEffect(listState, endReached, loading) {
+    // 触底预加载提前量保持约 2~3 行：2 列提前 6 个，3 列提前 4 个
+    val preloadAhead = if (columns == 2) 6 else 4
+    LaunchedEffect(listState, endReached, loading, columns) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            lastVisible >= layoutInfo.totalItemsCount - 4
+            lastVisible >= layoutInfo.totalItemsCount - preloadAhead
         }.collect { shouldLoad ->
             if (shouldLoad && !loading && !endReached) {
                 onLoadMore()
@@ -93,6 +101,8 @@ fun ComicGridView(
 private fun ComicCard(
     comic: ComicSummary,
     readStatus: com.pika.data.ReadStatus?,
+    /** 2 列大卡片时标题用更大字号 */
+    largeTitle: Boolean,
     onClick: () -> Unit,
 ) {
     Column(
@@ -142,7 +152,11 @@ private fun ComicCard(
         }
         Text(
             text = comic.title,
-            style = MaterialTheme.typography.bodySmall,
+            style = if (largeTitle) {
+                MaterialTheme.typography.bodyMedium
+            } else {
+                MaterialTheme.typography.bodySmall
+            },
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),

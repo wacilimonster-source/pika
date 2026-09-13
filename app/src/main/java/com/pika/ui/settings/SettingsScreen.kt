@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
 import com.pika.core.source.SourceType
 import com.pika.core.update.UpdateManager
+import com.pika.data.GridSettings
 import com.pika.data.ReaderPrefs
 import kotlinx.coroutines.launch
 
@@ -64,6 +65,7 @@ fun SettingsScreen(
     val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
         .collectAsState(initial = true)
+    val gridColumns by GridSettings.columnsFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var readerMode by remember { mutableStateOf(ReaderPrefs.current().readerMode) }
     var showAbout by remember { mutableStateOf(false) }
@@ -140,6 +142,34 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.clickable(onClick = onOpenSourceManage),
                 )
+            }
+
+            // ── 浏览 ────────────────────────────────────────────────
+            SettingsGroup(header = "浏览") {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("作品列表每行数量") },
+                        supportingContent = {
+                            Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效")
+                        },
+                    )
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    ) {
+                        SegmentedButton(
+                            selected = gridColumns == 2,
+                            onClick = { GridSettings.setColumns(2) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        ) { Text("2 个") }
+                        SegmentedButton(
+                            selected = gridColumns == 3,
+                            onClick = { GridSettings.setColumns(3) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        ) { Text("3 个") }
+                    }
+                }
             }
 
             // ── 阅读 ────────────────────────────────────────────────

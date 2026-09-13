@@ -4,6 +4,7 @@ import android.app.Application
 import coil.Coil
 import coil.ImageLoader
 import com.pika.data.CategorySettings
+import com.pika.data.GridSettings
 import com.pika.data.ReaderPrefs
 import com.pika.data.SourcePrefs
 import com.pika.core.source.SourceManager
@@ -21,6 +22,7 @@ class PiKAApp : Application() {
         super.onCreate()
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
+        GridSettings.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
         appScope.launch { com.pika.data.ReaderStatus.loadAll(this@PiKAApp) }
         CategorySettings.init(this)

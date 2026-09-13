@@ -15,7 +15,9 @@
 - git 坑：commit 长消息时 stdout 可能 SIGTERM 截断但 commit 已写入（先看 status 再重试）；push 无输出≠成功，用 `git ls-remote origin main` 复核。
 
 ## 当前版本
-- **1.5.46 (versionCode 72)** 为已发版；工作树 `app/build.gradle.kts` 为 **1.5.47 (versionCode 73)**，HEAD commit `22f6746`（含发版脚本修复）。2026-09-12 完成两轮全量评审 + 45 项缺陷修复（**未升版本号、未打发布包**）。
+- **1.5.48 (versionCode 74)** 已发版（2026-09-13），commit `7e6e386`，远端 main 已同步；`sha256 = 5ad0b070ea87349bcd4aff2cbed6ea2ba84f36864e82cdb74fe364ae0b74ec55`（强校验已启用）。发版包含两轮评审的 45 项缺陷修复。
+- 上一版 1.5.47 (versionCode 73)，HEAD 基线为 `22f6746`。
+- 开发中（未发版，2026-09-13）：作品网格每行数量可切换（2/3，**默认 2**）。`data/GridSettings.kt`（DataStore `pika_ui`，key `grid_columns`，StateFlow 即时生效）；`ComicGridView` 全部 8 处调用点自动生效；设置入口为「浏览」分组。
 
 ## 评审与修复产物（2026-09-12）
 - `reports/bika-source-review-20260912.html`（哔咔源链路 17 条）
@@ -43,3 +45,16 @@
 ## 发布/更新机制
 - 发版时在 `update.json` 补 `sha256` 字段（APK 的 SHA-256，下载时 LogStore 会打印实际值可核对），`downloadAndVerify` 即自动启用强校验；APK 落在 `filesDir`（file_paths.xml 已含 files-path）。
 - **取安装包路径必须用 `downloadAndVerify` 的返回值**，不要自己拼 `cacheDir/filesDir` 路径（曾因此导致首页横幅更新「点安装无反应」）。
+- 发版步骤（已固化为人工 4 步，`release.sh` 在 HEAD 但工作树缺失、且其 commit 消息是 v1.5.47 写死的，别直接跑）：①改 `app/build.gradle.kts` 版本号 → ②`bash gbuild.sh assembleRelease` → ③`cp` 产物到根目录 `pika-v{VER}.apk` 并用 **python** 写全 `update.json` 四字段（`sha256`/`version`/`apkUrl`/`notes`，注意 `python3` 在本机是坏存根）→ ④提交 `A pika-vX.apk` + `M update.json` 并 push。
+- **更新通道端到端自检**（强烈建议每次发版做）：在设备上用 `curl` 下远端 `apkUrl`，比对设备侧 `sha256sum` 与远端 `update.json` 的 `sha256` 是否一致。命令：`adb shell "curl -sL -o /data/local/tmp/x.apk '<apkUrl>'"` 然后 `adb shell sha256sum ...`。注意 host 侧 curl 可能被限速到不可用，不代表发版有问题。
+- push 后核对：`git ls-remote origin main` 指向新 commit；远端 `update.json` 用 `curl -H "Accept: application/vnd.github.raw" https://api.github.com/repos/wacilimonster-source/pika/contents/update.json` 读取（`raw.githubusercontent.com` 直连可能被重置）。
+
+## 真机/模拟器验证（2026-09-13 建立）
+- 环境：**MuMu 模拟器**（`emulator-5554`，Android 12 / SDK 32 / x86_64 / 1440×2560@640dpi）；adb 用 `/g/Android/platform-tools/adb.exe`；APK 含 x86_64 native 库，可直接装。
+- **MuMu adb 坑**：其自带 adb server 抢 5037，冷启动后**第一条命令静默失败**（`device offline`），会让 `input tap/text` 看起来像"点了没反应"。复用 `C:/Users/wacil/AppData/Local/Temp/adbwrap.sh`：`ensure_online || exit 1` 开场 + `retry` 自动重试；兜底端口 `127.0.0.1:16384`。
+- **本工具环境跑 adb 必须 cmd 重定向**：PowerShell 里直接 `adb devices` 会因 adb server 持有 stdout 而挂起被杀（`ChildProcess.kill`）。统一 `cmd /c "adb.exe ... > out.txt 2>&1"` 再读文件；截图 `exec-out screencap -p > a.png` 同样走 cmd。uiautomator dump 解析用 regex 提 `text`/`bounds`，`[xml]` 强转会因控制字符失败。
+- **debug 包可覆盖模拟器里的 release 包**：release 默认用本机 debug keystore 签名（`PIKA_KEYSTORE` 环境变量未设时），与 `assembleDebug` 同签名，`adb install -r` 直接成功、数据保留。
+- 复核产物：`aapt2 dump badging`（版本）+ `java -jar build-tools/35.0.0/lib/apksigner.jar verify --print-certs`（签名 SHA-1 应为 `e7284370...`）。
+- 交互式 UI 测试较实用：`adb shell input tap X Y` / `input text` + `exec-out screencap -p`，坐标按 1440×2560 实际分辨率算（预览图会被缩放）。
+- **纯复选框交互务必让整行可点**（2026-09-13 真机发现 F16 的说明文字不可点，小屏上像"开关坏了"）。
+
