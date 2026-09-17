@@ -1,6 +1,6 @@
 {
-  "sha256": "97caaa193ea6c463e695d29b915c00bef7ddaf024584dab0b670e45f3a25ba98",
-  "version": "1.5.49",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.49.apk",
-  "notes": "v1.5.49 更新：\n1. 作品列表每行数量可切换（2个/3个，默认2个）\n2. 设置入口：设置页「浏览」分组，切换即时生效无需重启\n3. 2列模式封面更大、标题字号加大，浏览更舒适\n4. 3列模式保持原有紧凑布局，一屏浏览更多"
+  "sha256": "89d40974bb1f03acab27580043c3e8760923bbfe5f4e9befad43a3b514511395",
+  "version": "1.5.50",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.5.50.apk",
+  "notes": "v1.5.50 更新：\n1. 修复收藏失效：收藏按钮按服务端真实返回状态判定，点击后心形正确点亮\n2. 收藏/取消收藏后状态与服务端一致，重进详情页显示真实收藏态\n3. 本地状态与他端操作失步时自动纠正，避免「想收藏却取消」"
 }

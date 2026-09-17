@@ -271,8 +271,33 @@ class PicacgSource : Source {
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {
         val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
         LogStore.log("PicacgSource", "D", "favourite response: action=\"${resp.action}\"")
-        // 哔咔端点为切换型：以响应 action 文案回写真实状态，避免本地状态与服务端失步后越点越错
-        return resp.action.contains("收藏") && !resp.action.contains("取消")
+        val now = parseFavouriteAction(resp.action)
+            ?: throw com.pika.network.PicaException("收藏结果无法识别（action=\"${resp.action}\"）")
+        if (now == add) return now
+        // 端点为切换型：本地与服务端失步时（他端已收藏/取消），一次切换会切到与 add 相反的状态。
+        // 再切一次纠正，保证返回值恒等于调用方请求的 add。
+        val corrected = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
+        LogStore.log("PicacgSource", "D", "favourite corrected: action=\"${corrected.action}\"")
+        return parseFavouriteAction(corrected.action)
+            ?: throw com.pika.network.PicaException("收藏结果无法识别（action=\"${corrected.action}\"）")
+    }
+
+    /**
+     * 解析切换型收藏接口返回的 action，得到操作后的真实状态。
+     *
+     * 实测服务端返回的是英文机器码 `favourite` / `un_favourite`，而 v1.5.44 起按中文文案
+     * `contains("收藏")` 判断——对 `favourite` 恒为假，导致收藏后心形不点亮（表现为"收藏无效"）。
+     * 此处同时兼容机器码与中文文案：必须先判否定（`un_` 前缀 / "取消"），否则
+     * `un_favourite` 会因含 `favourite` 被判成已收藏。
+     *
+     * @return 已收藏 true / 未收藏 false / 文案无法识别时 null（交由调用方报错，不猜）
+     */
+    private fun parseFavouriteAction(action: String): Boolean? {
+        val a = action.trim().lowercase()
+        if (a.isEmpty()) return null
+        if (a.startsWith("un_") || a.startsWith("un-") || a.contains("取消")) return false
+        if (a.contains("favourite") || a.contains("favorite") || a.contains("收藏")) return true
+        return null
     }
 
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {

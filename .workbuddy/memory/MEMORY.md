@@ -15,9 +15,16 @@
 - git 坑：commit 长消息时 stdout 可能 SIGTERM 截断但 commit 已写入（先看 status 再重试）；push 无输出≠成功，用 `git ls-remote origin main` 复核。
 
 ## 当前版本
-- **1.5.48 (versionCode 74)** 已发版（2026-09-13），commit `7e6e386`，远端 main 已同步；`sha256 = 5ad0b070ea87349bcd4aff2cbed6ea2ba84f36864e82cdb74fe364ae0b74ec55`（强校验已启用）。发版包含两轮评审的 45 项缺陷修复。
-- 上一版 1.5.47 (versionCode 73)，HEAD 基线为 `22f6746`。
-- 开发中（未发版，2026-09-13）：作品网格每行数量可切换（2/3，**默认 2**）。`data/GridSettings.kt`（DataStore `pika_ui`，key `grid_columns`，StateFlow 即时生效）；`ComicGridView` 全部 8 处调用点自动生效；设置入口为「浏览」分组。
+- **1.5.50 (versionCode 76)** 已发版（2026-09-18）；`sha256 = 89d40974bb1f03acab27580043c3e8760923bbfe5f4e9befad43a3b514511395`。修「作品收藏无效」（哔咔 action 机器码判定，详见 `2026-09-18.md`）。
+- 1.5.49 (versionCode 75，2026-09-13)：作品网格每行数量可切换（2/3，**默认 2**）。`data/GridSettings.kt`（DataStore `pika_ui`，key `grid_columns`，StateFlow 即时生效）。
+- 1.5.48 (versionCode 74)，commit `7e6e386`；`sha256 = 5ad0b070ea87349bcd4aff2cbed6ea2ba84f36864e82cdb74fe364ae0b74ec55`。
+
+## 源适配硬约束（2026-09-18 加，血泪）
+- **写接口的响应字段必须实测，不能按语义猜文案**。哔咔 `POST /comics/{id}/favourite` 返回 `{"action":"favourite"}` / `{"action":"un_favourite"}`（英文机器码）；该项目曾三次改错这段判定（`contains("藏")` → 恒假；v1.5.31 恒真；v1.5.44 `contains("收藏")` → 又恒假），每次都只改字面量、没人去验证服务端真实返回。
+- **否定词判定必须放在肯定词之前**：`un_favourite` 同时含 `un_` 与 `favourite`。
+- **切换型端点 + `favourite(comicId, add)` 契约**：本地状态可能过期（他端操作），一次切换会切到与 `add` 相反的状态；返回状态 ≠ 期望时需再切一次纠正。返回值必须是「操作后的真实状态」，不能是「请求是否成功」。
+- 手里有一份可复用的实测手段：从设备 DataStore 取 pica token（`adb root` + `pika_prefs.preferences_pb` 里 grep JWT），按 App 相同签名直打接口（`tools/pica-api-check.mjs` 是签名范本）。**比点 UI 猜快一个数量级。**
+- 未决：`JmcomicSource.favourite` 取消收藏时也返回 true（心形停在已收藏），但 JM `type=0` 语义未经真实账号验证，未改。
 
 ## 评审与修复产物（2026-09-12）
 - `reports/bika-source-review-20260912.html`（哔咔源链路 17 条）
