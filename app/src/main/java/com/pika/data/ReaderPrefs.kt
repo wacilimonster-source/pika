@@ -298,3 +298,31 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 }
+
+/**
+ * 禁漫源下线迁移（见 [JmRemovalMigration]）：清除禁漫的进度 / 读完标记键，
+ * 最近阅读列表过滤禁漫条目。
+ *
+ * 必须在 [ReaderPrefs.init] 之前调用，且与本类共用同一 DataStore 实例（同文件重复建实例会抛异常）。
+ */
+internal suspend fun purgeJmReaderPrefs(context: Context) {
+    val jmPrefix = JmRemovalMigration.LEGACY_JM + "_"
+    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    context.readerDataStore.edit { prefs ->
+        prefs.asMap().keys
+            .filter {
+                it.name.startsWith(ReaderKeys.PROGRESS_PREFIX + jmPrefix) ||
+                    it.name.startsWith(ReaderKeys.FINISHED_PREFIX + jmPrefix)
+            }
+            .forEach { prefs.remove(it) }
+        val recentKey = stringPreferencesKey(ReaderKeys.RECENT_READS)
+        val current = prefs[recentKey]?.let {
+            runCatching { json.decodeFromString<List<RecentRead>>(it) }.getOrDefault(emptyList())
+        } ?: emptyList()
+        if (current.any { it.source == JmRemovalMigration.LEGACY_JM }) {
+            prefs[recentKey] = json.encodeToString(
+                current.filterNot { it.source == JmRemovalMigration.LEGACY_JM },
+            )
+        }
+    }
+}

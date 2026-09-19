@@ -40,9 +40,7 @@ import com.pika.core.source.SourceManager
 import kotlinx.coroutines.launch
 
 /**
- * 登录页：按当前源展示对应登录表单。
- * 哔咔：邮箱 + 密码（auth/sign-in），附注册入口
- * 禁漫：邮箱 + 密码（v3 sign-in，换取 token）
+ * 登录页：邮箱 + 密码（auth/sign-in），附注册入口。
  */
 @Composable
 fun LoginScreen(

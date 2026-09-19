@@ -33,7 +33,7 @@ object PicaClient {
             lastPersistedHost = it
         }
         // TLS 由 PiKAApp.onCreate 单点安装；此处校验，不可用则重试一次
-        // （与 JmClient / UpdateManager 的行为对齐：此前这里只告警不重试）
+        // （与 UpdateManager 的行为对齐：此前这里只告警不重试）
         if (!BcTls.ensureInstalled()) {
             Log.w("PicaClient", "BcTls unavailable after retry: ${BcTls.lastError}")
             LogStore.log("PicaClient", "E", "BcTls unavailable: ${BcTls.lastError ?: "unknown"}")

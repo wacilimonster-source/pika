@@ -69,7 +69,7 @@ object BcTls {
         }
     }
 
-    /** 确保可用：未安装或曾失败时重试一次（与 JmClient / UpdateManager 的调用方式对齐） */
+    /** 确保可用：未安装或曾失败时重试一次（与 UpdateManager 的调用方式对齐） */
     fun ensureInstalled(): Boolean {
         if (isAvailable()) return true
         install()

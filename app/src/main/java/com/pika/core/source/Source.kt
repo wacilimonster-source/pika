@@ -8,12 +8,11 @@ import com.pika.core.model.ComicPage
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.ComicUser
-import com.pika.core.model.DailyCheckIn
 import com.pika.core.model.MyComicComment
 import com.pika.core.model.PageResult
 
 /**
- * 数据源统一接口：哔咔 / 禁漫 各自实现。
+ * 数据源统一接口：由具体数据源实现。
  * UI 与 ViewModel 只依赖此接口，感知不到具体源。
  */
 interface Source {
@@ -53,7 +52,7 @@ interface Source {
     val supportedSorts: List<ComicSort>
         get() = ComicSort.entries.toList()
 
-    /** 源是否提供完结状态字段（禁漫无该字段，浏览页应禁用连载状态筛选） */
+    /** 源是否提供完结状态字段（无该字段的源，浏览页应禁用连载状态筛选） */
     val supportsStatusFilter: Boolean
         get() = true
 
@@ -131,14 +130,6 @@ interface Source {
     /** 忘记密码：发送重置邮件（默认源不支持） */
     suspend fun forgotPassword(email: String): Unit =
         throw UnsupportedOperationException("当前源不支持")
-
-    /** 每日签到（默认源不支持；禁漫独有） */
-    suspend fun dailyCheckIn(): DailyCheckIn =
-        throw UnsupportedOperationException("当前源不支持签到")
-
-    /** 云端浏览历史（默认源不支持；禁漫独有） */
-    suspend fun cloudHistory(page: Int): PageResult<ComicSummary> =
-        throw UnsupportedOperationException("当前源不支持云端历史")
 
     /** 修改简介（默认源不支持） */
     suspend fun updateSlogan(slogan: String): Unit =

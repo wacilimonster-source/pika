@@ -24,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -45,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
-import com.pika.core.source.SourceType
 import com.pika.core.update.UpdateManager
 import com.pika.data.GridSettings
 import com.pika.data.ReaderPrefs
@@ -58,11 +56,8 @@ fun SettingsScreen(
     onBack: (() -> Unit)? = null,
     onOpenLog: () -> Unit = {},
     onOpenSourceManage: () -> Unit = {},
-    onOpenLogin: () -> Unit = {},
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
-    // 登录态本身非响应式：401/登出会自增 tick，借此重查各源登录状态
-    val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
         .collectAsState(initial = true)
     val gridColumns by GridSettings.columnsFlow.collectAsState()
@@ -97,38 +92,10 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // ── 数据源 ──────────────────────────────────────────────
-            SettingsGroup(
-                header = "数据源",
-                supporting = "切换后首页 / 搜索 / 详情将展示该源的内容",
-            ) {
-                SourceType.entries.forEachIndexed { index, type ->
-                    if (index > 0) SettingsRowDivider()
-                    val loggedIn = remember(type, unauthorizedTick) {
-                        SourceManager.sourceOf(type).isLoggedIn
-                    }
-                    SourceRow(
-                        type = type,
-                        selected = type == activeSource,
-                        loggedIn = loggedIn,
-                        onSelect = { scope.launch { SourceManager.switch(type) } },
-                        onLogin = if (loggedIn) null else {
-                            {
-                                // 切源与导航必须串行：原实现先 launch 再同步导航，
-                                // 登录页可能以旧源组合，把新源账号提交给旧源
-                                scope.launch {
-                                    if (type != activeSource) SourceManager.switch(type)
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                                        onOpenLogin()
-                                    }
-                                }
-                            }
-                        },
-                    )
-                }
-                SettingsRowDivider()
+            SettingsGroup(header = "数据源") {
                 ListItem(
                     headlineContent = { Text("数据源管理") },
-                    supportingContent = { Text("账号登录 · API 域名等高级设置") },
+                    supportingContent = { Text("账号登录等源级设置") },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -245,30 +212,6 @@ fun SettingsScreen(
     if (showAbout) {
         AboutDialog(onDismiss = { showAbout = false })
     }
-}
-
-/** 数据源单选行；未登录时行尾附"去登录"，点击会切到该源并进入登录页 */
-@Composable
-private fun SourceRow(
-    type: SourceType,
-    selected: Boolean,
-    loggedIn: Boolean,
-    onSelect: () -> Unit,
-    onLogin: (() -> Unit)?,
-) {
-    ListItem(
-        headlineContent = { Text(type.displayName) },
-        supportingContent = { Text(if (loggedIn) "已登录" else "未登录") },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onLogin != null) {
-                    TextButton(onClick = onLogin) { Text("去登录") }
-                }
-                RadioButton(selected = selected, onClick = onSelect)
-            }
-        },
-        modifier = Modifier.clickable(onClick = onSelect),
-    )
 }
 
 /** 通用组 · 检查更新行（弹窗流程与原实现一致） */
@@ -452,7 +395,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "聚合哔咔漫画与禁漫天堂双数据源，支持搜索、分类浏览、关注流、下载与本地阅读进度。",
+                    "基于哔咔漫画数据源，支持搜索、分类浏览、关注流、下载与本地阅读进度。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

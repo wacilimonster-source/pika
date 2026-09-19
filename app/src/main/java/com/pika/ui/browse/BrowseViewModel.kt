@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 /**
  * 首页浏览 VM：分类 + 内容流（分页）。
  * 走 SourceManager 当前源，源切换后自动重载。
- * 支持排序（哔咔服务端 / 禁漫客户端重排）、连载状态筛选与更新日期范围筛选
+ * 支持排序（哔咔服务端）、连载状态筛选与更新日期范围筛选
  * （均为客户端过滤 + 自动补页）。
  *
  * 缓存优化：rawItems 在切换排序/状态/日期范围时保留，避免重新请求网络。
@@ -167,7 +167,7 @@ class BrowseViewModel : ViewModel() {
     }
 
     fun setStatus(status: ComicStatus) {
-        // 源无完结字段时（如禁漫）忽略状态筛选，避免筛选结果永远为空且无提示
+        // 源无完结字段时忽略状态筛选，避免筛选结果永远为空且无提示
         if (status != ComicStatus.ALL && !SourceManager.current().supportsStatusFilter) return
         if (_status.value == status) return
         _status.value = status
@@ -199,7 +199,7 @@ class BrowseViewModel : ViewModel() {
         loadComics(page = 1, category = category)
     }
 
-    /** 状态筛选（客户端）→ 排序（禁漫客户端重排；哔咔按 updatedAt 字符串重排以支持 DA/DD 切换） */
+    /** 状态筛选（客户端）→ 排序（按 updatedAt 字符串重排以支持 DA/DD 切换） */
     private fun applyFilterAndSort() {
         val filtered = rawItems.filter {
             when (_status.value) {

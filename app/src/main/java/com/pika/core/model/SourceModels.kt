@@ -5,7 +5,7 @@ import com.pika.core.source.SourceType
 import kotlinx.serialization.Serializable
 
 /**
- * 数据源无关的漫画模型：所有源（哔咔/禁漫）统一映射成这些类型供 UI 使用。
+ * 数据源无关的漫画模型：源统一映射成这些类型供 UI 使用。
  */
 
 /** 列表项（卡片） */
@@ -89,7 +89,7 @@ data class PageResult<T>(
     val pages: Int = 1,
 )
 
-/** 排序方式（哔咔服务端排序；禁漫由客户端对已加载列表重排） */
+/** 排序方式（哔咔服务端排序） */
 enum class ComicSort(val label: String) {
     DD("新到旧"),
     DA("旧到新"),
@@ -148,11 +148,4 @@ data class MyComicComment(
     val comicTitle: String = "",
     val createdAt: String = "",
     val likesCount: Int = 0,
-)
-
-/** 每日签到结果（禁漫源独有；不支持的源抛异常） */
-data class DailyCheckIn(
-    val checkedIn: Boolean = false,
-    val consecutiveDays: Int = 0,
-    val message: String = "",
 )

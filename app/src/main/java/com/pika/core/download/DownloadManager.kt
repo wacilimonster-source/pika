@@ -481,6 +481,37 @@ object DownloadManager {
         }
     }
 
+    /**
+     * 禁漫源下线迁移（见 [com.pika.data.JmRemovalMigration]）：删除禁漫任务的记录与
+     * 已下载文件。必须在 [init] 之前调用——先恢复后清除会让恢复逻辑引用已删除的目录。
+     */
+    fun purgeJmDownloads(context: Context) {
+        val dir = File(context.getExternalFilesDir(null), "downloads")
+        val f = File(dir, "manifest.json")
+        if (!f.exists()) return
+        runCatching {
+            val saved: List<DownloadTask> =
+                json.decodeFromString(ListSerializer(DownloadTask.serializer()), f.readText())
+            val jm = saved.filter { it.source == com.pika.data.JmRemovalMigration.LEGACY_JM }
+            if (jm.isEmpty()) return
+            jm.forEach { t -> File(dir, t.comicId).deleteRecursively() }
+            val tmp = File(dir, "manifest.json.tmp")
+            tmp.writeText(
+                json.encodeToString(
+                    ListSerializer(DownloadTask.serializer()),
+                    saved.filterNot { it.source == com.pika.data.JmRemovalMigration.LEGACY_JM },
+                ),
+            )
+            if (!tmp.renameTo(f)) {
+                f.delete()
+                if (!tmp.renameTo(f)) throw IOException("manifest rename failed")
+            }
+            LogStore.log("DownloadManager", "I", "jm downloads purged: ${jm.size} task(s)")
+        }.onFailure {
+            LogStore.log("DownloadManager", "E", "purge jm downloads failed: ${it.message}")
+        }
+    }
+
     // ── 速度采样 ──────────────────────────────────────────────────────────
 
     /**

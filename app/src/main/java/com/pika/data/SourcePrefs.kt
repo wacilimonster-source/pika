@@ -16,8 +16,6 @@ private object Keys {
     val PICA_TOKEN = stringPreferencesKey("pica_token")
     val PICA_EMAIL = stringPreferencesKey("pica_email")
     val APP_UUID = stringPreferencesKey("app_uuid")
-    const val JM_TOKEN = "jm_token"
-    const val JM_BASE = "jm_base"
 }
 
 /**
@@ -48,8 +46,6 @@ class SourcePrefs private constructor(private val appContext: Context) {
     @Volatile private var cachedAppUuid: String? = null
     @Volatile private var cachedPicaToken: String? = null
     @Volatile private var cachedPicaEmail: String? = null
-    @Volatile private var cachedJmToken: String? = null
-    @Volatile private var cachedJmBaseUrl: String? = null
 
     private fun loadCache() {
         runCatching {
@@ -59,8 +55,6 @@ class SourcePrefs private constructor(private val appContext: Context) {
                 cachedAppUuid = prefs[Keys.APP_UUID]
                 cachedPicaToken = prefs[Keys.PICA_TOKEN]?.takeIf { it.isNotEmpty() }
                 cachedPicaEmail = prefs[Keys.PICA_EMAIL]
-                cachedJmToken = prefs[stringPreferencesKey(Keys.JM_TOKEN)]?.takeIf { it.isNotEmpty() }
-                cachedJmBaseUrl = prefs[stringPreferencesKey(Keys.JM_BASE)]?.takeIf { it.isNotEmpty() }
             }
         }
     }
@@ -75,20 +69,6 @@ class SourcePrefs private constructor(private val appContext: Context) {
             cachedSource = value
             AppScope.launch { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
         }
-
-    /**
-     * 内存优先切换：立即更新内存缓存 + 投递后台落盘。
-     *
-     * 供「切源后马上导航」这类场景使用——原先的挂起版会先落盘再更新内存，
-     * 而调用方（设置页）是 `launch { switch() }` 后同步导航，导致登录页组合时读到的
-     * 还是旧源，用户可能把新源的账号提交给旧源。
-     */
-    fun markActiveSource(value: SourceType) {
-        cachedSource = value
-        AppScope.launch {
-            runCatching { appContext.dataStore.edit { it[Keys.ACTIVE_SOURCE] = value.name } }
-        }
-    }
 
     // ---------- 设备 UUID（持久化，首次生成） ----------
 
@@ -143,43 +123,18 @@ class SourcePrefs private constructor(private val appContext: Context) {
             it.remove(Keys.PICA_EMAIL)
         }
     }
+}
 
-    // ---------- 禁漫登录态 ----------
-
-    val jmToken: String?
-        get() = cachedJmToken
-            ?: runBlocking {
-                appContext.dataStore.data.first()[stringPreferencesKey(Keys.JM_TOKEN)]
-                    ?.takeIf { it.isNotEmpty() }
-            }
-
-    suspend fun setJmLogin(token: String) {
-        cachedJmToken = token
-        appContext.dataStore.edit {
-            it[stringPreferencesKey(Keys.JM_TOKEN)] = token
-        }
-    }
-
-    suspend fun clearJmLogin() {
-        cachedJmToken = null
-        appContext.dataStore.edit {
-            it.remove(stringPreferencesKey(Keys.JM_TOKEN))
-        }
-    }
-
-    // ---------- 禁漫 API 域名 ----------
-
-    val jmBaseUrl: String?
-        get() = cachedJmBaseUrl
-            ?: runBlocking {
-                appContext.dataStore.data.first()[stringPreferencesKey(Keys.JM_BASE)]
-                    ?.takeIf { it.isNotEmpty() }
-            }
-
-    suspend fun setJmBaseUrl(value: String) {
-        cachedJmBaseUrl = value
-        appContext.dataStore.edit {
-            it[stringPreferencesKey(Keys.JM_BASE)] = value
-        }
+/**
+ * 禁漫源下线迁移（见 [JmRemovalMigration]）：清除禁漫 token / 域名，并删除活动源标记
+ * （旧值可能是已移除的 JMCOMIC；删除后按默认哔咔回落）。
+ *
+ * 必须在 [SourcePrefs.init] 之前调用，且与本类共用同一 DataStore 实例（同文件重复建实例会抛异常）。
+ */
+internal suspend fun purgeJmSourcePrefs(context: Context) {
+    context.dataStore.edit { prefs ->
+        prefs.remove(stringPreferencesKey("jm_token"))
+        prefs.remove(stringPreferencesKey("jm_base"))
+        prefs.remove(Keys.ACTIVE_SOURCE)
     }
 }

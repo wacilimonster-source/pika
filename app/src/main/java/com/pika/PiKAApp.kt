@@ -20,6 +20,8 @@ class PiKAApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 禁漫源下线一次性迁移：必须最先执行（先于一切缓存预热，见 JmRemovalMigration）
+        com.pika.data.JmRemovalMigration.run(this)
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
         GridSettings.init(this)

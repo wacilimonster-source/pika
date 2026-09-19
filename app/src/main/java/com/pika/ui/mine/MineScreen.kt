@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
-import com.pika.core.source.SourceType
 import kotlinx.coroutines.launch
 
 @Composable
@@ -50,7 +49,6 @@ fun MineScreen(
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     onOpenProfile: () -> Unit = {},
     onOpenRecentReads: () -> Unit = {},
-    onOpenCloudHistory: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
@@ -61,8 +59,6 @@ fun MineScreen(
     var user by remember { mutableStateOf<ComicUser?>(null) }
     var profileLoading by remember { mutableStateOf(false) }
     var profileError by remember { mutableStateOf<String?>(null) }
-    var dailyMsg by remember { mutableStateOf<String?>(null) }
-    val isJm = activeSource == SourceType.JMCOMIC
 
     LaunchedEffect(loggedIn, unauthorizedTick) {
         if (loggedIn) {
@@ -172,54 +168,10 @@ fun MineScreen(
             }
         }
         Spacer(Modifier.height(16.dp))
-        // 禁漫源独有：每日签到
-        if (isJm && loggedIn) {
-            Card {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            scope.launch {
-                                dailyMsg = try {
-                                    val r = SourceManager.current().dailyCheckIn()
-                                    if (r.checkedIn) "今日已签到 · 连续 ${r.consecutiveDays} 天"
-                                    else "签到成功 · 连续 ${r.consecutiveDays} 天"
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    e.message ?: "签到失败"
-                                }
-                            }
-                        }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "每日签到",
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        if (dailyMsg != null) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = dailyMsg ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
         MenuRow("收藏的作品", onClick = onOpenFavourites)
         MenuRow("收藏的作者", onClick = onOpenAuthorFavourites)
         MenuRow("关注管理", onClick = onOpenFollowManage)
         MenuRow("阅读历史", onClick = onOpenRecentReads)
-        if (isJm) {
-            MenuRow("云端历史", onClick = onOpenCloudHistory)
-        }
         MenuRow("下载", onClick = onOpenDownloads)
         MenuRow("设置", onClick = onOpenSettings)
         if (loggedIn) {

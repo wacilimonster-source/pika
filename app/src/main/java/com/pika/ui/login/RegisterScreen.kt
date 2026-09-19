@@ -37,7 +37,6 @@ import kotlinx.coroutines.launch
 /**
  * 哔咔注册页：昵称 + 邮箱 + 密码 + 性别。
  * 注册成功自动登录（auth/register → auth/sign-in）。
- * 禁漫源不支持注册。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,8 +52,6 @@ fun RegisterScreen(
     var gender by remember { mutableStateOf("m") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-
-    val unsupported = SourceManager.current().type == com.pika.core.source.SourceType.JMCOMIC
 
     fun submit() {
         if (name.isBlank() || email.isBlank() || password.isBlank() || confirm.isBlank()) {
@@ -124,14 +121,6 @@ fun RegisterScreen(
                 .imePadding(),
             verticalArrangement = Arrangement.Center,
         ) {
-            if (unsupported) {
-                Text(
-                    text = "当前源（禁漫）不支持注册",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                return@Column
-            }
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },

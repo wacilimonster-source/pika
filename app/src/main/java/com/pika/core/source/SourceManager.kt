@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 
 /**
- * 单一活动源管理器：设置页切换，全局生效。
+ * 单一活动源管理器，全局生效。
  */
 object SourceManager {
     // 初始值给默认源，init() 中从（已内存缓存的）SourcePrefs 回填，避免单例首次触达时阻塞读盘
@@ -27,7 +27,6 @@ object SourceManager {
 
     private val sources: Map<SourceType, Source> = mapOf(
         SourceType.PICACG to StampedSource(PicacgSource(), SourceType.PICACG),
-        SourceType.JMCOMIC to StampedSource(JmcomicSource(), SourceType.JMCOMIC),
     )
 
     fun init() {
@@ -42,20 +41,7 @@ object SourceManager {
                 _activeSource.value = persisted
             }
         }
-        // 禁漫会话过期(401)时走静默重登
-        com.pika.network.JmClient.onUnauthorizedHook = { onUnauthorized(SourceType.JMCOMIC) }
         Log.d("SourceManager", "active source: ${_activeSource.value}")
-    }
-
-    /**
-     * 切换数据源（suspend，调用方需在协程中）。
-     *
-     * 内存态先于落盘：这样调用方在 `launch { switch(...) }` 之后立刻导航也能读到新源，
-     * 不会出现「登录页展示旧源 / 把新源账号提交给旧源」的竞态。
-     */
-    suspend fun switch(type: SourceType) {
-        SourcePrefs.current().markActiveSource(type)
-        _activeSource.value = type
     }
 
     fun current(): Source = sources.getValue(_activeSource.value)
@@ -189,7 +175,4 @@ private class StampedSource(
 
     override suspend fun recommendations(id: String): List<ComicSummary> =
         delegate.recommendations(id).stamp()
-
-    override suspend fun cloudHistory(page: Int): PageResult<ComicSummary> =
-        delegate.cloudHistory(page).stamp()
 }

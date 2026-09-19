@@ -170,7 +170,6 @@ fun MainScreen() {
                     },
                     onOpenProfile = { navController.navigate("profile") },
                     onOpenRecentReads = { navController.navigate("recent-reads") },
-                    onOpenCloudHistory = { navController.navigate("cloud-history") },
                 )
             }
             composable("profile") {
@@ -182,14 +181,6 @@ fun MainScreen() {
                 com.pika.ui.history.RecentReadsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenComic = { id ->
-                        navController.navigate(comicRoute(id))
-                    },
-                )
-            }
-            composable("cloud-history") {
-                com.pika.ui.history.CloudHistoryScreen(
-                    onBack = { navController.popBackStack() },
-                    onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
                 )
@@ -256,9 +247,6 @@ fun MainScreen() {
                     onBack = { navController.popBackStack() },
                     onOpenLog = { navController.navigate("log") },
                     onOpenSourceManage = { navController.navigate("settings/source") },
-                    onOpenLogin = {
-                        navController.navigate("login") { launchSingleTop = true }
-                    },
                 )
             }
             composable("settings/source") {
