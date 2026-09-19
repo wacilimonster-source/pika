@@ -90,7 +90,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class, kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun ReaderScreen(
-    comicId: String,
+    ref: String,
     order: Int,
     onBack: () -> Unit,
     title: String = "",
@@ -158,8 +158,8 @@ fun ReaderScreen(
     }
 
     // ── 加载章节
-    LaunchedEffect(comicId, order) {
-        viewModel.load(context, comicId, order)
+    LaunchedEffect(ref, order) {
+        viewModel.load(context, ref, order)
     }
 
     // ── 滚动流：页 → 行 平铺（长图分割） ──────────────────────────────────
@@ -173,7 +173,7 @@ fun ReaderScreen(
     LaunchedEffect(vmOrder, pages.size) {
         sliceCounts.clear()
         if (pages.isNotEmpty()) {
-            val cached = com.pika.data.WebtoonSliceCache.load(comicId, vmOrder, context)
+            val cached = com.pika.data.WebtoonSliceCache.load(ref, vmOrder, context)
             if (cached.isNotEmpty()) sliceCounts.putAll(cached)
         }
     }
@@ -504,7 +504,7 @@ fun ReaderScreen(
                                     // 写入持久缓存：下次进入本章恢复定位可直接按真实行号换算
                                     if (n > 1) {
                                         com.pika.data.WebtoonSliceCache.putAll(
-                                            context, comicId, vmOrder, mapOf(p to n),
+                                            context, ref, vmOrder, mapOf(p to n),
                                         )
                                     }
                                 },

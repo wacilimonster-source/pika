@@ -14,9 +14,9 @@ val readFilterOptions: List<Pair<ReadFilter, String>> = listOf(
     ReadFilter.UNFINISHED to "只看未读完",
 )
 
-/** 按阅读状态过滤（内存查询，O(n)） */
+/** 按阅读状态过滤（内存查询，O(n)）。已读状态按作品标识 `源_id` 记账 */
 fun List<ComicSummary>.filterByRead(filter: ReadFilter): List<ComicSummary> = when (filter) {
     ReadFilter.ALL -> this
-    ReadFilter.UNREAD -> filter { ReaderStatus.of(it.id) == null }
-    ReadFilter.UNFINISHED -> filter { ReaderStatus.of(it.id) != ReadStatus.FINISHED }
+    ReadFilter.UNREAD -> filter { ReaderStatus.of(it.ref) == null }
+    ReadFilter.UNFINISHED -> filter { ReaderStatus.of(it.ref) != ReadStatus.FINISHED }
 }

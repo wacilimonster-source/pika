@@ -77,10 +77,10 @@ fun RecentReadsScreen(
                 )
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(recentReads, key = { "${it.comicId}:${it.order}" }) { recent ->
+                    items(recentReads, key = { "${it.ref}#${it.order}" }) { recent ->
                         RecentReadRow(
                             recent = recent,
-                            onClick = { onOpenComic(recent.comicId) },
+                            onClick = { onOpenComic(recent.ref) },
                         )
                     }
                 }

@@ -64,13 +64,13 @@ fun ComicGridView(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(comics, key = { it.id }) { comic ->
-            val readStatus = remember(comic.id, statusVersion) { com.pika.data.ReaderStatus.of(comic.id) }
+        items(comics, key = { it.ref }) { comic ->
+            val readStatus = remember(comic.ref, statusVersion) { com.pika.data.ReaderStatus.of(comic.ref) }
             ComicCard(
                 comic = comic,
                 readStatus = readStatus,
                 largeTitle = columns == 2,
-                onClick = { onComicClick(comic.id) },
+                onClick = { onComicClick(comic.ref) },
             )
         }
         if (loading && showTailLoading) {

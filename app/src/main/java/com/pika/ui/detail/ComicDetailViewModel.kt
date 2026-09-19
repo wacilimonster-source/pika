@@ -6,7 +6,9 @@ import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
+import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
+import com.pika.core.source.SourceType
 import com.pika.core.log.LogStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +69,19 @@ class ComicDetailViewModel : ViewModel() {
     var loadedComicId: String = ""
         private set
 
+    /**
+     * 本页固化使用的源：进入时由作品标识解析得出。
+     *
+     * 不能运行时读 `SourceManager.current()` —— 用户在详情页停留时切换数据源，
+     * 之后重试/翻页/收藏就会拿另一个源去请求这本书。
+     */
+    var source: SourceType = SourceManager.activeSource.value
+        private set
+
+    private var loadedRef: String = ""
+
+    private fun src(): Source = SourceManager.sourceOf(source)
+
     /** 加载代数：切换漫画时自增，旧协程回调前校验，防止脏数据覆盖新漫画状态 */
     private var loadGeneration = 0
     private var loadJob: kotlinx.coroutines.Job? = null
@@ -81,8 +96,11 @@ class ComicDetailViewModel : ViewModel() {
     private val _lastProgress = MutableStateFlow<com.pika.data.ReaderPrefs.Progress?>(null)
     val lastProgress: StateFlow<com.pika.data.ReaderPrefs.Progress?> = _lastProgress
 
-    fun load(comicId: String) {
-        if (loadedComicId == comicId && _comic.value != null) return
+    fun load(ref: String) {
+        if (loadedRef == ref && _comic.value != null) return
+        val (src, comicId) = com.pika.core.source.ComicRef.parse(ref)
+        source = src
+        loadedRef = ref
         loadedComicId = comicId
         // 取消上一本漫画还在跑的请求，避免旧结果覆盖新漫画状态
         loadJob?.cancel()
@@ -108,14 +126,14 @@ class ComicDetailViewModel : ViewModel() {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (gen != loadGeneration) return@launch
             _lastProgress.value = runCatching {
-                com.pika.data.ReaderPrefs.current().lastProgressAsync(comicId)
+                com.pika.data.ReaderPrefs.current().lastProgressAsync(ref)
             }.getOrNull()
         }
         loadJob = viewModelScope.launch {
             val chaptersJob = launch {
                 _loading.value = true
                 try {
-                    val list = SourceManager.current().chapters(comicId)
+                    val list = src().chapters(comicId)
                     if (gen != loadGeneration) return@launch
                     _chapters.value = list
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -130,7 +148,7 @@ class ComicDetailViewModel : ViewModel() {
                 }
             }
             try {
-                val detail = SourceManager.current().comicDetail(comicId)
+                val detail = src().comicDetail(comicId)
                 if (gen != loadGeneration) return@launch
                 // 用详情接口的真实收藏态初始化心形：此前 _favourited 恒以 false 起始，
                 // 导致已收藏的作品显示为未收藏、首次点击语义相反（需点两次才能取消）
@@ -138,7 +156,7 @@ class ComicDetailViewModel : ViewModel() {
                 _comic.value = detail.also {
                     // 列表接口不返回更新时间，详情拉到就记录，供关注流回填展示
                     if (it.updatedAt.isNotBlank()) {
-                        com.pika.data.UpdatedAtCache.put(it.id, it.updatedAt)
+                        com.pika.data.UpdatedAtCache.put(ref, it.updatedAt)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -159,7 +177,7 @@ class ComicDetailViewModel : ViewModel() {
     fun loadRecommendations(comicId: String, gen: Int = loadGeneration) {
         viewModelScope.launch {
             try {
-                val list = SourceManager.current().recommendations(comicId)
+                val list = src().recommendations(comicId)
                 if (gen == loadGeneration) _recommendations.value = list
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -176,7 +194,7 @@ class ComicDetailViewModel : ViewModel() {
             _chaptersError.value = null
             _loading.value = true
             try {
-                val list = SourceManager.current().chapters(comicId)
+                val list = src().chapters(comicId)
                 if (gen != loadGeneration) return@launch
                 _chapters.value = list
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -227,7 +245,7 @@ class ComicDetailViewModel : ViewModel() {
             epTitle = chapter.title,
             // 单章页数运行时才可知，传 0 由 runTask 拉取真实页数后回填
             pageCount = 0,
-            source = SourceManager.activeSource.value.name,
+            source = source.name,
         )
     }
 
@@ -238,7 +256,7 @@ class ComicDetailViewModel : ViewModel() {
             comicTitle = comic?.title ?: comicId,
             coverUrl = comic?.coverUrl ?: "",
             chapters = chapters.map { it.order to it.title },
-            source = SourceManager.activeSource.value.name,
+            source = source.name,
         )
     }
 
@@ -259,7 +277,7 @@ class ComicDetailViewModel : ViewModel() {
         if (comicId.isEmpty()) return
         viewModelScope.launch {
             try {
-                val now = SourceManager.current().favourite(comicId, !_favourited.value)
+                val now = src().favourite(comicId, !_favourited.value)
                 // 以源返回的真实状态回写，避免切换型接口本地失步
                 _favourited.value = now
                 // 通知收藏列表页返回时刷新（此前取消收藏后列表残留、新收藏不可见）
@@ -300,7 +318,7 @@ class ComicDetailViewModel : ViewModel() {
         val seq = ++commentSeq
         viewModelScope.launch {
             try {
-                val result = SourceManager.current().comments(comicId, page)
+                val result = src().comments(comicId, page)
                 if (gen != loadGeneration) return@launch
                 _comments.value = if (page == 1) result.items else _comments.value + result.items
                 _commentEndReached.value = page >= result.pages
@@ -332,9 +350,9 @@ class ComicDetailViewModel : ViewModel() {
             _sending.value = true
             try {
                 if (replyId != null) {
-                    SourceManager.current().replyComment(replyId, content.trim())
+                    src().replyComment(replyId, content.trim())
                 } else {
-                    SourceManager.current().sendComment(comicId, content.trim())
+                    src().sendComment(comicId, content.trim())
                 }
                 _replyingTo.value = null
                 // 重新加载第一页（新评论置顶展示）。
@@ -366,7 +384,7 @@ class ComicDetailViewModel : ViewModel() {
         _loadingSubIds.value = _loadingSubIds.value + commentId
         viewModelScope.launch {
             try {
-                val result = SourceManager.current().commentChildren(commentId, page = 1)
+                val result = src().commentChildren(commentId, page = 1)
                 _subComments.value = _subComments.value + (commentId to result.items)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

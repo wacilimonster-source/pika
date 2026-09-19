@@ -8,6 +8,9 @@ import android.content.Context
  * 滚动流的"页码 → 行号"换算依赖每页切片数，而切片数只有图片实际加载后才能测得；
  * 不缓存的话每次进度恢复都按 1 屏估算，全分屏长图章节会系统性定位偏早，
  * 且远端页永不组合、无法靠现场解析自愈。缓存后第二次进入即可按真实行号定位。
+ *
+ * 键为 `源_id#章号`（见 ComicRef）。本缓存可重建：改键格式后旧条目只是不命中，
+ * 相当于重新测一次切片数，不产生错误数据，故不做迁移。
  */
 object WebtoonSliceCache {
 
@@ -22,8 +25,10 @@ object WebtoonSliceCache {
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .also { prefs = it }
 
-    fun load(comicId: String, order: Int, context: Context): Map<Int, Int> {
-        val key = "$comicId#$order"
+    private fun key(ref: String, order: Int) = "$ref#$order"
+
+    fun load(ref: String, order: Int, context: Context): Map<Int, Int> {
+        val key = key(ref, order)
         map[key]?.let { return it }
         val raw = runCatching { sp(context).getString(key, null) }.getOrNull() ?: return emptyMap()
         val parsed = raw.split(",").mapNotNull { entry ->
@@ -36,10 +41,10 @@ object WebtoonSliceCache {
         return parsed
     }
 
-    fun putAll(context: Context, comicId: String, order: Int, counts: Map<Int, Int>) {
+    fun putAll(context: Context, ref: String, order: Int, counts: Map<Int, Int>) {
         if (counts.isEmpty()) return
-        val key = "$comicId#$order"
-        val merged = load(comicId, order, context) + counts.filterValues { it > 1 }
+        val key = key(ref, order)
+        val merged = load(ref, order, context) + counts.filterValues { it > 1 }
         map[key] = merged
         runCatching {
             sp(context).edit()

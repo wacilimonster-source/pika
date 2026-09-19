@@ -70,7 +70,7 @@ import com.pika.core.model.ComicSummary
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ComicDetailScreen(
-    comicId: String,
+    ref: String,
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
     onOpenAuthor: (String) -> Unit = {},
@@ -102,8 +102,11 @@ fun ComicDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(comicId) {
-        viewModel.load(comicId)
+    // 参数 ref 是作品标识 `源_id`；裸 id 只用于按 id 记账的场合（调源接口、匹配下载任务）
+    val comicId = com.pika.core.source.ComicRef.id(ref)
+
+    LaunchedEffect(ref) {
+        viewModel.load(ref)
     }
 
     LaunchedEffect(favouriteError) {
@@ -162,9 +165,9 @@ fun ComicDetailScreen(
                             Button(
                                 onClick = {
                                     if (lastProgress != null) {
-                                        onOpenReader(comicId, lastProgress!!.order)
+                                        onOpenReader(ref, lastProgress!!.order)
                                     } else {
-                                        chapters.firstOrNull()?.let { onOpenReader(comicId, it.order) }
+                                        chapters.firstOrNull()?.let { onOpenReader(ref, it.order) }
                                     }
                                 },
                                 enabled = chapters.isNotEmpty(),
@@ -289,7 +292,7 @@ fun ComicDetailScreen(
                     // （内部 listFiles 目录遍历），列表每项都会做一次磁盘 IO
                     ChapterRow(
                         chapter = chapter,
-                        onClick = { onOpenReader(comicId, chapter.order) },
+                        onClick = { onOpenReader(ref, chapter.order) },
                         onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
                         downloaded = chapter.order in downloadedOrders,
                     )
@@ -318,7 +321,7 @@ fun ComicDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(recommendations, key = { it.id }) { rec ->
-                                RecommendCard(rec, onClick = { onComicClick(rec.id) })
+                                RecommendCard(rec, onClick = { onComicClick(rec.ref) })
                             }
                         }
                     }
@@ -411,7 +414,7 @@ fun ComicDetailScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
                                         .padding(top = 12.dp)
-                                        .clickable { viewModel.load(comicId) },
+                                        .clickable { viewModel.load(ref) },
                                 )
                             } else {
                                 Text("加载中...", style = MaterialTheme.typography.bodyMedium)

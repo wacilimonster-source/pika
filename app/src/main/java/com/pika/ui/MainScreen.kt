@@ -52,6 +52,16 @@ private val tabs = listOf(
 /** 需要整屏展示、不应挂底部标签栏的路由前缀 */
 private val fullScreenRoutePrefixes = listOf("reader/")
 
+/**
+ * 详情页路由。[ref] 必须是作品标识 `源_id`（ComicSummary.ref / ComicDetail.ref），
+ * 不能传裸 comicId —— 否则点开的页面会按"当时的活动源"去请求另一源的作品。
+ * 历史裸 id 仍可用（按哔咔解释），见 ComicRef.parse。
+ */
+private fun comicRoute(ref: String) = "comic/${Uri.encode(ref)}"
+
+/** 阅读器路由，[ref] 同上 */
+private fun readerRoute(ref: String, order: Int) = "reader/${Uri.encode(ref)}/$order"
+
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
@@ -110,7 +120,7 @@ fun MainScreen() {
             composable("home") {
                 HomeScreen(
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
@@ -118,7 +128,7 @@ fun MainScreen() {
                 com.pika.ui.rank.RankScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
@@ -128,7 +138,7 @@ fun MainScreen() {
                         navController.navigate("category/${Uri.encode(id)}")
                     },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
@@ -145,7 +155,7 @@ fun MainScreen() {
                 SearchScreen(
                     initialKeyword = entry.arguments?.getString("keyword"),
                     onBack = null,
-                    onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
+                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
             }
             composable("mine") {
@@ -156,7 +166,7 @@ fun MainScreen() {
                     onOpenAuthorFavourites = { navController.navigate("author-favourites") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
                     onOpenReader = { comicId, order ->
-                        navController.navigate("reader/${Uri.encode(comicId)}/$order")
+                        navController.navigate(readerRoute(comicId, order))
                     },
                     onOpenProfile = { navController.navigate("profile") },
                     onOpenRecentReads = { navController.navigate("recent-reads") },
@@ -172,7 +182,7 @@ fun MainScreen() {
                 com.pika.ui.history.RecentReadsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenComic = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
@@ -180,7 +190,7 @@ fun MainScreen() {
                 com.pika.ui.history.CloudHistoryScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
@@ -188,14 +198,14 @@ fun MainScreen() {
                 com.pika.ui.download.DownloadScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id, order ->
-                        navController.navigate("reader/${Uri.encode(id)}/$order")
+                        navController.navigate(readerRoute(id, order))
                     },
                 )
             }
             composable("favourites") {
                 com.pika.ui.favourite.FavouriteScreen(
                     onBack = { navController.popBackStack() },
-                    onComicClick = { id -> navController.navigate("comic/${Uri.encode(id)}") },
+                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
             }
             composable("author-favourites") {
@@ -274,22 +284,23 @@ fun MainScreen() {
                     categoryId = categoryId,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
             composable(
-                "comic/{comicId}",
+                "comic/{ref}",
                 arguments = listOf(
-                    navArgument("comicId") { type = NavType.StringType },
+                    navArgument("ref") { type = NavType.StringType },
                 ),
             ) { entry ->
-                val comicId = entry.arguments?.getString("comicId") ?: return@composable
+                // 载荷是作品标识 `源_id`：进页面即固化来源，之后用户切源也不影响本页
+                val ref = entry.arguments?.getString("ref") ?: return@composable
                 ComicDetailScreen(
-                    comicId = comicId,
+                    ref = ref,
                     onBack = { navController.popBackStack() },
                     onOpenReader = { id, order ->
-                        navController.navigate("reader/${Uri.encode(id)}/$order")
+                        navController.navigate(readerRoute(id, order))
                     },
                     onOpenAuthor = { author ->
                         navController.navigate("author/${Uri.encode(author)}")
@@ -298,7 +309,7 @@ fun MainScreen() {
                         navController.navigate("search?keyword=${Uri.encode(tag)}")
                     },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}") {
+                        navController.navigate(comicRoute(id)) {
                             launchSingleTop = true
                         }
                     },
@@ -315,21 +326,21 @@ fun MainScreen() {
                     author = author,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
-                        navController.navigate("comic/${Uri.encode(id)}")
+                        navController.navigate(comicRoute(id))
                     },
                 )
             }
             composable(
-                "reader/{comicId}/{order}",
+                "reader/{ref}/{order}",
                 arguments = listOf(
-                    navArgument("comicId") { type = NavType.StringType },
+                    navArgument("ref") { type = NavType.StringType },
                     navArgument("order") { type = NavType.IntType },
                 ),
             ) { entry ->
-                val comicId = entry.arguments?.getString("comicId") ?: return@composable
+                val ref = entry.arguments?.getString("ref") ?: return@composable
                 val order = entry.arguments?.getInt("order") ?: 1
                 ReaderScreen(
-                    comicId = comicId,
+                    ref = ref,
                     order = order,
                     onBack = { navController.popBackStack() },
                 )

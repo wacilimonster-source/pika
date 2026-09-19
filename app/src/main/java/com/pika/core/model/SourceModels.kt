@@ -1,5 +1,7 @@
 package com.pika.core.model
 
+import com.pika.core.source.ComicRef
+import com.pika.core.source.SourceType
 import kotlinx.serialization.Serializable
 
 /**
@@ -20,7 +22,15 @@ data class ComicSummary(
     val tags: List<String> = emptyList(),
     /** 更新时间（"yyyy-MM-dd..." ISO 前缀，用于日期范围筛选；源不支持时为空） */
     val updatedAt: String = "",
-)
+    /**
+     * 产出这条数据的源，由 SourceManager 统一盖章（见 ComicRef）。
+     * 默认哔咔：历史 FollowFeedCache 里没有该字段，按哔咔解释。
+     */
+    val source: SourceType = SourceType.PICACG,
+) {
+    /** 作品标识：列表点击、路由参数、本地记账都用它 */
+    val ref: String get() = ComicRef.of(source, id)
+}
 
 /** 分类 */
 data class ComicCategory(
@@ -52,7 +62,12 @@ data class ComicDetail(
      * 避免「已收藏的作品显示为未收藏、取消收藏需要点两次」。
      */
     val isFavourite: Boolean = false,
-)
+    /** 产出该详情的源，由 SourceManager 统一盖章（见 ComicRef） */
+    val source: SourceType = SourceType.PICACG,
+) {
+    /** 作品标识：阅读器路由、本地进度记账用 */
+    val ref: String get() = ComicRef.of(source, id)
+}
 
 /** 章节 */
 data class ComicChapter(

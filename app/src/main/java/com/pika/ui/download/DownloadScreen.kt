@@ -175,7 +175,12 @@ fun DownloadScreen(
                             },
                             onChapterClick = { order ->
                                 if (comicTasks.any { t -> t.isFinished && t.task.order == order }) {
-                                    onComicClick(comicId, order)
+                                    onComicClick(
+                                        com.pika.core.source.ComicRef.ofName(
+                                            comicTasks.firstOrNull()?.task?.source, comicId,
+                                        ),
+                                        order,
+                                    )
                                 }
                             },
                             onRetry = { DownloadManager.retry(it) },

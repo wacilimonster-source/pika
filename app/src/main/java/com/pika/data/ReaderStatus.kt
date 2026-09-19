@@ -12,6 +12,8 @@ enum class ReadStatus { READ, FINISHED }
  * 已读/已读完状态的内存缓存：
  * 启动时一次性从 DataStore 全量加载（存量进度自动补齐"已读"），阅读器写入时同步更新。
  * 列表页每条 O(1) 内存查询，不碰磁盘；version 递增触发 Compose 列表刷新角标。
+ *
+ * 键一律是作品标识 `源_id`（见 ComicRef）：切源后同名 id 的作品不该共享"已读"角标。
  */
 object ReaderStatus {
 
@@ -31,18 +33,18 @@ object ReaderStatus {
         }
     }
 
-    fun of(comicId: String): ReadStatus? = map[comicId]
+    fun of(ref: String): ReadStatus? = map[ref]
 
     /** 打开阅读器即已读；状态只升不降（读完的作品不会被降级为仅已读） */
-    fun markRead(comicId: String) {
-        if (map.containsKey(comicId)) return
-        map[comicId] = ReadStatus.READ
+    fun markRead(ref: String) {
+        if (map.containsKey(ref)) return
+        map[ref] = ReadStatus.READ
         _version.value++
     }
 
-    fun markFinished(comicId: String) {
-        if (map[comicId] == ReadStatus.FINISHED) return
-        map[comicId] = ReadStatus.FINISHED
+    fun markFinished(ref: String) {
+        if (map[ref] == ReadStatus.FINISHED) return
+        map[ref] = ReadStatus.FINISHED
         _version.value++
     }
 }

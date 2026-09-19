@@ -66,21 +66,23 @@ object UpdatedAtCache {
         }
     }
 
-    fun of(comicId: String): String? = synchronized(map) { map[comicId] }
+    fun of(ref: String): String? = synchronized(map) {
+        map[ref] ?: map[com.pika.core.source.ComicRef.id(ref)]   // 历史条目按裸 id 存，回落一次
+    }
 
-    /** 拉到更新时间就记录（同值重复记录不触发 version，避免列表无谓刷新） */
-    fun put(comicId: String, updatedAt: String) {
+    /** 拉到更新时间就记录（同值重复记录不触发 version，避免列表无谓刷新）。[ref] 为作品标识 `源_id` */
+    fun put(ref: String, updatedAt: String) {
         if (updatedAt.isBlank()) return
         val needsDebounce: Boolean
         synchronized(map) {
-            if (map[comicId] == updatedAt) {
+            if (map[ref] == updatedAt) {
                 needsDebounce = false
             } else if (!ready) {
-                synchronized(pendingPuts) { pendingPuts[comicId] = updatedAt }
+                synchronized(pendingPuts) { pendingPuts[ref] = updatedAt }
                 needsDebounce = true
             } else {
-                map.remove(comicId)
-                map[comicId] = updatedAt
+                map.remove(ref)
+                map[ref] = updatedAt
                 while (map.size > MAX_ENTRIES) {
                     map.remove(map.keys.first())
                 }

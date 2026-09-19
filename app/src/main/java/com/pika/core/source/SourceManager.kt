@@ -1,6 +1,10 @@
 package com.pika.core.source
 
 import android.util.Log
+import com.pika.core.model.ComicDetail
+import com.pika.core.model.ComicSort
+import com.pika.core.model.ComicSummary
+import com.pika.core.model.PageResult
 import com.pika.data.SourcePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,8 +26,8 @@ object SourceManager {
     val unauthorizedTick: StateFlow<Int> = _unauthorizedTick
 
     private val sources: Map<SourceType, Source> = mapOf(
-        SourceType.PICACG to PicacgSource(),
-        SourceType.JMCOMIC to JmcomicSource(),
+        SourceType.PICACG to StampedSource(PicacgSource(), SourceType.PICACG),
+        SourceType.JMCOMIC to StampedSource(JmcomicSource(), SourceType.JMCOMIC),
     )
 
     fun init() {
@@ -132,4 +136,60 @@ object SourceManager {
     /** 已保存的账号邮箱（无则 null），登录页/设置页展示用 */
     fun savedAccountEmail(): String? =
         com.pika.data.SecureAccountStore.savedEmail(_activeSource.value)
+}
+
+/**
+ * 给源返回的作品盖上来源标记（见 [ComicRef]）。
+ *
+ * 集中在这里盖章，而不是要求每个源实现自己填：漏一处就会有一条链路按裸 id 记账，
+ * 而这类遗漏在单源下完全看不出来。
+ */
+private class StampedSource(
+    private val delegate: Source,
+    private val stampWith: SourceType,
+) : Source by delegate {
+
+    private fun ComicSummary.stamp() = if (source == stampWith) this else copy(source = stampWith)
+    private fun List<ComicSummary>.stamp() = map { it.stamp() }
+    private fun PageResult<ComicSummary>.stamp() = copy(items = items.stamp())
+
+    override suspend fun browse(
+        page: Int,
+        category: String?,
+        sort: ComicSort,
+        author: String?,
+        tag: String?,
+    ): PageResult<ComicSummary> = delegate.browse(page, category, sort, author, tag).stamp()
+
+    override suspend fun search(
+        keyword: String,
+        page: Int,
+        sort: ComicSort,
+        categories: List<String>,
+        tags: List<String>,
+        author: String?,
+        chineseTeam: String?,
+        uploader: String?,
+        finished: Boolean?,
+    ): PageResult<ComicSummary> =
+        delegate.search(keyword, page, sort, categories, tags, author, chineseTeam, uploader, finished).stamp()
+
+    override suspend fun comicDetail(id: String): ComicDetail {
+        val d = delegate.comicDetail(id)
+        return if (d.source == stampWith) d else d.copy(source = stampWith)
+    }
+
+    override suspend fun favourites(page: Int): PageResult<ComicSummary> =
+        delegate.favourites(page).stamp()
+
+    // 参数不能叫 type：与继承自 Source 的 type 属性同名
+    override suspend fun rank(rankType: String): List<ComicSummary> = delegate.rank(rankType).stamp()
+
+    override suspend fun randomComics(): List<ComicSummary> = delegate.randomComics().stamp()
+
+    override suspend fun recommendations(id: String): List<ComicSummary> =
+        delegate.recommendations(id).stamp()
+
+    override suspend fun cloudHistory(page: Int): PageResult<ComicSummary> =
+        delegate.cloudHistory(page).stamp()
 }

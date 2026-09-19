@@ -495,9 +495,9 @@ class HomeViewModel : ViewModel() {
     /** 条目自带更新时间就顺手记录进缓存；没有则用已记录的（详情页拉到过的）回填展示 */
     private fun fillUpdatedAt(item: ComicSummary): ComicSummary {
         if (item.updatedAt.isNotBlank()) {
-            com.pika.data.UpdatedAtCache.put(item.id, item.updatedAt)
+            com.pika.data.UpdatedAtCache.put(item.ref, item.updatedAt)
             return item
         }
-        return com.pika.data.UpdatedAtCache.of(item.id)?.let { item.copy(updatedAt = it) } ?: item
+        return com.pika.data.UpdatedAtCache.of(item.ref)?.let { item.copy(updatedAt = it) } ?: item
     }
 }

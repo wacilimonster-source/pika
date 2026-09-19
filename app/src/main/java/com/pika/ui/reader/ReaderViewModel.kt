@@ -50,6 +50,9 @@ class ReaderViewModel : ViewModel() {
     var comicId: String = ""
         private set
 
+    /** 作品标识 `源_id`：进度、已读、最近阅读、切片缓存都按它记账 */
+    private var ref: String = ""
+
     var currentOrder: Int = 1
         private set
 
@@ -61,13 +64,19 @@ class ReaderViewModel : ViewModel() {
 
     private var loadJob: Job? = null
 
-    fun load(context: Context, comicId: String, order: Int) {
-        if (loadedKey == "$comicId:$order" && _pages.value.isNotEmpty()) return
+    fun load(context: Context, ref: String, order: Int) {
+        if (loadedKey == "$ref:$order" && _pages.value.isNotEmpty()) return
         loadJob?.cancel()
-        loadedKey = "$comicId:$order"
-        this.comicId = comicId
+        loadedKey = "$ref:$order"
+        val (src, id) = com.pika.core.source.ComicRef.parse(ref)
+        this.ref = ref
+        this.comicId = id
         this.currentOrder = order
         _currentOrderFlow.value = order
+        // 协程内一律用下面两个局部值：属性会被下一次 load() 改写，
+        // 而旧协程的取消只在挂起点生效，读属性就可能拿新作品的源去取旧作品的章
+        val comicId = id
+        val pageSource = SourceManager.sourceOf(src)
         loadJob = viewModelScope.launch {
             _loading.value = true
             // 复位上一章未消费的恢复页：加载期间重组只会读到 -1，
@@ -78,7 +87,7 @@ class ReaderViewModel : ViewModel() {
                     // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）。
                     // 只读入局部变量，待 pages 就绪后再发布（见 _pendingRestorePage 注释）
                     val restore = runCatchingCancellable {
-                        val saved = ReaderPrefs.current().lastProgressAsync(comicId)
+                        val saved = ReaderPrefs.current().lastProgressAsync(ref)
                         // 有本章已存进度则恢复之；无进度（新章）必须显式归位第 1 页：
                         // 否则翻页器/滚动列表保留上一章页码，防抖还会把旧页码写成新章进度
                         if (saved != null && saved.order == order) saved.pageIndex else 0
@@ -92,16 +101,16 @@ class ReaderViewModel : ViewModel() {
                             com.pika.core.model.ComicPage(i, f.toURI().toString())
                         }
                     } else {
-                        _pages.value = SourceManager.current().chapterPages(comicId, order)
+                        _pages.value = pageSource.chapterPages(comicId, order)
                     }
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
                     _pendingRestorePage.value = restore
-                    _chapters.value = SourceManager.current().chapters(comicId)
+                    _chapters.value = pageSource.chapters(comicId)
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
                         runCatchingCancellable {
-                            val detail = SourceManager.current().comicDetail(comicId)
+                            val detail = pageSource.comicDetail(comicId)
                             if (_coverUrl.value.isBlank()) {
                                 _coverUrl.value = detail.coverUrl.orEmpty()
                             }
@@ -154,7 +163,7 @@ class ReaderViewModel : ViewModel() {
     fun switchChapter(context: Context, order: Int) {
         if (order < 1 || order == currentOrder) return
         loadedKey = ""
-        load(context, comicId, order)
+        load(context, ref, order)
     }
 
     /** 上一次进度落盘 Job：滚动时逐页触发，取消旧任务避免乱序覆盖（新页码覆盖旧页码） */
@@ -170,13 +179,13 @@ class ReaderViewModel : ViewModel() {
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
         if (final) {
-            val comicIdNow = comicId
+            val refNow = ref
             val orderNow = currentOrder
             ReaderPrefs.current().ioScope.launch {
                 runCatching {
-                    ReaderPrefs.current().saveProgress(comicIdNow, orderNow, safePage)
+                    ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
                 }
-                com.pika.data.ReaderStatus.markRead(comicIdNow)
+                com.pika.data.ReaderStatus.markRead(refNow)
             }
             return
         }
@@ -184,16 +193,16 @@ class ReaderViewModel : ViewModel() {
             // runCatchingCancellable 会重新抛出取消：被后续 saveProgress 取代时立即停止，
             // 而普通写盘失败仍按原行为继续更新内存已读标记
             runCatchingCancellable {
-                ReaderPrefs.current().saveProgress(comicId, currentOrder, safePage)
+                ReaderPrefs.current().saveProgress(ref, currentOrder, safePage)
             }
             // 打开过阅读器即已读（内存状态只升不降）
-            com.pika.data.ReaderStatus.markRead(comicId)
+            com.pika.data.ReaderStatus.markRead(ref)
             // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
             val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
             if (currentOrder == lastOrder && safePage >= pages.size - 1) {
-                if (com.pika.data.ReaderStatus.of(comicId) != com.pika.data.ReadStatus.FINISHED) {
-                    runCatchingCancellable { ReaderPrefs.current().saveFinished(comicId) }
-                    com.pika.data.ReaderStatus.markFinished(comicId)
+                if (com.pika.data.ReaderStatus.of(ref) != com.pika.data.ReadStatus.FINISHED) {
+                    runCatchingCancellable { ReaderPrefs.current().saveFinished(ref) }
+                    com.pika.data.ReaderStatus.markFinished(ref)
                 }
             }
         }
@@ -213,7 +222,7 @@ class ReaderViewModel : ViewModel() {
     fun recordRecentRead(pageIndex: Int, final: Boolean = false) {
         lastRecordedPage = pageIndex.coerceAtLeast(0)
         recentJob?.cancel()
-        val comicIdNow = comicId
+        val refNow = ref
         val orderNow = currentOrder
         val pageNow = lastRecordedPage
         if (final) {
@@ -221,7 +230,7 @@ class ReaderViewModel : ViewModel() {
             ReaderPrefs.current().ioScope.launch {
                 runCatchingCancellable {
                     ReaderPrefs.current().recordRecentRead(
-                        comicId = comicIdNow,
+                        ref = refNow,
                         title = _comicTitle.value.ifBlank { "第 $orderNow 话" },
                         coverUrl = _coverUrl.value,
                         author = _comicAuthor.value,
@@ -235,7 +244,7 @@ class ReaderViewModel : ViewModel() {
         recentJob = viewModelScope.launch(Dispatchers.IO) {
             runCatchingCancellable {
                 ReaderPrefs.current().recordRecentRead(
-                    comicId = comicIdNow,
+                    ref = refNow,
                     title = _comicTitle.value.ifBlank { "第 $orderNow 话" },
                     coverUrl = _coverUrl.value,
                     author = _comicAuthor.value,
