@@ -1,6 +1,11 @@
 # PiKA · 移除禁漫（JM）源 —— 产品设计与实施方案
 
-日期：2026-09-20 ｜ 状态：待评审 ｜ 基线：main @ ece5180 + 未提交工作树（ComicRef 双源标识改造）
+日期：2026-09-20 ｜ 状态：已实施（提交 c72977e 移除 + 9f96cfc 测试与配置清理）｜ 基线：main @ ece5180 + 未提交工作树（ComicRef 双源标识改造，已单独提交为 73b6ac9）
+
+> 实施后验证记录（代码级）：compileDebugKotlin / assembleRelease（含 R8）/ testDebugUnitTest（12 用例）/ lintDebug（0 错误）全部通过；
+> 全仓 JM 残留清零（唯一例外为 JmRemovalMigration 及配套 purge 函数中有意保留的历史源名字面量，见其 KDoc）。
+> 实施中发现并补清：res/xml/network_security_config.xml 中禁漫 CDN 域名及明文 HTTP 放行（9f96cfc）。
+> 模拟器/真机升级冒烟未执行（按用户要求仅做代码级验证），建议发版前人工走一遍「v1.5.50 覆盖装 → 迁移 → 哔咔进度/收藏/下载完好」。
 
 ---
 
