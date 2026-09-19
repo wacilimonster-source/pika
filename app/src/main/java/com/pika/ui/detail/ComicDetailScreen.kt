@@ -81,6 +81,8 @@ fun ComicDetailScreen(
     val comic by viewModel.comic.collectAsState()
     val chapters by viewModel.chapters.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val loadError by viewModel.error.collectAsState()
+    val chaptersError by viewModel.chaptersError.collectAsState()
     val favourited by viewModel.favourited.collectAsState()
     val recommendations by viewModel.recommendations.collectAsState()
     val comments by viewModel.comments.collectAsState()
@@ -189,6 +191,27 @@ fun ComicDetailScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        // 章节加载失败必须可见：否则章节恒空时"开始阅读/下载整本"
+                        // 永久禁用且没有任何失败线索（此前 catch 空处理吞掉了错误）
+                        if (chaptersError != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "章节加载失败：$chaptersError",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "重试",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(start = 8.dp)
+                                        .clickable { viewModel.retryChapters(comicId) },
+                                )
+                            }
                         }
                     }
                 }
@@ -374,25 +397,53 @@ fun ComicDetailScreen(
             } else {
                 item {
                     Box(Modifier.fillMaxSize().padding(top = 160.dp), contentAlignment = Alignment.TopCenter) {
-                        Text("加载中...", style = MaterialTheme.typography.bodyMedium)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (loadError != null) {
+                                // 此前详情失败永远显示"加载中"，无提示无重试，只能退出重进
+                                Text(
+                                    text = "加载失败：$loadError",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Text(
+                                    text = "点击重试",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 12.dp)
+                                        .clickable { viewModel.load(comicId) },
+                                )
+                            } else {
+                                Text("加载中...", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
+    var commentSendError by remember { mutableStateOf<String?>(null) }
     if (showCommentDialog && viewModel.commentSupported) {
         CommentDialog(
             replyingTo = replyingTo,
             sending = sending,
+            sendError = commentSendError,
             onSend = { content ->
                 viewModel.send(content, onSent = { err ->
-                    showCommentDialog = false
+                    if (err == null) {
+                        showCommentDialog = false
+                        commentSendError = null
+                    } else {
+                        // 发送失败必须保留对话框与已输入内容：静默关闭会让长评无法找回
+                        commentSendError = err
+                    }
                 })
             },
             onCancelReply = { viewModel.setReplyingTo(null) },
             onDismiss = {
                 showCommentDialog = false
+                commentSendError = null
                 viewModel.setReplyingTo(null)
             },
         )
@@ -406,6 +457,7 @@ private fun CommentDialog(
     onSend: (String) -> Unit,
     onCancelReply: () -> Unit,
     onDismiss: () -> Unit,
+    sendError: String? = null,
 ) {
     var input by remember { mutableStateOf("") }
     AlertDialog(
@@ -429,6 +481,14 @@ private fun CommentDialog(
                     placeholder = { Text("说点什么...") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (sendError != null) {
+                    Text(
+                        text = "发送失败：$sendError（内容已保留，可重发）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         },
         confirmButton = {

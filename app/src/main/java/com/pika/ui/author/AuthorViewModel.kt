@@ -56,12 +56,6 @@ class AuthorViewModel : ViewModel() {
     fun loadComics(author: String, page: Int) {
         _author = author
         loadJob?.cancel()
-        // 恢复滚动状态：跳过加载，只恢复页码（Navigation 已自动恢复 LazyGridState）
-        if (_needsScrollRestore) {
-            _needsScrollRestore = false
-            _currentPage.value = _savedCurrentPage
-            return
-        }
         _loading.value = true
         _error.value = null
         _endReached.value = false
@@ -88,6 +82,18 @@ class AuthorViewModel : ViewModel() {
                 if (isActive) _loading.value = false
             }
         }
+    }
+
+    /**
+     * 返回页面的滚动恢复专用：只回填页码指示（Navigation 已自动恢复 LazyGridState），
+     * 不吞掉任何加载请求。此前恢复分支内嵌在 loadComics 里，切后台回来后的第一次
+     * setSort/setStatus 会被误当成恢复、只回填页码不发请求，表现为"点了没反应"。
+     */
+    fun consumeScrollRestorePage(): Int? {
+        if (!_needsScrollRestore) return null
+        _needsScrollRestore = false
+        _currentPage.value = _savedCurrentPage
+        return _savedCurrentPage
     }
 
     fun jumpToPage(page: Int) {

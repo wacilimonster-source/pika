@@ -63,6 +63,7 @@ fun SearchScreen(
     val totalPages by viewModel.totalPages.collectAsState()
     val multiLoading by viewModel.multiLoading.collectAsState()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsState()
+    val searchError by viewModel.searchError.collectAsState()
     val tags by viewModel.tags.collectAsState()
     val selectedTag by viewModel.selectedTag.collectAsState()
     // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
@@ -173,6 +174,13 @@ fun SearchScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         )
+        // 排序切换：VM 回第 1 页后，UI 侧页码指示必须同步归位并回顶——
+        // 否则分页条停在旧页码（筛选模式下旧页切片还会短暂显示空列表）
+        val onSortChange: (ComicSort) -> Unit = { sort ->
+            viewModel.updateSortOnly(sort)
+            filterPage = 1
+            listState.requestScrollToItem(0)
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -180,28 +188,28 @@ fun SearchScreen(
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.DD,
-                    onClick = { viewModel.updateSortOnly(ComicSort.DD) },
+                    onClick = { onSortChange(ComicSort.DD) },
                     label = { Text("新到旧") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.DA,
-                    onClick = { viewModel.updateSortOnly(ComicSort.DA) },
+                    onClick = { onSortChange(ComicSort.DA) },
                     label = { Text("旧到新") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.LD,
-                    onClick = { viewModel.updateSortOnly(ComicSort.LD) },
+                    onClick = { onSortChange(ComicSort.LD) },
                     label = { Text("最多喜欢") },
                 )
             }
             item {
                 FilterChip(
                     selected = currentSort == ComicSort.VD,
-                    onClick = { viewModel.updateSortOnly(ComicSort.VD) },
+                    onClick = { onSortChange(ComicSort.VD) },
                     label = { Text("最多观看") },
                 )
             }
@@ -248,16 +256,30 @@ fun SearchScreen(
         if (displayComics.isEmpty()) {
             // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = when {
-                        loading -> "搜索中..."
-                        keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
-                        readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
-                        else -> "没有更多结果"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = when {
+                            loading -> "搜索中..."
+                            searchError != null -> "搜索失败：$searchError"
+                            keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
+                            readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                            else -> "没有更多结果"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
+                    if (searchError != null && !loading && keyword.isNotBlank()) {
+                        Text(
+                            text = "点击重试",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .clickable { viewModel.search(keyword, page = 1) },
+                        )
+                    }
+                }
             }
             if (totalPages > 1) {
                 com.pika.ui.browse.PaginationBar(

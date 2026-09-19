@@ -276,9 +276,19 @@ private fun SourceRow(
 private fun UpdateSection() {
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    var state by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
-    var progress by remember { mutableStateOf(0f) }
+    // 检查结果留在本地（检查很快，随页面销毁无所谓）；下载态以 UpdateManager 为准
+    // （app 级作用域）：下载中关对话框/离开设置页都不再静默取消，回来进度仍可见、可重试
+    var checkState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
+    var lastFound by remember { mutableStateOf<UpdateManager.UpdateInfo?>(null) }
+    val dlState by UpdateManager.downloadUi.collectAsState()
     var dialogOpen by remember { mutableStateOf(false) }
+    val state: UpdateUiState = when (val d = dlState) {
+        is UpdateManager.DownloadUi.Downloading -> UpdateUiState.Downloading
+        is UpdateManager.DownloadUi.Done -> UpdateUiState.Downloaded
+        is UpdateManager.DownloadUi.Failed -> UpdateUiState.DownloadFailed(d.message)
+        UpdateManager.DownloadUi.Idle -> checkState
+    }
+    val progress = (dlState as? UpdateManager.DownloadUi.Downloading)?.progress ?: 0f
 
     ListItem(
         headlineContent = { Text("检查更新") },
@@ -296,24 +306,31 @@ private fun UpdateSection() {
                 )
             }
         },
-        modifier = Modifier
-            .clickable {
-                if (state == UpdateUiState.Checking) return@clickable
-                scope.launch {
-                    state = UpdateUiState.Checking
-                    dialogOpen = true
-                    val result = UpdateManager.checkResult()
-                    state = when (result) {
-                        is UpdateManager.CheckResult.Available -> UpdateUiState.Found(result.info)
-                        UpdateManager.CheckResult.UpToDate -> UpdateUiState.UpToDate
-                        is UpdateManager.CheckResult.Failed -> UpdateUiState.Error
+            modifier = Modifier
+                .clickable {
+                    if (checkState == UpdateUiState.Checking) return@clickable
+                    scope.launch {
+                        checkState = UpdateUiState.Checking
+                        dialogOpen = true
+                        val result = UpdateManager.checkResult()
+                        // 上一轮已完成的下载状态让位给新一轮检查结果（下载中则内部忽略，后台继续）
+                        UpdateManager.resetDownload()
+                        checkState = when (result) {
+                            is UpdateManager.CheckResult.Available -> {
+                                lastFound = result.info
+                                UpdateUiState.Found(result.info)
+                            }
+                            UpdateManager.CheckResult.UpToDate -> UpdateUiState.UpToDate
+                            is UpdateManager.CheckResult.Failed -> UpdateUiState.Error
+                        }
                     }
-                }
-            },
+                },
     )
 
     if (dialogOpen) {
         AlertDialog(
+            // 下载已移到 UpdateManager 的 app 级作用域：随时可关，
+            // 下载在后台继续，重开对话框进度仍可见（与"进度仍可见"的一致行为）
             onDismissRequest = { dialogOpen = false },
             title = {
                 Text(
@@ -322,6 +339,7 @@ private fun UpdateSection() {
                         UpdateUiState.Checking -> "检查更新"
                         UpdateUiState.Downloading -> "下载更新"
                         UpdateUiState.Downloaded -> "下载完成"
+                        is UpdateUiState.DownloadFailed -> "下载失败"
                         UpdateUiState.UpToDate -> "已是最新版本"
                         UpdateUiState.Error -> "检查失败"
                         UpdateUiState.Idle -> "更新"
@@ -361,6 +379,7 @@ private fun UpdateSection() {
                         }
                     }
                     UpdateUiState.Downloaded -> Text("APK 已下载，点击安装完成更新。")
+                    is UpdateUiState.DownloadFailed -> Text("${state.message}，可重试。")
                     UpdateUiState.Error -> Text("网络异常或服务器未就绪，请稍后重试。")
                     UpdateUiState.Idle -> Text("")
                 }
@@ -370,32 +389,43 @@ private fun UpdateSection() {
                     is UpdateUiState.Found -> {
                         val info = (state as UpdateUiState.Found).info
                         androidx.compose.material3.Button(onClick = {
-                            state = UpdateUiState.Downloading
-                            scope.launch {
-                                // 用 runCatchingCancellable：对话框关闭导致的取消不能被当成"下载失败"
-                                com.pika.core.runCatchingCancellable {
-                                    // 下载 + SHA-256 校验：update.json 提供 sha256 时强校验
-                                    UpdateManager.downloadAndVerify(context, info) { p, _, _ -> progress = p }
-                                        .also { apk ->
-                                            state = UpdateUiState.Downloaded
-                                            UpdateManager.install(context, apk)
-                                        }
-                                }.onFailure {
-                                    state = UpdateUiState.Error
-                                }
-                            }
+                            // 下载跑在 UpdateManager 的 app 级作用域，页面销毁不影响
+                            UpdateManager.startDownload(context, info)
                         }) { Text("下载") }
                     }
+                    is UpdateUiState.DownloadFailed -> {
+                        androidx.compose.material3.Button(onClick = {
+                            lastFound?.let { UpdateManager.startDownload(context, it) }
+                        }) { Text("重试") }
+                    }
+                    UpdateUiState.Downloaded -> {
+                        val apk = (dlState as? UpdateManager.DownloadUi.Done)?.apk
+                        if (apk != null) {
+                            androidx.compose.material3.Button(onClick = {
+                                UpdateManager.install(context, apk)
+                            }) { Text("安装") }
+                        } else {
+                            TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
+                        }
+                    }
+                    UpdateUiState.Downloading -> TextButton(onClick = {}, enabled = false) { Text("下载中…") }
                     else -> {
                         TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
                     }
                 }
             },
             dismissButton = {
-                if (state is UpdateUiState.Found || state == UpdateUiState.Checking) {
-                    TextButton(onClick = { dialogOpen = false }) { Text("取消") }
-                } else {
-                    TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
+                when {
+                    checkState is UpdateUiState.Found || checkState == UpdateUiState.Checking -> {
+                        TextButton(onClick = { dialogOpen = false }) { Text("取消") }
+                    }
+                    state == UpdateUiState.Downloading -> {
+                        // 下载转入后台继续：对话框可关，进度在 UpdateManager 里不丢
+                        TextButton(onClick = { dialogOpen = false }) { Text("后台运行") }
+                    }
+                    else -> {
+                        TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
+                    }
                 }
             },
         )
@@ -448,5 +478,7 @@ private sealed interface UpdateUiState {
     data class Found(val info: UpdateManager.UpdateInfo) : UpdateUiState
     data object Downloading : UpdateUiState
     data object Downloaded : UpdateUiState
+    /** 下载失败（区别于检查失败）：保留服务端原因文案，可重试 */
+    data class DownloadFailed(val message: String) : UpdateUiState
     data object Error : UpdateUiState
 }

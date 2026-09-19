@@ -84,6 +84,17 @@ class HomeViewModel : ViewModel() {
      */
     private var lastAutoRefreshAt = 0L
 
+    /** 本进程是否已完成过首屏刷新：LaunchedEffect(Unit) 在每次返回首页重组时都会重跑，
+     *  无守卫会对关注流无条件重拉一轮，与 ON_RESUME 刷新叠加成双倍请求（加剧限流） */
+    private var everRefreshed = false
+
+    /** 冷启动首屏刷新：只执行一次；返回首页的刷新统一走 refreshOnResume 的 30 秒节流 */
+    fun initialRefresh() {
+        if (everRefreshed) return
+        everRefreshed = true
+        refresh()
+    }
+
     fun refreshOnResume() {
         val now = System.currentTimeMillis()
         // 排行榜 TTL 刷新：回前台时数据过期则静默重拉当前榜
@@ -92,6 +103,7 @@ class HomeViewModel : ViewModel() {
             loadRank(_rankType.value, force = true, startDelayMs = 2_000)
         }
         if (now - lastAutoRefreshAt < 30_000) return
+        everRefreshed = true
         refresh()
     }
 

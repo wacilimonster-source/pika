@@ -284,6 +284,13 @@ fun ProfileScreen(
                     loading = true
                     try {
                         SourceManager.current().updatePassword(old, new)
+                        // 同步更新本地保存的凭据：否则登录页回填旧密码、token 过期
+                        // 静默重登必失败并被清号（体感"改密后到处掉登录"）
+                        val type = SourceManager.activeSource.value
+                        val savedEmail = com.pika.data.SecureAccountStore.savedEmail(type)
+                        if (savedEmail != null) {
+                            com.pika.data.SecureAccountStore.save(type, savedEmail, new)
+                        }
                         error = "密码修改成功"
                         messageIsError = false
                     } catch (e: kotlinx.coroutines.CancellationException) {

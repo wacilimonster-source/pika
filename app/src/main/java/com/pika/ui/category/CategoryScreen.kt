@@ -342,6 +342,31 @@ fun CategoryComicsScreen(
                     )
                 }
             } else {
+                // 跳页失败但旧内容还在展示：必须显式提示，否则旧页内容顶着新页码、
+                // 用户以为已翻页成功（此前错误只在列表为空时才显示）
+                if (error != null && displayComics.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = "第 $filterPage 页加载失败：$error",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "重试",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .clickable { viewModel.jumpToPage(filterPage) },
+                        )
+                    }
+                }
                 ComicGridView(
                     comics = displayComics,
                     loading = loading,

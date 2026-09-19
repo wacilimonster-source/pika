@@ -71,8 +71,11 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 
-    /** 后台写盘作用域：setter 只更新内存缓存后投递到这里，绝不在调用线程同步等待落盘 */
-    private val ioScope = kotlinx.coroutines.CoroutineScope(
+    /** 后台写盘作用域：setter 只更新内存缓存后投递到这里，绝不在调用线程同步等待落盘。
+     *
+     * 公开给阅读器做"退出兜底保存"：viewModelScope 会随导航返回销毁并取消在途写盘，
+     * 最后一段进度必须落到这个不随 VM 取消的作用域才能保证落盘。 */
+    val ioScope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
     )
 

@@ -14,6 +14,13 @@ import okhttp3.Request
 import okhttp3.CacheControl
 import com.pika.network.BcTls
 import com.pika.core.log.LogStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -49,6 +56,60 @@ object UpdateManager {
         ).build()
     }
 
+    // ── 下载状态机（app 级作用域）────────────────────────────────────
+    // 下载必须活过设置页的组合生命周期：此前挂在页面 rememberCoroutineScope 上，
+    // 下载中离开设置页会被静默取消、无任何提示（回来状态归零）。状态收进
+    // UpdateManager 后，关对话框/离开页面进度都不丢，回来自动续显、可重试。
+    sealed interface DownloadUi {
+        data object Idle : DownloadUi
+        data class Downloading(
+            val progress: Float,
+            val downloadedBytes: Long,
+            val totalBytes: Long,
+        ) : DownloadUi
+        data class Done(val apk: File) : DownloadUi
+        data class Failed(val message: String) : DownloadUi
+    }
+
+    private val downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _downloadUi = MutableStateFlow<DownloadUi>(DownloadUi.Idle)
+    val downloadUi: StateFlow<DownloadUi> = _downloadUi.asStateFlow()
+
+    private var downloadJob: Job? = null
+
+    /**
+     * 启动（或重试）APK 下载 + 校验；已在下载中时忽略重复触发。
+     * autoInstall=false 供更新横幅等"手动点安装"的入口使用。
+     * 所有更新入口（设置页/首页横幅）必须共用本状态机：各自为政会产出两条
+     * 并发下载流，对同一个 APK 文件交叉写入（SHA-256 兜底会拦下坏包，但下载必失败）。
+     */
+    fun startDownload(context: Context, info: UpdateInfo, autoInstall: Boolean = true) {
+        if (_downloadUi.value is DownloadUi.Downloading) return
+        downloadJob?.cancel()
+        val appContext = context.applicationContext
+        downloadJob = downloadScope.launch {
+            _downloadUi.value = DownloadUi.Downloading(0f, 0L, -1L)
+            try {
+                val apk = downloadAndVerify(appContext, info) { p, done, total ->
+                    _downloadUi.value = DownloadUi.Downloading(p, done, total)
+                }
+                _downloadUi.value = DownloadUi.Done(apk)
+                if (autoInstall) install(appContext, apk)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _downloadUi.value = DownloadUi.Failed(e.message ?: "下载失败")
+            }
+        }
+    }
+
+    /** 丢弃非下载中的历史状态（新一轮检查到更新时调用，让位给新的检查结果） */
+    fun resetDownload() {
+        if (_downloadUi.value is DownloadUi.Downloading) return
+        downloadJob?.cancel()
+        _downloadUi.value = DownloadUi.Idle
+    }
+
     /**
      * 由 raw.githubusercontent.com 直链生成候选下载源（依次尝试）：
      * 1. 原 GitHub raw 直链
@@ -81,18 +142,31 @@ object UpdateManager {
      * 检查更新：拉取远端信息并对比版本号。
      */
     suspend fun checkResult(): CheckResult = withContext(Dispatchers.IO) {
-        val info = runCatching {
+        // 网络失败与"更新信息格式错误"分开归因：update.json 损坏时报"网络异常"会误导排障
+        val text = try {
             val urlWithTs = "$UPDATE_URL?ts=${System.currentTimeMillis()}"
             val request = Request.Builder()
                 .url(urlWithTs)
                 .cacheControl(CacheControl.FORCE_NETWORK)
                 .build()
             client.newCall(request).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) return@runCatching null
-                json.decodeFromString(UpdateInfo.serializer(), text)
+                if (!resp.isSuccessful) {
+                    return@withContext CheckResult.Failed("网络异常或服务器未就绪（HTTP ${resp.code}）")
+                }
+                resp.body?.string().orEmpty()
             }
-        }.getOrNull() ?: return@withContext CheckResult.Failed("网络异常或服务器未就绪")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext CheckResult.Failed("网络异常或服务器未就绪")
+        }
+        val info = try {
+            json.decodeFromString(UpdateInfo.serializer(), text)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext CheckResult.Failed("更新信息格式错误（update.json 损坏）")
+        }
 
         if (info.version.isBlank() || info.apkUrl.isBlank()) {
             return@withContext CheckResult.Failed("远端更新信息不完整")
@@ -112,6 +186,9 @@ object UpdateManager {
         for (candidate in candidateUrls(url)) {
             try {
                 return downloadFrom(context, candidate, onProgress)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 用户取消/作用域销毁：立即停止，绝不继续换源重试
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 // 切下一个源前稍等，避免瞬时失败连续重试

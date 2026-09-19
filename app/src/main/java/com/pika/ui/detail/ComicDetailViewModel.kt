@@ -24,6 +24,10 @@ class ComicDetailViewModel : ViewModel() {
     private val _chapters = MutableStateFlow<List<ComicChapter>>(emptyList())
     val chapters: StateFlow<List<ComicChapter>> = _chapters
 
+    /** 章节列表加载失败原因（null = 无错误）。此前失败被静默吞掉，"开始阅读"永久禁用且无提示 */
+    private val _chaptersError = MutableStateFlow<String?>(null)
+    val chaptersError: StateFlow<String?> = _chaptersError
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading
 
@@ -85,6 +89,7 @@ class ComicDetailViewModel : ViewModel() {
         loadJob = null
         val gen = ++loadGeneration
         _error.value = null
+        _chaptersError.value = null
         // 切换漫画时清理评论区临时状态：楼中楼缓存/回复目标/加载中标记，
         // 否则旧楼数据残留内存，且回复框可能仍指向已不存在的旧评论
         _subComments.value = emptyMap()
@@ -116,7 +121,10 @@ class ComicDetailViewModel : ViewModel() {
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // 章节失败保留已有数据
+                    // 失败要可见：章节恒空会让"开始阅读/下载整本"永久禁用，用户毫无线索
+                    if (gen == loadGeneration) {
+                        _chaptersError.value = e.message?.takeIf { it.isNotBlank() } ?: "章节加载失败"
+                    }
                 } finally {
                     if (gen == loadGeneration) _loading.value = false
                 }
@@ -157,6 +165,28 @@ class ComicDetailViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 if (gen == loadGeneration) _recommendations.value = emptyList()
+            }
+        }
+    }
+
+    /** 章节列表加载失败后的重试入口：只重拉章节，不动详情/评论/推荐 */
+    fun retryChapters(comicId: String) {
+        val gen = loadGeneration
+        viewModelScope.launch {
+            _chaptersError.value = null
+            _loading.value = true
+            try {
+                val list = SourceManager.current().chapters(comicId)
+                if (gen != loadGeneration) return@launch
+                _chapters.value = list
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (gen == loadGeneration) {
+                    _chaptersError.value = e.message?.takeIf { it.isNotBlank() } ?: "章节加载失败"
+                }
+            } finally {
+                if (gen == loadGeneration) _loading.value = false
             }
         }
     }
@@ -232,6 +262,8 @@ class ComicDetailViewModel : ViewModel() {
                 val now = SourceManager.current().favourite(comicId, !_favourited.value)
                 // 以源返回的真实状态回写，避免切换型接口本地失步
                 _favourited.value = now
+                // 通知收藏列表页返回时刷新（此前取消收藏后列表残留、新收藏不可见）
+                com.pika.data.FavouriteSync.dirty = true
                 LogStore.log("Detail", "I", "favourite toggled: comic=$comicId, favourited=$now")
             } catch (e: UnsupportedOperationException) {
                 favouriteSupported = false
@@ -254,13 +286,19 @@ class ComicDetailViewModel : ViewModel() {
 
     // ── 评论 ──────────────────────────────────────────────────────────────
 
+    /** 评论加载序号：send()/新加载接管后，旧请求的收尾复位必须失效（否则重入锁被提前打开） */
+    private var commentSeq = 0
+
     /** 分页加载评论（page=1 时重置；gen 用于防止旧漫画的评论写入新页面） */
     fun loadComments(comicId: String, page: Int, gen: Int = loadGeneration) {
         if (_commentLoading.value) return
         if (page > 1 && _commentEndReached.value) return
+        // 重入锁必须在 launch 前同步置位：否则"加载更多"同帧双击会发出两个相同请求，
+        // 追加后重复 key 触发 LazyColumn 崩溃
+        _commentLoading.value = true
+        _commentError.value = null
+        val seq = ++commentSeq
         viewModelScope.launch {
-            _commentLoading.value = true
-            _commentError.value = null
             try {
                 val result = SourceManager.current().comments(comicId, page)
                 if (gen != loadGeneration) return@launch
@@ -275,7 +313,8 @@ class ComicDetailViewModel : ViewModel() {
             } catch (e: Exception) {
                 if (gen == loadGeneration) _commentError.value = e.message ?: "评论加载失败"
             } finally {
-                if (gen == loadGeneration) _commentLoading.value = false
+                // 只有"仍是最新一次加载"才收尾复位：被 send() 接管的在途请求不得复位
+                if (gen == loadGeneration && seq == commentSeq) _commentLoading.value = false
             }
         }
     }
@@ -298,7 +337,11 @@ class ComicDetailViewModel : ViewModel() {
                     SourceManager.current().sendComment(comicId, content.trim())
                 }
                 _replyingTo.value = null
-                // 重新加载第一页（新评论置顶展示）
+                // 重新加载第一页（新评论置顶展示）。
+                // 先作废在途评论分页（序号失效 + 解锁），否则在途请求回来要么被
+                // 重入锁拦截（列表永久空白），要么覆盖成"只剩第 2 页"
+                commentSeq++
+                _commentLoading.value = false
                 _comments.value = emptyList()
                 loadComments(comicId, page = 1)
                 onSent(null)

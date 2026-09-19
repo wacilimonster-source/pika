@@ -23,6 +23,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
@@ -114,7 +115,9 @@ fun HomeScreen(
         // 改让关注流稍后启动——此时它在后台，延迟对用户不可感知。
         // 若首屏落在关注页（selectedTab 被 rememberSaveable 恢复为 0）则不延迟。
         if (selectedTab == 1) kotlinx.coroutines.delay(1_200)
-        viewModel.refresh()
+        // initialRefresh 只在进程首次执行：LaunchedEffect(Unit) 每次返回重组都会重跑，
+        // 无条件 refresh() 会把关注流整轮重拉（返回场景由 refreshOnResume 的 30s 节流负责）
+        viewModel.initialRefresh()
     }
 
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -242,10 +245,16 @@ private fun FollowTab(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
-    // 刷新完成后回到顶部，从最新内容开始展示
+    // 刷新完成后回到顶部，从最新内容开始展示。
+    // 以组合时的 tick 为基线：从详情返回会重新组合，tick 未变则不回顶，
+    // 否则每次返回都把刚恢复的滚动位置覆盖掉（整套保存/恢复机制形同虚设）
+    val lastHandledTick = remember { mutableIntStateOf(refreshTick) }
     LaunchedEffect(refreshTick) {
-        if (refreshTick > 0 && comics.isNotEmpty()) {
-            gridState.scrollToItem(0)
+        if (refreshTick != lastHandledTick.intValue) {
+            lastHandledTick.intValue = refreshTick
+            if (comics.isNotEmpty()) {
+                gridState.scrollToItem(0)
+            }
         }
     }
     PullToRefreshBox(
@@ -312,10 +321,15 @@ private fun RankTab(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     modifier: Modifier = Modifier,
 ) {
-    // 刷新完成（换榜 / TTL 静默刷新 / 下拉刷新）后回到顶部，从新版第 1 名开始展示
+    // 刷新完成（换榜 / TTL 静默刷新 / 下拉刷新）后回到顶部，从新版第 1 名开始展示。
+    // 同 FollowTab：以组合时 tick 为基线，返回重组不回顶，避免覆盖恢复的滚动位置
+    val lastHandledTick = remember { mutableIntStateOf(refreshTick) }
     LaunchedEffect(refreshTick) {
-        if (refreshTick > 0 && rankComics.isNotEmpty()) {
-            gridState.scrollToItem(0)
+        if (refreshTick != lastHandledTick.intValue) {
+            lastHandledTick.intValue = refreshTick
+            if (rankComics.isNotEmpty()) {
+                gridState.scrollToItem(0)
+            }
         }
     }
     Column(modifier.fillMaxSize()) {

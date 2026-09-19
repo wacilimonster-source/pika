@@ -4,6 +4,8 @@ import android.util.Log
 import com.pika.data.SourcePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * 单一活动源管理器：设置页切换，全局生效。
@@ -25,7 +27,17 @@ object SourceManager {
     )
 
     fun init() {
-        _activeSource.value = SourcePrefs.current().activeSource
+        // 活动源后台回填：主线程不再做 DataStore 冷读盘（此前 init 同步读，与
+        // SourcePrefs"冷启动主线程不同步读盘"的设计声明矛盾，StrictMode 必报警）。
+        // 回填读取走 SourcePrefs getter 的 runBlocking 兜底（仅此处后台线程阻塞，可接受）；
+        // StateFlow 本身在回填前的极小窗口内是默认源，消费方（UI collectAsState）
+        // 都是响应式收集，回填落位后会带着新值自动重载。回填不覆盖窗口期内已做出的切换。
+        com.pika.core.AppScope.launch {
+            val persisted = SourcePrefs.current().activeSource
+            if (_activeSource.value != persisted) {
+                _activeSource.value = persisted
+            }
+        }
         // 禁漫会话过期(401)时走静默重登
         com.pika.network.JmClient.onUnauthorizedHook = { onUnauthorized(SourceType.JMCOMIC) }
         Log.d("SourceManager", "active source: ${_activeSource.value}")
@@ -55,11 +67,12 @@ object SourceManager {
      * 用户在 A 源阅读时切到 B 源，A 的遗留请求（章节 fan-out / 图片预取 / 下载）返回 401，
      * 若按活动源判定就会「用 B 的凭据去登录 B」，既掩盖了 A 的会话失效，又会无谓登出 B。
      */
-    private var reloginInProgress = false
+    // 并发 401 风暴（章节/图片 fan-out 同时失败）下只放行一个重登者：
+    // 裸 check-then-act 的 reloginInProgress 无同步，会重复 login（浪费并可能触发风控）
+    private val reloginMutex = Mutex()
 
     suspend fun onUnauthorized(type: SourceType = _activeSource.value) {
-        if (reloginInProgress) return
-        reloginInProgress = true
+        if (!reloginMutex.tryLock()) return
         try {
             val creds = com.pika.data.SecureAccountStore.load(type)
             if (creds != null) {
@@ -79,10 +92,11 @@ object SourceManager {
                 }
             }
             sources.getValue(type).logout()
-            // 仅当失效的正是用户当前所在的源时才通知 UI 跳登录页
-            if (type == _activeSource.value) _unauthorizedTick.value += 1
+            // 仅当失效的正是用户当前所在的源时才通知 UI 跳登录页；
+            // update 用 CAS 自增，避免并发 401 时计数丢更新
+            if (type == _activeSource.value) _unauthorizedTick.update { it + 1 }
         } finally {
-            reloginInProgress = false
+            reloginMutex.unlock()
         }
     }
 
@@ -112,7 +126,7 @@ object SourceManager {
             com.pika.data.SecureAccountStore.clear(type)
         }
         sources.getValue(type).logout()
-        _unauthorizedTick.value += 1
+        _unauthorizedTick.update { it + 1 }
     }
 
     /** 已保存的账号邮箱（无则 null），登录页/设置页展示用 */

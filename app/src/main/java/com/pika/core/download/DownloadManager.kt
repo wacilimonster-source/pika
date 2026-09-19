@@ -6,6 +6,7 @@ import com.pika.core.source.SourceManager
 import com.pika.network.BcTls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 /** 下载任务状态 */
 @Serializable
@@ -77,6 +79,17 @@ object DownloadManager {
     private val mutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    /**
+     * 运行中任务 → 执行协程。任务的所有权登记：
+     * 入队/重试/删除先取消登记的旧协程，保证同一任务任意时刻只有一个执行者，
+     * 杜绝两个协程并发写同一章节目录（交错写入会把成品图片写坏）。
+     */
+    private val runningJobs = ConcurrentHashMap<String, Job>()
+
+    private fun cancelRun(key: String) {
+        runningJobs.remove(key)?.cancel()
+    }
+
     private val _tasks = MutableStateFlow<List<TaskRuntime>>(emptyList())
     val tasks: StateFlow<List<TaskRuntime>> = _tasks
 
@@ -113,8 +126,10 @@ object DownloadManager {
         val task = taskFor(comicId, order)
         if (task?.status == DlStatus.COMPLETED) return true
         val dir = chapterDir(comicId, order)
-        val files = dir.listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
-            ?: return false
+        // .part 是写入中的半成品，进程被杀会残留，不能计入有效页数
+        val files = dir.listFiles()?.filter {
+            it.name.startsWith("page_") && !it.name.endsWith(".part") && it.length() > 0
+        } ?: return false
         val expected = task?.task?.pageCount ?: 0
         return if (expected > 0) files.size >= expected else files.isNotEmpty()
     }
@@ -141,6 +156,8 @@ object DownloadManager {
     ) {
         scope.launch {
             mutex.withLock {
+                // 对存在任务重复入队 = 重新下载：先停掉旧执行者，再重置状态
+                cancelRun("$comicId#$order")
                 val list = _tasks.value.toMutableList()
                 val idx = list.indexOfFirst { it.key == "$comicId#$order" }
                 val task = DownloadTask(comicId, comicTitle, coverUrl, order, epTitle, pageCount, source)
@@ -218,6 +235,8 @@ object DownloadManager {
     fun retry(key: String) {
         scope.launch {
             mutex.withLock {
+                // 可能重试一个仍在下载中的任务：先停掉旧执行者，避免双协程并发
+                cancelRun(key)
                 _tasks.value = _tasks.value.map {
                     if (it.key == key && !it.isFinished) {
                         it.copy(
@@ -238,6 +257,8 @@ object DownloadManager {
     fun remove(key: String, deleteFiles: Boolean = true) {
         scope.launch {
             mutex.withLock {
+                // 先叫停进行中的下载，再移除任务与文件：否则旧协程会把刚删掉的目录写回来
+                cancelRun(key)
                 val target = _tasks.value.firstOrNull { it.key == key }
                 _tasks.value = _tasks.value.filterNot { it.key == key }
                 persist()
@@ -285,59 +306,72 @@ object DownloadManager {
 
     private fun runTask(key: String) {
         scope.launch {
-            val task = _tasks.value.firstOrNull { it.key == key } ?: return@launch
-            val t = task.task
+            // 登记为该任务唯一的执行者；若旧执行者仍在（如状态被外部重置），立即取消
+            val self = coroutineContext[Job]
+            if (self != null) {
+                runningJobs.put(key, self)?.let { old -> if (old !== self) old.cancel() }
+            }
             try {
-                // 用任务入队时固化的数据源，而不是"此刻的活动源"：
-                // 下载中切换数据源不应改变进行中/待重试任务的来源
-                val sourceType = com.pika.core.source.SourceType.entries
-                    .firstOrNull { it.name == t.source } ?: com.pika.core.source.SourceType.PICACG
-                val source = SourceManager.sourceOf(sourceType)
-                val pages = source.chapterPages(t.comicId, t.order)
-                // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
-                if (t.pageCount != pages.size) {
+                val task = _tasks.value.firstOrNull { it.key == key } ?: return@launch
+                val t = task.task
+                // 任务在排队与启动之间被删除/重置时不再执行
+                if (task.status != DlStatus.DOWNLOADING) return@launch
+                try {
+                    // 用任务入队时固化的数据源，而不是"此刻的活动源"：
+                    // 下载中切换数据源不应改变进行中/待重试任务的来源
+                    val sourceType = com.pika.core.source.SourceType.entries
+                        .firstOrNull { it.name == t.source } ?: com.pika.core.source.SourceType.PICACG
+                    val source = SourceManager.sourceOf(sourceType)
+                    val pages = source.chapterPages(t.comicId, t.order)
+                    // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
+                    if (t.pageCount != pages.size) {
+                        mutex.withLock {
+                            _tasks.value = _tasks.value.map {
+                                if (it.key == key) {
+                                    it.copy(task = it.task.copy(pageCount = pages.size))
+                                } else it
+                            }
+                            persist()
+                        }
+                    }
+                    val dir = chapterDir(t.comicId, t.order)
+                    dir.mkdirs()
+                    // 本次执行的临时文件标签：即使新旧执行者短暂重叠，也各写各的 .part，
+                    // 不会交错写坏同一个文件（完成后各自 rename，成品始终是完整图片）
+                    val runTag = java.util.UUID.randomUUID().toString()
+                    var bytes = 0L
+                    for ((i, page) in pages.withIndex()) {
+                        // 所有权检查：任务被删除 / 重新入队 / 重试接管（状态不再归本执行者）时立即停止
+                        val cur = _tasks.value.firstOrNull { it.key == key }
+                        if (cur == null || cur.status != DlStatus.DOWNLOADING) return@launch
+                        // 已下载的页跳过
+                        val file = pageFile(t.comicId, t.order, i)
+                        if (file.exists() && file.length() > 0) {
+                            bytes += file.length()
+                            updateProgress(key, i + 1, bytes)
+                            continue
+                        }
+                        val n = downloadFile(page.imageUrl, file, runTag)
+                        bytes += n
+                        updateProgress(key, i + 1, bytes)
+                    }
                     mutex.withLock {
                         _tasks.value = _tasks.value.map {
-                            if (it.key == key) {
-                                it.copy(task = it.task.copy(pageCount = pages.size))
-                            } else it
+                            if (it.key == key) it.copy(status = DlStatus.COMPLETED, error = "") else it
+                        }
+                        persist()
+                    }
+                } catch (e: Exception) {
+                    mutex.withLock {
+                        _tasks.value = _tasks.value.map {
+                            if (it.key == key) it.copy(status = DlStatus.FAILED, error = e.message ?: "下载失败") else it
                         }
                         persist()
                     }
                 }
-                val dir = chapterDir(t.comicId, t.order)
-                dir.mkdirs()
-                var bytes = 0L
-                for ((i, page) in pages.withIndex()) {
-                    // 已下载的页跳过
-                    val file = pageFile(t.comicId, t.order, i)
-                    if (file.exists() && file.length() > 0) {
-                        bytes += file.length()
-                        updateProgress(key, i + 1, bytes)
-                        continue
-                    }
-                    val n = downloadFile(page.imageUrl, file)
-                    bytes += n
-                    updateProgress(key, i + 1, bytes)
-                    // 支持取消：状态被外部改为 CANCELED 时停止
-                    if (_tasks.value.firstOrNull { it.key == key }?.status == DlStatus.CANCELED) {
-                        return@launch
-                    }
-                }
-                mutex.withLock {
-                    _tasks.value = _tasks.value.map {
-                        if (it.key == key) it.copy(status = DlStatus.COMPLETED, error = "") else it
-                    }
-                    persist()
-                }
-            } catch (e: Exception) {
-                mutex.withLock {
-                    _tasks.value = _tasks.value.map {
-                        if (it.key == key) it.copy(status = DlStatus.FAILED, error = e.message ?: "下载失败") else it
-                    }
-                    persist()
-                }
             } finally {
+                // 仅清除自己的登记（新执行者可能已接管同一 key）
+                self?.let { runningJobs.remove(key, it) }
                 pump()
             }
         }
@@ -351,8 +385,8 @@ object DownloadManager {
         }
     }
 
-    /** 下载单个文件（BouncyCastle TLS，绕 Cloudflare）。 */
-    private fun downloadFile(urlStr: String, dest: File): Long {
+    /** 下载单个文件（BouncyCastle TLS，绕 Cloudflare）。runTag 用于隔离并发执行的半成品文件 */
+    private fun downloadFile(urlStr: String, dest: File, runTag: String): Long {
         val url = URL(urlStr)
         val conn: HttpURLConnection = if (url.protocol == "https") {
             BcTls.openConnection(url)
@@ -365,7 +399,7 @@ object DownloadManager {
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
-            val tmp = File(dest.parentFile, dest.name + ".part")
+            val tmp = File(dest.parentFile, "${dest.name}.$runTag.part")
             try {
                 conn.inputStream.use { input ->
                     tmp.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
@@ -394,7 +428,17 @@ object DownloadManager {
             val tasks = _tasks.value
                 .filter { it.status != DlStatus.CANCELED }
                 .map { it.task }
-            manifestFile().writeText(json.encodeToString(ListSerializer(DownloadTask.serializer()), tasks))
+            // 先写临时文件再原子替换：直接覆写时进程被杀会把清单截断，
+            // 下次恢复为空列表后任意一次 persist 又用空内容覆盖，全部任务记录丢失
+            val tmp = File(manifestFile().parentFile, "manifest.json.tmp")
+            tmp.writeText(json.encodeToString(ListSerializer(DownloadTask.serializer()), tasks))
+            if (!tmp.renameTo(manifestFile())) {
+                // 个别文件系统不允许覆盖式 rename：先删旧文件再试一次
+                manifestFile().delete()
+                if (!tmp.renameTo(manifestFile())) {
+                    throw IOException("manifest rename failed")
+                }
+            }
         } catch (e: Exception) {
             // 静默吞掉会导致"内存正常、重启全丢"且无从排查，至少落日志
             LogStore.log("DownloadManager", "E", "persist failed: ${e.message}")
@@ -402,14 +446,18 @@ object DownloadManager {
     }
 
     private fun restoreTasks() {
-        runCatching {
-            val f = manifestFile()
-            if (!f.exists()) return
+        val f = manifestFile()
+        if (!f.exists()) return
+        try {
             val saved: List<DownloadTask> =
                 json.decodeFromString(ListSerializer(DownloadTask.serializer()), f.readText())
             _tasks.value = saved.map { task ->
                 val dir = chapterDir(task.comicId, task.order)
-                val pages = dir.listFiles()?.count { it.name.startsWith("page_") } ?: 0
+                // 清理上次运行残留的 .part 半成品：不计入页数，也不再占空间
+                dir.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
+                val pages = dir.listFiles()?.count {
+                    it.name.startsWith("page_") && !it.name.endsWith(".part")
+                } ?: 0
                 val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
                 // pageCount==0（真实页数未拉到过）时不能判为 COMPLETED，否则磁盘上一页都没有
                 val finished = task.pageCount > 0 && pages >= task.pageCount
@@ -420,6 +468,15 @@ object DownloadManager {
                     totalBytes = bytes,
                     error = if (finished) "" else "上次未完成，可重试",
                 )
+            }
+        } catch (e: Exception) {
+            // 恢复失败必须可见：静默吞掉会让内存列表为空，之后任意一次 persist
+            // 用空列表覆盖清单，全部任务记录不可逆丢失。损坏文件保留一份供排查。
+            LogStore.log("DownloadManager", "E", "restore manifest failed: ${e.message}")
+            runCatching {
+                val bad = File(rootDir(), "manifest.json.bad")
+                bad.delete()
+                f.renameTo(bad)
             }
         }
     }

@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,6 +53,10 @@ class ReaderViewModel : ViewModel() {
     var currentOrder: Int = 1
         private set
 
+    /** 当前章节号的 StateFlow：UI 的"上一话/下一话"必须按它计算（导航路由参数在切章后不会更新） */
+    private val _currentOrderFlow = MutableStateFlow(1)
+    val currentOrderFlow: StateFlow<Int> = _currentOrderFlow
+
     private var loadedKey: String = ""
 
     private var loadJob: Job? = null
@@ -62,17 +67,22 @@ class ReaderViewModel : ViewModel() {
         loadedKey = "$comicId:$order"
         this.comicId = comicId
         this.currentOrder = order
+        _currentOrderFlow.value = order
         loadJob = viewModelScope.launch {
             _loading.value = true
+            // 复位上一章未消费的恢复页：加载期间重组只会读到 -1，
+            // 恢复 effect 不可能拿着上一章的 pages 抢跑消费
+            _pendingRestorePage.value = -1
             try {
                 withContext(Dispatchers.IO) {
-                    // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）
-                    // 注意必须先于 _pages 赋值，保证 pages 就绪时 UI 能读到待恢复页码
-                    runCatchingCancellable {
-                        ReaderPrefs.current().lastProgressAsync(comicId)?.let { p ->
-                            if (p.order == order) pendingRestorePage = p.pageIndex
-                        }
-                    }
+                    // 恢复进度：在 IO 上下文挂起读盘（原实现为主线程 runBlocking 同步读盘）。
+                    // 只读入局部变量，待 pages 就绪后再发布（见 _pendingRestorePage 注释）
+                    val restore = runCatchingCancellable {
+                        val saved = ReaderPrefs.current().lastProgressAsync(comicId)
+                        // 有本章已存进度则恢复之；无进度（新章）必须显式归位第 1 页：
+                        // 否则翻页器/滚动列表保留上一章页码，防抖还会把旧页码写成新章进度
+                        if (saved != null && saved.order == order) saved.pageIndex else 0
+                    }.getOrDefault(0)
                     // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
                     val local = com.pika.core.download.DownloadManager.chapterDir(comicId, order)
                         .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
@@ -84,6 +94,9 @@ class ReaderViewModel : ViewModel() {
                     } else {
                         _pages.value = SourceManager.current().chapterPages(comicId, order)
                     }
+                    // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
+                    // 触发时 UI 收集到的 pages 必已是本章
+                    _pendingRestorePage.value = restore
                     _chapters.value = SourceManager.current().chapters(comicId)
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
@@ -110,7 +123,9 @@ class ReaderViewModel : ViewModel() {
                 // 切章/退出时取消旧加载：必须放行，否则旧协程会继续写 _pages/_loading
                 throw e
             } catch (e: Exception) {
-                // 加载失败保持空列表
+                // 加载失败必须清空页面：切章失败若残留上一章内容，会顶着新章标题展示，
+                // 且当前页码会被防抖保存成新章的阅读进度（进度污染）
+                _pages.value = emptyList()
             } finally {
                 if (isActive) _loading.value = false
             }
@@ -119,27 +134,52 @@ class ReaderViewModel : ViewModel() {
         // （进度恢复已并入上方 IO 块，避免在主线程同步读盘）
     }
 
-    /** 等待 pages 加载完成后由 UI 消费的恢复页（-1 表示无需恢复） */
-    @Volatile
-    var pendingRestorePage: Int = -1
+    /** 等待 pages 加载完成后由 UI 消费的恢复页（-1 = 无需恢复）。
+     *
+     * 必须是 StateFlow 而非普通 var：UI 的恢复 effect 以"收集到的值 >= 0"为触发条件，
+     * 只有状态本身变化才能保证 effect 在本章 pages 就绪后确定性地重启。
+     * 普通 var 有两个方向的竞态——pages 赋值前发布：中间隔着网络抓取，期间任意一次重组
+     * 都会用上一章的 pages 过早消费恢复页；pages 赋值后发布：若恰好没有后续重组，
+     * effect 永远不重启，恢复静默丢失。 */
+    private val _pendingRestorePage = MutableStateFlow(-1)
+    val pendingRestorePage: StateFlow<Int> = _pendingRestorePage.asStateFlow()
 
-    /** 跳转到指定章节（加载新章节页面） */
+    /** 恢复完成（或被新一轮加载取代）后由 UI 复位；值相同时 StateFlow 去重，
+     *  消费动作本身不会反过来重启恢复 effect 打断进行中的定位校正 */
+    fun consumePendingRestore() {
+        _pendingRestorePage.value = -1
+    }
+
+    /** 跳转到指定章节（加载新章节页面）。恢复页复位由 load() 内统一负责 */
     fun switchChapter(context: Context, order: Int) {
         if (order < 1 || order == currentOrder) return
         loadedKey = ""
-        pendingRestorePage = -1
         load(context, comicId, order)
     }
 
     /** 上一次进度落盘 Job：滚动时逐页触发，取消旧任务避免乱序覆盖（新页码覆盖旧页码） */
     private var progressJob: Job? = null
 
-    /** 保存阅读进度（本地，带页码），并刷新"最近阅读"；同步更新已读/已读完状态 */
-    fun saveProgress(pageIndex: Int) {
+    /** 保存阅读进度（本地，带页码），并刷新"最近阅读"；同步更新已读/已读完状态。
+     *
+     * final=true 用于退出阅读器的兜底保存：viewModelScope 会随导航返回销毁并取消
+     * 在途写盘，此时必须落到不随 VM 取消的独立作用域，否则最后 1 秒内的翻页进度丢失。 */
+    fun saveProgress(pageIndex: Int, final: Boolean = false) {
         progressJob?.cancel()
         val pages = _pages.value
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
+        if (final) {
+            val comicIdNow = comicId
+            val orderNow = currentOrder
+            ReaderPrefs.current().ioScope.launch {
+                runCatching {
+                    ReaderPrefs.current().saveProgress(comicIdNow, orderNow, safePage)
+                }
+                com.pika.data.ReaderStatus.markRead(comicIdNow)
+            }
+            return
+        }
         progressJob = viewModelScope.launch(Dispatchers.IO) {
             // runCatchingCancellable 会重新抛出取消：被后续 saveProgress 取代时立即停止，
             // 而普通写盘失败仍按原行为继续更新内存已读标记
@@ -170,12 +210,28 @@ class ReaderViewModel : ViewModel() {
      * 立即落盘（标题未就绪时先写兜底值）；详情加载完成后由 load() 触发补写覆盖，
      * 避免直接进章节、详情未返回就退出时在历史里留下孤立的"第N话"。
      */
-    fun recordRecentRead(pageIndex: Int) {
+    fun recordRecentRead(pageIndex: Int, final: Boolean = false) {
         lastRecordedPage = pageIndex.coerceAtLeast(0)
         recentJob?.cancel()
         val comicIdNow = comicId
         val orderNow = currentOrder
         val pageNow = lastRecordedPage
+        if (final) {
+            // 同 saveProgress(final=true)：退出兜底写入不随 viewModelScope 取消
+            ReaderPrefs.current().ioScope.launch {
+                runCatchingCancellable {
+                    ReaderPrefs.current().recordRecentRead(
+                        comicId = comicIdNow,
+                        title = _comicTitle.value.ifBlank { "第 $orderNow 话" },
+                        coverUrl = _coverUrl.value,
+                        author = _comicAuthor.value,
+                        order = orderNow,
+                        pageIndex = pageNow,
+                    )
+                }
+            }
+            return
+        }
         recentJob = viewModelScope.launch(Dispatchers.IO) {
             runCatchingCancellable {
                 ReaderPrefs.current().recordRecentRead(

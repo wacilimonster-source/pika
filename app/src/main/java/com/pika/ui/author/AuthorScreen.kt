@@ -66,9 +66,14 @@ fun AuthorComicsScreen(
     LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
         viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
     }
-    // 恢复滚动状态（导航返回后首次 recompose 时执行）
+    // 恢复滚动状态（导航返回后首次 recompose 时执行）：
+    // 恢复走专用通道只回填页码，绝不能复用 loadComics——否则切后台回来后的
+    // 第一次排序/筛选点击会被恢复分支拦截成"只回填不加载"
     LaunchedEffect(Unit) {
-        viewModel.loadComics(author, page = 1)
+        val restorePage = viewModel.consumeScrollRestorePage()
+        if (restorePage == null) {
+            viewModel.loadComics(author, page = 1)
+        }
         if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
         }

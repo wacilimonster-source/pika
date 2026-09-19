@@ -208,10 +208,11 @@ class PicacgSource : Source {
             for ((p, docsP) in byPage.sortedBy { it.first }) {
                 if (docsP != null) docs += docsP
             }
-            // 并发失败的页退回串行重试（冷却中直接放弃，避免续期冷却）
+            // 并发失败的页退回串行重试（冷却中等待补拉：静默 break 会丢章，
+            // 违背本方法"保证不丢章"的契约；safeCall 失败会抛异常显式报错）
             val okPages = byPage.filter { it.second != null }.map { it.first }.toSet()
             for (p in (2..totalPages).filter { it !in okPages }) {
-                if (picaCooldownActive()) break
+                awaitCooldown()
                 docs += PicaClient.safeCall { PicaClient.api.chapters(id, p) }.eps.docs
             }
         }
@@ -226,6 +227,15 @@ class PicacgSource : Source {
 
     /** 服务端限流冷却中（>0 表示仍在冷却） */
     private fun picaCooldownActive(): Boolean = PicaClient.rateLimitRemaining() > 0
+
+    /** 等待限流冷却结束：补拉关键页时宁可等待/显式失败，也不静默丢页 */
+    private suspend fun awaitCooldown() {
+        while (true) {
+            val remain = PicaClient.rateLimitRemaining()
+            if (remain <= 0) return
+            delay(remain + 50)
+        }
+    }
 
     /**
      * 章节图片：同章节列表，按页号并发拉取后按页序拼接，保证图片顺序不变。
@@ -250,15 +260,16 @@ class PicacgSource : Source {
                     }
                 }
             }.awaitAll().forEach { (p, resp) -> if (resp != null) byPage[p] = resp }
-            // 并发失败的页退回串行重试（冷却中直接放弃）
+            // 并发失败的页退回串行重试（冷却中等待补拉，绝不静默放弃）
             for (p in (2..totalPages).filter { !byPage.containsKey(it) }) {
-                if (picaCooldownActive()) break
+                awaitCooldown()
                 byPage[p] = PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) }
             }
         }
         val out = mutableListOf<ComicPage>()
         for (p in 1..totalPages) {
-            val data = byPage[p] ?: continue
+            // 拼装前缺页即显式失败：绝不返回截断列表（消费方会把缺页当成真实页数固化）
+            val data = byPage[p] ?: throw com.pika.network.PicaException("章节第 $p 页拉取失败")
             data.pages.docs.forEach { doc ->
                 doc.media?.let { m ->
                     out += ComicPage(index = out.size, imageUrl = m.directUrl)

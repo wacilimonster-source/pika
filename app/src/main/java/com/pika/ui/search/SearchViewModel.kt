@@ -63,6 +63,10 @@ class SearchViewModel : ViewModel() {
     private val _currentPage = MutableStateFlow(1)
     val currentPage: StateFlow<Int> = _currentPage
 
+    /** 最近一次搜索失败的错误信息（null = 无错误）。单词路径此前未捕获异常会导致闪退 */
+    private val _searchError = MutableStateFlow<String?>(null)
+    val searchError: StateFlow<String?> = _searchError
+
     /** 当前搜索任务（用于中途取消） */
     private var searchJob: Job? = null
 
@@ -169,6 +173,7 @@ class SearchViewModel : ViewModel() {
         _multiSearchComplete.value = false
         _multiLoading.value = false
         _loading.value = false
+        _searchError.value = null
         _selectedTag.value = null
         resetFilters()
         _keyword.value = ""
@@ -186,6 +191,7 @@ class SearchViewModel : ViewModel() {
         // 关键词为空时也会调到此处，此前会打一次无意义的空搜索，加剧服务端限流压力。
         if (keyword.isBlank()) {
             _keyword.value = ""
+            _searchError.value = null
             _activeSearchWords = emptyList()
             _multiAllComics.clear()
             _confirmedIntersectionIds = emptySet()
@@ -199,6 +205,7 @@ class SearchViewModel : ViewModel() {
             return
         }
         _comics.value = emptyList()
+        _searchError.value = null
         _loading.value = true
         _multiLoading.value = false
         _endReached.value = false
@@ -221,17 +228,28 @@ class SearchViewModel : ViewModel() {
                     // 单词（含带标签）：服务端一次筛选 + 服务端分页。
                     // 标签 = advanced-search 的 categories 参数（服务端按 doc.categories 精确匹配，实测有效）。
                     _multiSearchComplete.value = true
-                    val result = source.search(
-                        keyword = keyword,
-                        page = page,
-                        sort = _sort.value,
-                        categories = if (tagFilter == null) emptyList() else listOf(tagFilter),
-                    )
-                    if (_keyword.value != keyword) return@launch
-                    _comics.value = result.items
-                    _totalPages.value = result.pages.coerceAtLeast(1)
-                    _endReached.value = page >= result.pages
-                    _currentPage.value = page
+                    try {
+                        val result = source.search(
+                            keyword = keyword,
+                            page = page,
+                            sort = _sort.value,
+                            categories = if (tagFilter == null) emptyList() else listOf(tagFilter),
+                        )
+                        if (_keyword.value != keyword) return@launch
+                        _comics.value = result.items
+                        _totalPages.value = result.pages.coerceAtLeast(1)
+                        _endReached.value = page >= result.pages
+                        _currentPage.value = page
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // 新搜索/退出接管：放行，不能当成失败
+                        throw e
+                    } catch (e: Exception) {
+                        // 与多词路径对齐：网络/服务端/限流失败只置错误态，不再放任异常导致闪退
+                        if (_keyword.value == keyword) {
+                            _searchError.value = e.message?.takeIf { it.isNotBlank() } ?: "搜索失败，请稍后重试"
+                            _endReached.value = true
+                        }
+                    }
                 } else {
                     computeMultiWordIntersection(source, words, page, tagFilter)
                 }
@@ -401,9 +419,11 @@ class SearchViewModel : ViewModel() {
         _comics.value = buildDisplay()
         _loading.value = false
         _multiLoading.value = false
-        _endReached.value = true
-        _multiSearchComplete.value = true
         _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        // 多词结果全部在本地缓存中：还有下一页就不能置 endReached，
+        // 否则筛选模式的自动补页链被永久拦死（第 2 页起的交集结果不可达）
+        _endReached.value = _totalPages.value <= 1
+        _multiSearchComplete.value = true
     }
 
     /**
@@ -415,13 +435,16 @@ class SearchViewModel : ViewModel() {
         _sort.value = sort
         val words = _keyword.value.split(Regex("\\s+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (words.size > 1) {
-            // 多词：重排后必须按当前页重新切片，与页码条保持一致。
-            // 原实现漏掉分页，一次性灌入全量交集，且 loadMore 会在此基础上追加导致重复条目。
-            val page = _currentPage.value.coerceAtLeast(1)
-            _comics.value = buildDisplayForPage(page)
-            _endReached.value = page >= _totalPages.value
+            // 多词：重排后同样回到第 1 页并整表替换。若停留在第 N 页，
+            // 自动补页链会把第 N+1 页追加到"只剩第 N 页切片"的列表后面，
+            // 破坏 comics 按页序累积的假设，筛选切片会错位；与单词/筛选/分类页行为保持一致。
+            _currentPage.value = 1
+            _comics.value = buildDisplayForPage(1)
+            _endReached.value = _totalPages.value <= 1
         } else {
-            search(_keyword.value, page = currentPage.value)
+            // 排序切换必须回第 1 页：筛选补页会把 currentPage 推进到末页，
+            // 沿用旧页码会让新排序只显示第 N 页、前 N-1 页全部缺失
+            search(_keyword.value, page = 1)
         }
     }
 

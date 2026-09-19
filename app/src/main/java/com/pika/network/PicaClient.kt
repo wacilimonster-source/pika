@@ -48,8 +48,12 @@ object PicaClient {
     @Volatile
     var baseUrl: String = PicaApiHosts.default
         set(value) {
-            field = value
-            _api = null
+            // 改域 + 置空 api 必须与 ensureApi 同锁：否则旧协程读到旧 baseUrl 后被挂起，
+            // 恢复后会把用旧域名构造的实例写回 _api（换域瞬间个别请求仍打旧域名）
+            synchronized(apiLock) {
+                field = value
+                _api = null
+            }
         }
 
     @Volatile

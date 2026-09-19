@@ -102,6 +102,9 @@ fun ReaderScreen(
     val chapters by viewModel.chapters.collectAsState()
     val epTitle by viewModel.epTitle.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    // 当前章节号以 VM 为准：切章只改 VM，导航路由参数不变，
+    // 上下话按钮/标题按路由算会错乱（第二次"下一话"失效、上一话跳错章）
+    val vmOrder by viewModel.currentOrderFlow.collectAsState()
 
     var scrollMode by remember { mutableStateOf(ReaderPrefs.current().readerMode == 0) }
     var showPanel by remember { mutableStateOf(false) }
@@ -164,8 +167,15 @@ fun ReaderScreen(
     LaunchedEffect(scrollMode) {
         if (!scrollMode) sliceCounts.clear()
     }
-    LaunchedEffect(order) {
+    // 切章必须以 VM 的当前章节为准清空并预置切片数缓存：
+    // 路由 order 在切章后不变，按它做 key 会让上一章的切片数污染新章的行换算；
+    // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早
+    LaunchedEffect(vmOrder, pages.size) {
         sliceCounts.clear()
+        if (pages.isNotEmpty()) {
+            val cached = com.pika.data.WebtoonSliceCache.load(comicId, vmOrder, context)
+            if (cached.isNotEmpty()) sliceCounts.putAll(cached)
+        }
     }
     val rows: List<Pair<Int, Int>> = if (scrollMode) {
         buildList {
@@ -209,30 +219,42 @@ fun ReaderScreen(
 
     // 进度恢复：先按当前已知切片粗定位；随后等切片解析完成再校正（上限 3 秒）。
     // 原实现在切片未解析时按 1 片估算行号，长图章节会定位偏早若干屏。
-    val restorePage = viewModel.pendingRestorePage
-    LaunchedEffect(pages.size, restorePage, scrollMode) {
-        if (pages.isNotEmpty() && restorePage >= 0) {
-            viewModel.pendingRestorePage = -1
-            val target = restorePage.coerceAtMost(pages.size - 1)
-            if (!scrollMode) {
-                pagerState.scrollToPage(target)
-                return@LaunchedEffect
-            }
-            listState.scrollToItem(rowForPage(target))
-            val deadline = System.currentTimeMillis() + 3_000
-            var lastRow = -1
-            while (System.currentTimeMillis() < deadline) {
-                delay(200)
-                val row = rowForPage(target)
-                if (row != lastRow) {
-                    // 用户已手动滚走（偏离上次自动定位超过 2 行）时不再拉回
-                    val nearLast = lastRow == -1 ||
-                        kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
-                    if (nearLast) listState.scrollToItem(row)
-                    lastRow = row
+    // restoring 标记期间挂起进度写盘：恢复中的偏早页码绝不能被防抖写成进度，
+    // 否则"恢复偏差 → 写回 → 再偏差"正反馈会让条漫进度持续倒退。
+    // 恢复页以 StateFlow 收集：effect 由状态变化确定性触发（普通 var 依赖"恰好重组"），
+    // 触发时 pages 必已是本章——VM 保证先赋 pages、后发布恢复页
+    val pendingRestore by viewModel.pendingRestorePage.collectAsState()
+    val restoring = remember { mutableStateOf(false) }
+    LaunchedEffect(pages.size, pendingRestore, scrollMode) {
+        if (pages.isNotEmpty() && pendingRestore >= 0) {
+            val target = pendingRestore.coerceAtMost(pages.size - 1)
+            restoring.value = true
+            try {
+                if (!scrollMode) {
+                    pagerState.scrollToPage(target)
+                    return@LaunchedEffect
                 }
-                // 目标页之前的切片全部解析完成即可停止校正
-                if ((0 until target).all { sliceCounts.containsKey(it) }) break
+                listState.scrollToItem(rowForPage(target))
+                val deadline = System.currentTimeMillis() + 3_000
+                var lastRow = -1
+                while (System.currentTimeMillis() < deadline) {
+                    delay(200)
+                    val row = rowForPage(target)
+                    if (row != lastRow) {
+                        // 用户已手动滚走（偏离上次自动定位超过 2 行）时不再拉回
+                        val nearLast = lastRow == -1 ||
+                            kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
+                        if (nearLast) listState.scrollToItem(row)
+                        lastRow = row
+                    }
+                    // 目标页之前的切片全部解析完成即可停止校正
+                    if ((0 until target).all { sliceCounts.containsKey(it) }) break
+                }
+            } finally {
+                restoring.value = false
+                // 恢复完成后再消费：StateFlow 值相同会去重，消费本身不会反向重启
+                // 本 effect 打断校正；被切章取消时 load() 已复位为 -1，此处写入是去重的 no-op
+                viewModel.consumePendingRestore()
             }
         }
     }
@@ -255,30 +277,37 @@ fun ReaderScreen(
     // 关键：状态读取必须发生在 snapshotFlow 的 lambda **内部**才有订阅效果。
     // 原实现把 currentPage（组合期算好的普通 val）放进去，块内没有任何 State 读取，
     // 于是 flow 只发射一次、本章内几乎不再保存进度。
-    LaunchedEffect(pages.size, scrollMode) {
+    // key 必须含 vmOrder：防抖链随切章重启——否则同页数的两章之间链幸存，
+    // 旧章最后一次翻页会被 1 秒防抖带着新章号写盘（进度跨章泄漏）。
+    LaunchedEffect(vmOrder, pages.size, scrollMode) {
         snapshotFlow { if (scrollMode) scrollVisiblePage.value else pagerState.currentPage }
             .distinctUntilChanged()
             .debounce(1_000)
             .collect { page ->
-                if (pages.isNotEmpty()) {
+                // 恢复定位期间不写盘：此时显示的偏早页码不是用户真实意图
+                if (pages.isNotEmpty() && !restoring.value) {
                     viewModel.saveProgress(page)
                     viewModel.recordRecentRead(page)
                 }
             }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        viewModel.saveProgress(currentPage)
-        viewModel.recordRecentRead(currentPage)
+        if (!restoring.value) {
+            viewModel.saveProgress(currentPage)
+            viewModel.recordRecentRead(currentPage)
+        }
     }
     // 退出阅读器兜底：单 Activity + Navigation 下点返回只触发 composable dispose，
     // 不会触发 Activity 的 ON_STOP，因此必须在这里补写一次，否则章内进度会丢。
     // rememberUpdatedState 保证读到的是 dispose 那一刻的最新页码，而非首次组合时的闭包值。
+    // final=true：写盘落到不随 VM 取消的作用域（返回键会立刻销毁 VM 作用域，
+    // 在途的 DataStore 写入会被取消导致最后 1 秒内的翻页进度丢失）。
     val latestPage by rememberUpdatedState(currentPage)
     DisposableEffect(Unit) {
         onDispose {
-            if (pages.isNotEmpty()) {
-                viewModel.saveProgress(latestPage)
-                viewModel.recordRecentRead(latestPage)
+            if (pages.isNotEmpty() && !restoring.value) {
+                viewModel.saveProgress(latestPage, final = true)
+                viewModel.recordRecentRead(latestPage, final = true)
             }
         }
     }
@@ -290,7 +319,7 @@ fun ReaderScreen(
 
     // ── 切章 ──────────────────────────────────────────────────────────────
     val sortedChapters = remember(chapters) { chapters.sortedBy { it.order } }
-    val currentChapterIndex = sortedChapters.indexOfFirst { it.order == order }
+    val currentChapterIndex = sortedChapters.indexOfFirst { it.order == vmOrder }
     fun switchTo(targetOrder: Int) {
         showPanel = false
         viewModel.switchChapter(context, targetOrder)
@@ -334,7 +363,7 @@ fun ReaderScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = title.ifBlank { epTitle }.ifBlank { "第 $order 话" },
+                            text = title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = Color.White,
@@ -369,7 +398,9 @@ fun ReaderScreen(
                             ReaderPrefs.current().readerMode = if (mode) 0 else 1
                             scope.launch {
                                 if (mode) {
-                                    listState.scrollToItem(rowToPage(target))
+                                    // 页码 → 行号必须用 rowForPage：rowToPage 方向相反，
+                                    // 用反会把页码当行号，长图分屏章节切滚动流会跳回前面几十页
+                                    listState.scrollToItem(rowForPage(target))
                                 } else {
                                     pagerState.scrollToPage(
                                         target.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
@@ -468,7 +499,15 @@ fun ReaderScreen(
                                 viewportAspect = viewportAspect,
                                 splitEnabled = true,
                                 isPrimary = sliceIndex == 0,
-                                onSliceCountResolved = { p, n -> sliceCounts[p] = n },
+                                onSliceCountResolved = { p, n ->
+                                    sliceCounts[p] = n
+                                    // 写入持久缓存：下次进入本章恢复定位可直接按真实行号换算
+                                    if (n > 1) {
+                                        com.pika.data.WebtoonSliceCache.putAll(
+                                            context, comicId, vmOrder, mapOf(p to n),
+                                        )
+                                    }
+                                },
                             )
                         }
                     }

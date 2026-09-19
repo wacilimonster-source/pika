@@ -15,7 +15,9 @@ enum class ReadStatus { READ, FINISHED }
  */
 object ReaderStatus {
 
-    private val map = mutableMapOf<String, ReadStatus>()
+    // 并发容器：启动预热(IO 线程 clear+putAll)、阅读器写入(IO)、主线程读取三路并发访问，
+    // 普通 HashMap 无同步会在冷启动窗口丢失条目甚至破坏内部结构
+    private val map = java.util.concurrent.ConcurrentHashMap<String, ReadStatus>()
 
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version.asStateFlow()

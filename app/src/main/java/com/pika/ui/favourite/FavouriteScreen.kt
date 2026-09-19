@@ -126,6 +126,22 @@ class FavouriteViewModel : ViewModel() {
             }
         }
     }
+
+    /**
+     * 返回恢复专用：回填页码指示（滚动位置由 Navigation 恢复）。
+     * 若收藏数据在别处被变更过（详情页收藏/取消收藏成功），后台静默刷新当前页：
+     * 走 jumpToPage 的替换式加载，列表按索引重排，滚动位置保持不变。
+     * 此前返回后整个生命周期不再请求，取消收藏的条目残留、新收藏不可见。
+     */
+    fun consumeRestoreAndRefreshIfNeeded() {
+        if (!needsRestore) return
+        needsRestore = false
+        _currentPage.value = _savedCurrentPage
+        if (com.pika.data.FavouriteSync.dirty) {
+            com.pika.data.FavouriteSync.dirty = false
+            jumpToPage(_savedCurrentPage)
+        }
+    }
 }
 
 /** 我的收藏页 */
@@ -150,8 +166,12 @@ fun FavouriteScreen(
     }
     // 恢复滚动状态（导航返回后首次 recompose 时执行）
     LaunchedEffect(Unit) {
-        // needsRestore 为 true 时 load() 会跳过并恢复页码
-        viewModel.load(page = 1)
+        val restored = viewModel.needsRestore
+        // 恢复走专用通道；若收藏数据在详情页被变更过，后台静默刷新当前页
+        viewModel.consumeRestoreAndRefreshIfNeeded()
+        if (!restored) {
+            viewModel.load(page = 1)
+        }
         if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
         }
