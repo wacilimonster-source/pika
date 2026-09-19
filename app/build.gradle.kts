@@ -93,4 +93,6 @@ dependencies {
     implementation(libs.bctls)
     implementation(libs.bcutil)
     debugImplementation(libs.androidx.ui.tooling)
+    // 纯 JVM 单元测试（ComicRef 等无 Android 依赖的核心逻辑）
+    testImplementation("junit:junit:4.13.2")
 }
