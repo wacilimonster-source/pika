@@ -1,6 +1,6 @@
 {
-  "sha256": "0cb9d515126de21ebf7293bf4a7ea51d38e270f54805dc70ac3396a8e0c54b0e",
-  "version": "1.7.1",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.7.1.apk",
-  "notes": "v1.7.1 更新：\n1. 紧急修复 v1.7.0 启动闪退（下载偏好初始化顺序缺陷，任何情况下都无法打开）；已升级到 v1.7.0 的用户请手动安装本版\n2. 功能内容同 v1.7.0：阅读器缩放/进度条跳页/章节抽屉/音量键翻页/长按保存、搜索历史与热搜、下载完成通知与仅 Wi-Fi 下载、阅读历史 100 条管理、清理缓存入口等"
+  "sha256": "1ecc3a47b7734cd44d078d20734da5587c6ec2400bfd736db8a8ea2f25eb4bb1",
+  "version": "1.7.2",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.7.2.apk",
+  "notes": "v1.7.2 更新：\n1. 详情页「猜你喜欢」（相似作品推荐）位置上移：从章节列表底部移到标签之后、章节之前，进页面即可见、点击直达同类作品\n2. 其余内容同 v1.7.1"
 }
