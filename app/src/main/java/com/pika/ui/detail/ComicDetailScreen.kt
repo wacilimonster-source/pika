@@ -289,6 +289,25 @@ fun ComicDetailScreen(
                         }
                     }
                 }
+                // 相似作品推荐：进页面即可见（此前压在章节列表最底部，长篇基本看不到）
+                if (recommendations.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        Text(
+                            text = "猜你喜欢",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(recommendations, key = { it.id }) { rec ->
+                                RecommendCard(rec, onClick = { onComicClick(rec.ref) })
+                            }
+                        }
+                    }
+                }
                 item {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Row(
@@ -346,24 +365,6 @@ fun ComicDetailScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(12.dp),
                             )
-                        }
-                    }
-                }
-                if (recommendations.isNotEmpty()) {
-                    item {
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            text = "猜你喜欢",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(recommendations, key = { it.id }) { rec ->
-                                RecommendCard(rec, onClick = { onComicClick(rec.ref) })
-                            }
                         }
                     }
                 }
