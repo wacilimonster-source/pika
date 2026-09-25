@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Comment
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -65,6 +66,7 @@ import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
+import kotlinx.coroutines.launch
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,6 +103,10 @@ fun ComicDetailScreen(
     val downloadedOrders by viewModel.downloadedOrders.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // 章节列表倒序（与阅读器章节抽屉共用同一偏好）
+    val chapterDesc by com.pika.data.ReaderPrefs.current().chapterListDescending
+        .collectAsState(initial = false)
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // 参数 ref 是作品标识 `源_id`；裸 id 只用于按 id 记账的场合（调源接口、匹配下载任务）
     val comicId = com.pika.core.source.ComicRef.id(ref)
@@ -136,6 +142,27 @@ fun ComicDetailScreen(
                                     Icons.Outlined.FavoriteBorder
                                 },
                                 contentDescription = "收藏",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    // 分享作品（标题 + 作者）
+                    comic?.let { c ->
+                        IconButton(onClick = {
+                            val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(
+                                    android.content.Intent.EXTRA_TEXT,
+                                    "《${c.title}》 ${c.author}\n（来自 PiKA 漫画阅读器）",
+                                )
+                            }
+                            context.startActivity(
+                                android.content.Intent.createChooser(sendIntent, "分享作品"),
+                            )
+                        }) {
+                            Icon(
+                                Icons.Filled.Share,
+                                contentDescription = "分享",
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -275,6 +302,20 @@ fun ComicDetailScreen(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
+                        // 正/倒序切换（与阅读器章节抽屉共用偏好）
+                        Text(
+                            text = if (chapterDesc) "倒序" else "正序",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable {
+                                    scope.launch {
+                                        com.pika.data.ReaderPrefs.current()
+                                            .setChapterListDescending(!chapterDesc)
+                                    }
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
                         val done = downloadTasks.count {
                             it.task.comicId == comicId && it.isFinished
                         }
@@ -287,7 +328,7 @@ fun ComicDetailScreen(
                         }
                     }
                 }
-                items(chapters, key = { it.id }) { chapter ->
+                items(if (chapterDesc) chapters.asReversed() else chapters, key = { it.id }) { chapter ->
                     // 查 VM 在 IO 线程预算好的集合：此前在组合期同步调 isDownloaded
                     // （内部 listFiles 目录遍历），列表每项都会做一次磁盘 IO
                     ChapterRow(

@@ -1,5 +1,6 @@
 package com.pika.ui.mine
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,8 @@ fun MineScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
+    // 更新红点：有新版本且未被「稍后再说」/关闭时，设置入口带红点（D5）
+    val updateAvailable by com.pika.core.update.UpdateState.updateInfo.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     var deleteSavedCredentials by remember { mutableStateOf(false) }
     var user by remember { mutableStateOf<ComicUser?>(null) }
@@ -173,11 +176,9 @@ fun MineScreen(
         MenuRow("关注管理", onClick = onOpenFollowManage)
         MenuRow("阅读历史", onClick = onOpenRecentReads)
         MenuRow("下载", onClick = onOpenDownloads)
-        MenuRow("设置", onClick = onOpenSettings)
+        MenuRow("设置", onClick = onOpenSettings, showBadge = updateAvailable != null)
         if (loggedIn) {
-            MenuRow("退出登录") {
-                showLogoutDialog = true
-            }
+            MenuRow("退出登录", onClick = { showLogoutDialog = true })
         }
     }
 
@@ -222,6 +223,8 @@ fun MineScreen(
 private fun MenuRow(
     label: String,
     onClick: () -> Unit,
+    /** 尾部红点（如「设置」行的新版本提醒） */
+    showBadge: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -235,6 +238,17 @@ private fun MenuRow(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
+        if (showBadge) {
+            Box(
+                modifier = Modifier
+                    .padding(end = 10.dp)
+                    .size(8.dp)
+                    .background(
+                        MaterialTheme.colorScheme.error,
+                        androidx.compose.foundation.shape.CircleShape,
+                    ),
+            )
+        }
         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
     }
     HorizontalDivider()

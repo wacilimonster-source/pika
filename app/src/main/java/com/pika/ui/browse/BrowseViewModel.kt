@@ -26,6 +26,10 @@ class BrowseViewModel : ViewModel() {
     private val _categories = MutableStateFlow<List<ComicCategory>>(emptyList())
     val categories: StateFlow<List<ComicCategory>> = _categories
 
+    /** 分类加载失败信息（null = 无错误）。此前静默吞掉，界面显示"暂无分类"误导用户 */
+    private val _categoriesError = MutableStateFlow<String?>(null)
+    val categoriesError: StateFlow<String?> = _categoriesError
+
     private val _comics = MutableStateFlow<List<ComicSummary>>(emptyList())
     val comics: StateFlow<List<ComicSummary>> = _comics
 
@@ -67,16 +71,20 @@ class BrowseViewModel : ViewModel() {
     private val _currentPage = MutableStateFlow(1)
     val currentPage: StateFlow<Int> = _currentPage
 
-    /** 用于列表滚动位置恢复 */
+    /** 用于列表滚动位置恢复（item 索引 + 像素偏移，恢复后不跳闪） */
     private var _savedFirstVisibleIndex: Int = 0
     val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
+
+    private var _savedFirstVisibleOffset: Int = 0
+    val savedFirstVisibleOffset: Int get() = _savedFirstVisibleOffset
 
     /** 是否已恢复过滚动位置 */
     var isScrollStateRestored: Boolean = false
         private set
 
-    fun saveScrollState(firstVisibleIndex: Int) {
+    fun saveScrollState(firstVisibleIndex: Int, firstVisibleOffset: Int = 0) {
         _savedFirstVisibleIndex = firstVisibleIndex
+        _savedFirstVisibleOffset = firstVisibleOffset
     }
 
     fun markScrollStateRestored() {
@@ -87,12 +95,20 @@ class BrowseViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _categories.value = SourceManager.current().categories()
+                _categoriesError.value = null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 分类失败不阻塞浏览
+                // 分类失败不阻塞浏览，但必须可见、可重试（不能伪装成"暂无分类"）
+                _categoriesError.value = e.message?.takeIf { it.isNotBlank() } ?: "分类加载失败"
             }
         }
+    }
+
+    /** 分类加载失败后的重试 */
+    fun retryCategories() {
+        _categoriesError.value = null
+        loadCategories()
     }
 
     fun loadComics(page: Int, category: String? = null, reloadKey: String? = null) {

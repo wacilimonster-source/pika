@@ -27,6 +27,7 @@ data class FollowItem(
 object FollowSettings {
     private const val PREFS_NAME = "follow_settings"
     private const val KEY_ITEMS = "follow_items"
+    private const val KEY_FEED_SEEN = "feed_seen_max_updated_at"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -34,6 +35,21 @@ object FollowSettings {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // ── 关注流「有更新」标记（D7） ────────────────────────────────────────
+    // 记录"上次看关注流时最新条目的 updatedAt"（ISO 字符串，与关注流排序同一字典序），
+    // 条目 updatedAt > 该值即为本次新更新，列表卡片显示小圆点。
+    // 用字符串而非时间戳：updatedAt 的排序基准本身就是字符串比较（mergeIntoFeed），口径一致。
+
+    /** 上次已看到的最新更新时间（空 = 从未看过，不显示任何圆点） */
+    fun feedSeenMaxUpdatedAt(): String =
+        prefs?.getString(KEY_FEED_SEEN, "") ?: ""
+
+    /** 离开关注流时记录当前最新条目的 updatedAt（列表为空时不记录，避免全量误标） */
+    fun markFeedSeen(maxUpdatedAt: String) {
+        if (maxUpdatedAt.isBlank()) return
+        prefs?.edit()?.putString(KEY_FEED_SEEN, maxUpdatedAt)?.apply()
     }
 
     /** 关注项（按添加时间倒序；无时间戳的旧条目沉到最后，保证顺序稳定） */

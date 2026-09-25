@@ -92,6 +92,10 @@ class ReaderViewModel : ViewModel() {
                         // 否则翻页器/滚动列表保留上一章页码，防抖还会把旧页码写成新章进度
                         if (saved != null && saved.order == order) saved.pageIndex else 0
                     }.getOrDefault(0)
+                    // 带进度进入 = 读过本章：补章节已读标记（章节抽屉打勾用）
+                    if (restore > 0) {
+                        runCatchingCancellable { ReaderPrefs.current().markChapterRead(ref, order) }
+                    }
                     // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
                     val local = com.pika.core.download.DownloadManager.chapterDir(comicId, order)
                         .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
@@ -166,6 +170,13 @@ class ReaderViewModel : ViewModel() {
         load(context, ref, order)
     }
 
+    /** 整章加载失败后的重试：清 loadedKey 强制重新走 load() */
+    fun retry(context: Context) {
+        if (ref.isBlank()) return
+        loadedKey = ""
+        load(context, ref, currentOrder)
+    }
+
     /** 上一次进度落盘 Job：滚动时逐页触发，取消旧任务避免乱序覆盖（新页码覆盖旧页码） */
     private var progressJob: Job? = null
 
@@ -184,6 +195,7 @@ class ReaderViewModel : ViewModel() {
             ReaderPrefs.current().ioScope.launch {
                 runCatching {
                     ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
+                    ReaderPrefs.current().markChapterRead(refNow, orderNow)
                 }
                 com.pika.data.ReaderStatus.markRead(refNow)
             }
@@ -194,6 +206,8 @@ class ReaderViewModel : ViewModel() {
             // 而普通写盘失败仍按原行为继续更新内存已读标记
             runCatchingCancellable {
                 ReaderPrefs.current().saveProgress(ref, currentOrder, safePage)
+                // 保存过进度即算读过本章（章节抽屉打勾用）
+                ReaderPrefs.current().markChapterRead(ref, currentOrder)
             }
             // 打开过阅读器即已读（内存状态只升不降）
             com.pika.data.ReaderStatus.markRead(ref)
@@ -254,6 +268,9 @@ class ReaderViewModel : ViewModel() {
             }
         }
     }
+
+    /** 当前页的图片地址（长按保存到相册用）；越界返回 null */
+    fun pageUrlAt(pageIndex: Int): String? = _pages.value.getOrNull(pageIndex)?.imageUrl
 
     /**
      * 预取前后 N 页图片到内存/磁盘缓存（弱网也顺滑）。

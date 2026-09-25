@@ -1,7 +1,9 @@
 package com.pika.ui.browse
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +55,10 @@ fun ComicGridView(
     modifier: Modifier = Modifier,
     /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
     showTailLoading: Boolean = true,
+    /** 长按卡片回调（参数为作品标识）；null = 不响应长按（收藏页用于快捷取消收藏） */
+    onComicLongClick: ((String) -> Unit)? = null,
+    /** 「有更新」判定基线：条目 updatedAt 非空且大于该值时封面左上角显示圆点（关注流用） */
+    newUntil: String = "",
 ) {
     val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
     val columns by com.pika.data.GridSettings.columnsFlow.collectAsState()
@@ -66,11 +72,16 @@ fun ComicGridView(
     ) {
         items(comics, key = { it.ref }) { comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.pika.data.ReaderStatus.of(comic.ref) }
+            val isNew = remember(comic.ref, newUntil) {
+                newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
+            }
             ComicCard(
                 comic = comic,
                 readStatus = readStatus,
                 largeTitle = columns == 2,
                 onClick = { onComicClick(comic.ref) },
+                onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
+                isNew = isNew,
             )
         }
         if (loading && showTailLoading) {
@@ -97,6 +108,7 @@ fun ComicGridView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComicCard(
     comic: ComicSummary,
@@ -104,11 +116,14 @@ private fun ComicCard(
     /** 2 列大卡片时标题用更大字号 */
     largeTitle: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    /** 关注流「有更新」小圆点 */
+    isNew: Boolean = false,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Box(
             modifier = Modifier
@@ -148,6 +163,16 @@ private fun ComicCard(
                     modifier = Modifier.align(Alignment.TopEnd),
                 )
                 null -> {}
+            }
+            // 关注流「有更新」：左上角小圆点
+            if (isNew) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .size(9.dp)
+                        .background(MaterialTheme.colorScheme.error, androidx.compose.foundation.shape.CircleShape),
+                )
             }
         }
         Text(

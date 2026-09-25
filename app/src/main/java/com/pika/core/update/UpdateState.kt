@@ -17,6 +17,14 @@ object UpdateState {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private const val PREFS = "pika_update_state"
+    private const val KEY_SNOOZED = "snoozed_version"
+    @Volatile private var prefs: android.content.SharedPreferences? = null
+
+    fun init(context: android.content.Context) {
+        prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+    }
+
     private val _updateInfo = MutableStateFlow<UpdateManager.UpdateInfo?>(null)
 
     /** null=无更新或未检查；非 null=有新版本 */
@@ -33,7 +41,10 @@ object UpdateState {
             val result = runCatching { UpdateManager.checkResult() }.getOrNull() ?: return@launch
             when (result) {
                 is UpdateManager.CheckResult.Available -> {
-                    _updateInfo.value = result.info
+                    // 用户对该版本选择过「稍后再说」则不再自动展示（手动检查更新不受影响）
+                    if (!isSnoozed(result.info.version)) {
+                        _updateInfo.value = result.info
+                    }
                     _lastError.value = null
                 }
                 UpdateManager.CheckResult.UpToDate -> {
@@ -74,4 +85,15 @@ object UpdateState {
     fun dismiss() {
         _updateInfo.value = null
     }
+
+    /** 「稍后再说」：本版本内不再自动弹横幅/提示（手动检查更新不受影响） */
+    fun snooze() {
+        _updateInfo.value?.let { info ->
+            runCatching { prefs?.edit()?.putString(KEY_SNOOZED, info.version)?.apply() }
+        }
+        _updateInfo.value = null
+    }
+
+    private fun isSnoozed(version: String): Boolean =
+        runCatching { prefs?.getString(KEY_SNOOZED, null) == version }.getOrDefault(false)
 }

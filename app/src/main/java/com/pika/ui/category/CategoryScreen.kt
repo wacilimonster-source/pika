@@ -45,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -88,6 +89,7 @@ fun CategoryScreen(
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val categoriesError by viewModel.categoriesError.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     // 组合期不做磁盘/SharedPreferences 读取：初值给空设置，在 LaunchedEffect 中加载
     var settings by remember { mutableStateOf(com.pika.data.CategorySettings.Settings()) }
@@ -131,11 +133,26 @@ fun CategoryScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (categories.isEmpty() && categoriesError != null) {
+                    // 分类加载失败必须可见、可重试（此前静默显示"暂无分类"误导用户）
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "分类加载失败：$categoriesError",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                        TextButton(onClick = { viewModel.retryCategories() }) {
+                            Text("重试")
+                        }
+                    }
+                } else {
+                    Text(
+                        text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         } else {
             LazyVerticalGrid(
@@ -190,16 +207,19 @@ fun CategoryComicsScreen(
     val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
 
-    // 保存滚动位置
+    // 保存滚动位置（含像素偏移，恢复后不跳闪）
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex)
+            viewModel.saveScrollState(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
         }
     }
     // 恢复滚动位置
     LaunchedEffect(viewModel.isScrollStateRestored) {
-        if (viewModel.savedFirstVisibleIndex > 0) {
-            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+        if (viewModel.savedFirstVisibleIndex > 0 || viewModel.savedFirstVisibleOffset > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex, viewModel.savedFirstVisibleOffset)
             viewModel.markScrollStateRestored()
         }
     }
@@ -308,10 +328,17 @@ fun CategoryComicsScreen(
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = error ?: "加载失败",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    // 首屏失败此前只有错误文本没有重试按钮（与首页/搜索不一致）
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = error ?: "加载失败",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { viewModel.jumpToPage(filterPage.coerceAtLeast(1)) }) {
+                            Text("重试")
+                        }
+                    }
                 }
             } else if (displayComics.isEmpty() && !loading) {
                 // 空态也保留分页条（有多页时），避免筛选切片为空时无路可翻

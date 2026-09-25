@@ -215,8 +215,11 @@ private const val MAX_DECODE_HEIGHT_PX = 8192
  * 按设备内存等级自适应解码上限：
  * - 大内存设备（memoryClass ≥ 256MB）维持 8192，长图切片清晰度最优；
  * - 小内存设备降到 4096（约 17MB/张），显著降低缓存驱逐导致的重复解码与 GC 抖动。
+ *
+ * internal：ReaderScreen 的 PagerPage（横滑翻页模式）与预加载共用同一上限，
+ * 保证预取缓存键与展示请求解码尺寸一致。
  */
-private fun maxDecodeHeightPx(context: android.content.Context): Int {
+internal fun maxDecodeHeightPx(context: android.content.Context): Int {
     val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
         as? android.app.ActivityManager
     val memClass = am?.memoryClass ?: 192

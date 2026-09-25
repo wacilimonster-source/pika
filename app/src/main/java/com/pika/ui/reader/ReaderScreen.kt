@@ -1,16 +1,28 @@
 package com.pika.ui.reader
 
 import androidx.compose.animation.AnimatedVisibility
+import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,7 +36,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BrightnessMedium
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,10 +46,17 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -55,14 +76,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -70,12 +103,17 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import com.pika.core.download.DownloadManager
 import com.pika.data.ReaderPrefs
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * 阅读器（重构版）：
@@ -113,6 +151,23 @@ fun ReaderScreen(
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
+    // 双击缩放的过渡动画 Job：捏合手势开始时会取消它，避免动画与手势互相抢写
+    var zoomAnimJob by remember { mutableStateOf<Job?>(null) }
+    // 内容区像素尺寸（缩放平移的钳制范围用）
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // 音量键翻页（设置页开关，默认关）
+    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging.collectAsState(initial = false)
+    val focusRequester = remember { FocusRequester() }
+
+    // 续读轻提示：进度恢复成功且页码 > 0 时短暂展示，并提供「从头看」出口
+    val snackbarHostState = remember { SnackbarHostState() }
+    var resumeFromPage by remember { mutableIntStateOf(-1) }
+
+    // 章节列表抽屉
+    var showChapterSheet by remember { mutableStateOf(false) }
+    var readChapters by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsState(initial = false)
 
     val configuration = LocalConfiguration.current
     val viewportAspect = remember(configuration) {
@@ -232,24 +287,26 @@ fun ReaderScreen(
             try {
                 if (!scrollMode) {
                     pagerState.scrollToPage(target)
-                    return@LaunchedEffect
-                }
-                listState.scrollToItem(rowForPage(target))
-                val deadline = System.currentTimeMillis() + 3_000
-                var lastRow = -1
-                while (System.currentTimeMillis() < deadline) {
-                    delay(200)
-                    val row = rowForPage(target)
-                    if (row != lastRow) {
-                        // 用户已手动滚走（偏离上次自动定位超过 2 行）时不再拉回
-                        val nearLast = lastRow == -1 ||
-                            kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
-                        if (nearLast) listState.scrollToItem(row)
-                        lastRow = row
+                } else {
+                    listState.scrollToItem(rowForPage(target))
+                    val deadline = System.currentTimeMillis() + 3_000
+                    var lastRow = -1
+                    while (System.currentTimeMillis() < deadline) {
+                        delay(200)
+                        val row = rowForPage(target)
+                        if (row != lastRow) {
+                            // 用户已手动滚走（偏离上次自动定位超过 2 行）时不再拉回
+                            val nearLast = lastRow == -1 ||
+                                kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
+                            if (nearLast) listState.scrollToItem(row)
+                            lastRow = row
+                        }
+                        // 目标页之前的切片全部解析完成即可停止校正
+                        if ((0 until target).all { sliceCounts.containsKey(it) }) break
                     }
-                    // 目标页之前的切片全部解析完成即可停止校正
-                    if ((0 until target).all { sliceCounts.containsKey(it) }) break
                 }
+                // 恢复成功才提示（被切章取消时不会走到这里）；页码 0 无需提示
+                if (target > 0) resumeFromPage = target
             } finally {
                 restoring.value = false
                 // 恢复完成后再消费：StateFlow 值相同会去重，消费本身不会反向重启
@@ -322,18 +379,87 @@ fun ReaderScreen(
     val currentChapterIndex = sortedChapters.indexOfFirst { it.order == vmOrder }
     fun switchTo(targetOrder: Int) {
         showPanel = false
+        showChapterSheet = false
         viewModel.switchChapter(context, targetOrder)
     }
 
-    // 点按：左 30% 上翻 / 右 30% 下翻 / 中间 40% 面板
-    fun onTap(offsetX: Float, width: Int) {
-        val zone = when {
-            offsetX < width * 0.3f -> -1
-            offsetX > width * 0.7f -> 1
-            else -> 0
+    // 双击缩放（两种阅读模式均可），带 200ms 过渡动画
+    fun animateZoomTo(target: Float) {
+        zoomAnimJob?.cancel()
+        zoomAnimJob = scope.launch {
+            animate(
+                initialValue = zoomScale,
+                targetValue = target,
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+            ) { value, _ -> zoomScale = value }
+            if (target <= 1f) {
+                panX = 0f
+                panY = 0f
+            }
         }
+    }
+
+    fun resetZoom() {
+        zoomAnimJob?.cancel()
+        zoomScale = 1f
+        panX = 0f
+        panY = 0f
+    }
+
+    // 进度条拖动跳页：滚动流按页码映射到行，并沿用续读恢复的切片校正逻辑
+    // （校正期间挂起进度写盘，避免跳转途中的页码被防抖写成进度）
+    fun seekToPage(page: Int) {
+        if (pages.isEmpty()) return
+        val target = page.coerceIn(0, pages.size - 1)
+        resetZoom()
+        scope.launch {
+            if (!scrollMode) {
+                pagerState.scrollToPage(target)
+            } else {
+                restoring.value = true
+                try {
+                    listState.scrollToItem(rowForPage(target))
+                    val deadline = System.currentTimeMillis() + 3_000
+                    var lastRow = -1
+                    while (System.currentTimeMillis() < deadline) {
+                        delay(150)
+                        val row = rowForPage(target)
+                        if (row != lastRow) {
+                            val nearLast = lastRow == -1 ||
+                                kotlin.math.abs(listState.firstVisibleItemIndex - lastRow) <= 2
+                            if (nearLast) listState.scrollToItem(row)
+                            lastRow = row
+                        }
+                        if ((0 until target).all { sliceCounts.containsKey(it) }) break
+                    }
+                } finally {
+                    restoring.value = false
+                }
+            }
+            viewModel.saveProgress(target)
+            viewModel.recordRecentRead(target)
+        }
+    }
+
+    // 续读轻提示：不弹窗不打断，短暂展示并提供「从头看」出口
+    LaunchedEffect(resumeFromPage) {
+        val from = resumeFromPage
+        if (from > 0 && pages.isNotEmpty()) {
+            val result = snackbarHostState.showSnackbar(
+                message = "已回到上次进度 · 第 ${from + 1} 页",
+                actionLabel = "从头看",
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                seekToPage(0)
+            }
+            if (resumeFromPage == from) resumeFromPage = -1
+        }
+    }
+
+    // 翻页/翻屏（点按区域、音量键共用）：zone -1 上 / +1 下
+    fun pageTurn(zone: Int) {
         when {
-            zone == 0 -> showPanel = !showPanel
             scrollMode -> {
                 val viewportHeight = listState.layoutInfo.viewportSize.height
                 if (viewportHeight > 0) {
@@ -348,6 +474,47 @@ fun ReaderScreen(
         }
     }
 
+    // 点按：左 30% 上翻 / 右 30% 下翻 / 中间 40% 面板
+    fun onTap(offsetX: Float, width: Int) {
+        val zone = when {
+            offsetX < width * 0.3f -> -1
+            offsetX > width * 0.7f -> 1
+            else -> 0
+        }
+        when {
+            // 放大状态下边缘点按不再翻页/翻屏（防误触），中间区域仍可唤出面板
+            zoomScale > 1f && zone != 0 -> return
+            zone == 0 -> showPanel = !showPanel
+            else -> pageTurn(zone)
+        }
+    }
+
+    // 长按保存当前页到相册（Pictures/PiKA）
+    fun saveCurrentPage() {
+        // 只读状态委托：pointerInput(Unit) 的闭包是首次组合时创建的，读普通 val 会拿到旧值
+        val page = if (scrollMode) {
+            scrollVisiblePage.value.coerceAtMost((pages.size - 1).coerceAtLeast(0))
+        } else {
+            pagerState.currentPage
+        }
+        val url = viewModel.pageUrlAt(page) ?: return
+        scope.launch {
+            val result = runCatching {
+                com.pika.util.ImageSaver.saveToGallery(
+                    context,
+                    url,
+                    title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
+                    page + 1,
+                )
+            }
+            Toast.makeText(
+                context,
+                if (result.isSuccess) "已保存到相册" else "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
     // 翻页后复位缩放平移，避免上一页的偏移带到新页
     LaunchedEffect(pagerState.currentPage) {
         if (zoomScale <= 1f) {
@@ -356,8 +523,29 @@ fun ReaderScreen(
         }
     }
 
+    // 切章复位缩放（跨章保留缩放没有意义，且滚动流行高已变）
+    LaunchedEffect(vmOrder) {
+        resetZoom()
+    }
+
+    // 章节抽屉打开时加载章节已读标记（打勾用）
+    LaunchedEffect(showChapterSheet, vmOrder) {
+        if (showChapterSheet) {
+            readChapters = runCatching { ReaderPrefs.current().readChaptersAsync(ref) }
+                .getOrDefault(emptySet())
+        }
+    }
+
+    // 面板/抽屉收起后收回焦点，保证音量键翻页持续可用
+    LaunchedEffect(showPanel, showChapterSheet) {
+        if (!showPanel && !showChapterSheet) {
+            focusRequester.requestFocus()
+        }
+    }
+
     Scaffold(
         containerColor = Color.Black,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             AnimatedVisibility(visible = showPanel) {
                 TopAppBar(
@@ -394,6 +582,7 @@ fun ReaderScreen(
                             // （此前只做了「翻页→滚动」方向的同步，反向缺失：
                             //   读到第 50 页切横滑会瞬间跳回第 1 页，并可能写入错误进度）
                             val target = currentPage
+                            resetZoom()
                             scrollMode = mode
                             ReaderPrefs.current().readerMode = if (mode) 0 else 1
                             scope.launch {
@@ -414,7 +603,7 @@ fun ReaderScreen(
                         brightness = it
                         ReaderPrefs.current().brightness = it
                     },
-                    currentPage = currentPage + 1,
+                    pageIndex = currentPage,
                     totalPages = pages.size,
                     hasPrev = currentChapterIndex > 0,
                     hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
@@ -424,6 +613,8 @@ fun ReaderScreen(
                     onNextChapter = {
                         sortedChapters.getOrNull(currentChapterIndex + 1)?.let { switchTo(it.order) }
                     },
+                    onOpenChapters = { showChapterSheet = true },
+                    onSeek = { seekToPage(it) },
                 )
             }
         },
@@ -432,37 +623,50 @@ fun ReaderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .onSizeChanged { contentSize = it }
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    // 音量键翻页：按下/抬起都拦截（防止系统调音量），抬起时翻一页
+                    if (!volumeKeyPaging) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.VolumeUp, Key.VolumeDown -> {
+                            if (event.type == KeyEventType.KeyUp) {
+                                pageTurn(if (event.key == Key.VolumeUp) -1 else 1)
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                }
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = { offset -> onTap(offset.x, size.width) },
                         onDoubleTap = {
-                            if (!scrollMode) {
-                                if (zoomScale > 1f) {
-                                    zoomScale = 1f
-                                    panX = 0f
-                                    panY = 0f
-                                } else {
-                                    zoomScale = 2f
-                                }
+                            if (pages.isNotEmpty()) {
+                                if (zoomScale > 1f) animateZoomTo(1f) else animateZoomTo(2f)
                             }
                         },
+                        onLongPress = { saveCurrentPage() },
                     )
                 }
-                // 缩放态下的捏合缩放与拖拽平移（仅翻页模式；滚动流交给 LazyColumn 处理）
-                .pointerInput(scrollMode) {
-                    if (scrollMode) return@pointerInput
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        zoomScale = (zoomScale * zoom).coerceIn(1f, 4f)
-                        val maxX = (zoomScale - 1f) * size.width / 2f
-                        val maxY = (zoomScale - 1f) * size.height / 2f
+                // 双指捏合缩放 + 放大态平移（两种阅读模式均可，见 readerZoomGesture 注释）
+                .readerZoomGesture(
+                    isZoomed = { zoomScale > 1f },
+                    onGesture = { pan, zoom ->
+                        zoomAnimJob?.cancel()
+                        val newScale = (zoomScale * zoom).coerceIn(1f, 3f)
+                        zoomScale = newScale
+                        val maxX = (newScale - 1f) * contentSize.width / 2f
+                        val maxY = (newScale - 1f) * contentSize.height / 2f
                         panX = (panX + pan.x).coerceIn(-maxX, maxX)
                         panY = (panY + pan.y).coerceIn(-maxY, maxY)
-                        if (zoomScale <= 1f) {
+                        if (newScale <= 1f) {
                             panX = 0f
                             panY = 0f
                         }
-                    }
-                },
+                    },
+                ),
         ) {
             when {
                 pages.isEmpty() && loading -> {
@@ -473,16 +677,40 @@ fun ReaderScreen(
 
                 pages.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "加载失败，点击返回重试",
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "加载失败",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Row {
+                                OutlinedButton(onClick = { viewModel.retry(context) }) {
+                                    Text("重试", color = Color.White)
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                OutlinedButton(onClick = onBack) {
+                                    Text("返回", color = Color.White)
+                                }
+                            }
+                        }
                     }
                 }
 
                 scrollMode -> {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        // 放大后关闭列表滚动，把拖拽交给上方的平移手势
+                        userScrollEnabled = zoomScale <= 1f,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = zoomScale
+                                scaleY = zoomScale
+                                translationX = panX
+                                translationY = panY
+                            },
+                    ) {
                         items(
                             count = rows.size,
                             key = { index ->
@@ -527,10 +755,9 @@ fun ReaderScreen(
                                 translationY = panY
                             },
                     ) { page ->
-                        AsyncImage(
-                            model = pages[page].imageUrl,
-                            contentDescription = "第 ${page + 1} 页",
-                            contentScale = ContentScale.Fit,
+                        PagerPage(
+                            pageIndex = page,
+                            imageUrl = pages[page].imageUrl,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -547,9 +774,93 @@ fun ReaderScreen(
             }
         }
     }
+
+    // ── 章节列表抽屉 ──────────────────────────────────────────────────────────
+    if (showChapterSheet) {
+        val sheetChapters = if (chapterDesc) sortedChapters.asReversed() else sortedChapters
+        ModalBottomSheet(
+            onDismissRequest = { showChapterSheet = false },
+            containerColor = Color(0xFF161616),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "章节（${sortedChapters.size}）",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                ReaderPrefs.current().setChapterListDescending(!chapterDesc)
+                            }
+                        },
+                    ) {
+                        Text(
+                            text = if (chapterDesc) "倒序 ↓" else "正序 ↑",
+                            color = Color.White,
+                        )
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 480.dp),
+                ) {
+                    items(sheetChapters, key = { it.order }) { chapter ->
+                        val isCurrent = chapter.order == vmOrder
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showChapterSheet = false
+                                    switchTo(chapter.order)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = chapter.title.ifBlank { "第 ${chapter.order} 话" },
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isCurrent) FontWeight.Bold else null,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (chapter.order in readChapters) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "已读",
+                                    tint = Color(0xFF8A8A8A),
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            if (DownloadManager.isDownloaded(viewModel.comicId, chapter.order)) {
+                                Text(
+                                    text = "已下载",
+                                    color = Color(0xFF8A8A8A),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-/** 阅读器底部控制面板：模式切换 / 亮度 / 上一话·下一话 / 页码 */
+/**
+ * 阅读器底部控制面板：亮度 / 进度条拖动跳页 / 模式切换 / 章节列表入口 / 上一话·下一话·页码
+ */
 @Composable
 private fun ReaderControlPanel(
     modifier: Modifier = Modifier,
@@ -557,13 +868,21 @@ private fun ReaderControlPanel(
     onModeChange: (Boolean) -> Unit,
     brightness: Float,
     onBrightnessChange: (Float) -> Unit,
-    currentPage: Int,
+    /** 当前页码（0 基） */
+    pageIndex: Int,
     totalPages: Int,
     hasPrev: Boolean,
     hasNext: Boolean,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit,
+    onOpenChapters: () -> Unit,
+    /** 拖动进度条跳页（参数为目标页码，0 基） */
+    onSeek: (Int) -> Unit,
 ) {
+    // 拖动中的临时值：拖动时页码标签实时跟随，松手才真正跳页
+    var draggingPage by remember { mutableStateOf(false) }
+    var dragPageValue by remember { mutableFloatStateOf(0f) }
+
     Surface(
         modifier = modifier,
         color = Color(0xE6000000),
@@ -593,6 +912,22 @@ private fun ReaderControlPanel(
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+            // 进度条：拖动跳页（页数未知或单页时隐藏）
+            if (totalPages > 1) {
+                Slider(
+                    value = if (draggingPage) dragPageValue else pageIndex.toFloat().coerceIn(0f, (totalPages - 1).toFloat()),
+                    onValueChange = {
+                        draggingPage = true
+                        dragPageValue = it
+                    },
+                    valueRange = 0f..(totalPages - 1).toFloat(),
+                    onValueChangeFinished = {
+                        draggingPage = false
+                        onSeek(dragPageValue.roundToInt())
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onModeChange(false) }) {
                     Icon(
@@ -614,6 +949,15 @@ private fun ReaderControlPanel(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = onOpenChapters) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = "章节列表",
+                        tint = Color.White,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPrevChapter, enabled = hasPrev) {
                     Icon(
                         Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -622,9 +966,15 @@ private fun ReaderControlPanel(
                     )
                 }
                 Text(
-                    text = "$currentPage / $totalPages",
+                    text = if (draggingPage) {
+                        "${dragPageValue.roundToInt() + 1} / $totalPages"
+                    } else {
+                        "${pageIndex + 1} / $totalPages"
+                    },
                     color = Color.White,
                     style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 IconButton(onClick = onNextChapter, enabled = hasNext) {
                     Icon(
@@ -633,6 +983,91 @@ private fun ReaderControlPanel(
                         tint = if (hasNext) Color.White else Color.Gray,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** 横滑翻页模式的单页渲染：加载转圈占位、失败可点击重试（与滚动流体验对齐） */
+@Composable
+private fun PagerPage(
+    pageIndex: Int,
+    imageUrl: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
+    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（与 WebtoonSplitPage 同一手法）
+    var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
+    val painter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            .size(coil.size.Size(width = Int.MAX_VALUE, height = decodeHeightCap))
+            .build(),
+    )
+    val state = painter.state
+
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (state) {
+            is AsyncImagePainter.State.Loading -> {
+                CircularProgressIndicator(color = Color.White)
+            }
+
+            is AsyncImagePainter.State.Error -> {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "第 ${pageIndex + 1} 页加载失败",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "点击重试",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { retryTick++ },
+                    )
+                }
+            }
+
+            else -> {
+                Image(
+                    painter = painter,
+                    contentDescription = "第 ${pageIndex + 1} 页",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 阅读器缩放/平移手势（Initial pass，先于 LazyColumn/Pager 子级处理）：
+ * - 双指捏合：无歧义手势，立即接管并消费事件（子级滚动/翻页取消）；
+ * - 已放大的单指拖动：接管为平移（此时列表滚动/翻页均已禁用）；
+ * - 未放大的单指：不拦截，保持 LazyColumn 滚动 / Pager 翻页 / 点按分区原行为。
+ */
+private fun Modifier.readerZoomGesture(
+    isZoomed: () -> Boolean,
+    onGesture: (pan: Offset, zoom: Float) -> Unit,
+): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        var intercepting = false
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.none { it.pressed }) break
+            val pressedCount = event.changes.count { it.pressed }
+            if (pressedCount >= 2) intercepting = true
+            val zoom = event.calculateZoom()
+            val pan = event.calculatePan()
+            val hasMotion = zoom != 1f || pan != Offset.Zero
+            if (!intercepting && !isZoomed()) continue
+            if (pressedCount >= 2 || hasMotion) {
+                intercepting = true
+                event.changes.forEach { it.consume() }
+                if (hasMotion) onGesture(pan, zoom)
             }
         }
     }

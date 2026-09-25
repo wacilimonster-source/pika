@@ -107,9 +107,40 @@ object DownloadManager {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        com.pika.data.DownloadPrefs.init(appContext)
         // 目录遍历可能较慢，放到后台协程，避免阻塞冷启动主线程
         scope.launch { restoreTasks() }
         startSpeedSampler()
+        registerNetworkCallback()
+    }
+
+    /**
+     * 网络回调：网络恢复/切换时重新调度。
+     * 「仅 Wi-Fi 下载」开启时流量网络下任务保持排队，连上 Wi-Fi 后由此自动续跑；
+     * wifiOnly 关闭时 pump 本就允许启动，重复 pump 无副作用（幂等挑任务）。
+     */
+    private fun registerNetworkCallback() {
+        try {
+            val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager ?: return
+            cm.registerNetworkCallback(
+                android.net.NetworkRequest.Builder().build(),
+                object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) {
+                        pump()
+                    }
+                },
+            )
+        } catch (e: Exception) {
+            LogStore.log("DownloadManager", "E", "register network callback failed: ${e.message}")
+        }
+    }
+
+    /** 当前网络是否按流量计费（仅 Wi-Fi 下载门控用；无网络时视为计费） */
+    private fun isMetered(): Boolean {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return true
+        return cm.isActiveNetworkMetered
     }
 
     // ── 路径 ──────────────────────────────────────────────────────────────
@@ -282,9 +313,12 @@ object DownloadManager {
         scope.launch {
             val toStart = mutableListOf<String>()
             mutex.withLock {
+                // 仅 Wi-Fi 下载：流量网络下任务保持排队不启动，
+                // 网络恢复回调（registerNetworkCallback）或下次 pump 会自动续跑
+                val allowStart = !com.pika.data.DownloadPrefs.wifiOnly || !isMetered()
                 val running = _tasks.value.count { it.status == DlStatus.DOWNLOADING }
                 val slots = (CONCURRENCY - running).coerceAtLeast(0)
-                if (slots > 0) {
+                if (slots > 0 && allowStart) {
                     val keys = _tasks.value
                         .filter { it.status == DlStatus.PENDING }
                         .take(slots)
@@ -361,6 +395,11 @@ object DownloadManager {
                         }
                         persist()
                     }
+                    // 整本全部完成后发系统通知（设置可关；无通知权限时静默跳过）
+                    val allDone = _tasks.value
+                        .filter { it.task.comicId == t.comicId }
+                        .let { list -> list.isNotEmpty() && list.all { it.isFinished } }
+                    if (allDone) notifyComplete(t.comicId, t.comicTitle)
                 } catch (e: Exception) {
                     mutex.withLock {
                         _tasks.value = _tasks.value.map {
@@ -382,6 +421,52 @@ object DownloadManager {
             _tasks.value = _tasks.value.map {
                 if (it.key == key) it.copy(downloadedPages = downloadedPages, totalBytes = totalBytes) else it
             }
+        }
+    }
+
+    // ── 完成通知 ──────────────────────────────────────────────────────────
+    private const val NOTIFY_CHANNEL_ID = "download"
+
+    /** 整本下载完成系统通知（设置可关；通知未授权时静默跳过） */
+    private fun notifyComplete(comicId: String, title: String) {
+        if (!com.pika.data.DownloadPrefs.notifyEnabled) return
+        try {
+            val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
+                as? android.app.NotificationManager ?: return
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    android.app.NotificationChannel(
+                        NOTIFY_CHANNEL_ID,
+                        "下载",
+                        android.app.NotificationManager.IMPORTANCE_DEFAULT,
+                    ),
+                )
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    appContext,
+                    android.Manifest.permission.POST_NOTIFICATIONS,
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
+            val intent = android.content.Intent(appContext, com.pika.MainActivity::class.java)
+            val pending = android.app.PendingIntent.getActivity(
+                appContext,
+                0,
+                intent,
+                android.app.PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = androidx.core.app.NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("下载完成")
+                .setContentText("《$title》全部章节已下载完成")
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .build()
+            manager.notify("dl_$comicId".hashCode(), notification)
+        } catch (e: Exception) {
+            LogStore.log("DownloadManager", "E", "notify complete failed: ${e.message}")
         }
     }
 

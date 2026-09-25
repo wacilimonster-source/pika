@@ -77,6 +77,19 @@ class HomeViewModel : ViewModel() {
     private val _refreshTick = MutableStateFlow(0)
     val refreshTick: StateFlow<Int> = _refreshTick.asStateFlow()
 
+    /** 「有更新」判定基线：条目 updatedAt > 该值即显示新更新圆点（离开关注 Tab 时推进） */
+    private val _feedSeenMarker = MutableStateFlow("")
+    val feedSeenMarker: StateFlow<String> = _feedSeenMarker.asStateFlow()
+
+    /** 离开关注 Tab 时记录当前最新条目，下次进来新条目才会带圆点 */
+    fun markFeedSeen() {
+        val max = _followFeed.value.maxOfOrNull { it.updatedAt } ?: ""
+        if (max.isNotBlank()) {
+            com.pika.data.FollowSettings.markFeedSeen(max)
+            _feedSeenMarker.value = max
+        }
+    }
+
     /**
      * 自动刷新节流：ON_RESUME 触发时距上次刷新不足阈值则跳过（下拉刷新不受影响）。
      * 初值 0L = "从未刷新"；时间戳由 [refresh] 单点负责更新，
@@ -132,6 +145,10 @@ class HomeViewModel : ViewModel() {
     private val _randomLoading = MutableStateFlow(false)
     val randomLoading: StateFlow<Boolean> = _randomLoading.asStateFlow()
 
+    /** 随便看看加载失败信息（null = 无错误）。此前失败被静默吞掉，界面显示"点击刷新"误导用户 */
+    private val _randomError = MutableStateFlow<String?>(null)
+    val randomError: StateFlow<String?> = _randomError.asStateFlow()
+
     private var randomLoaded = false
 
     /** 各关注来源当前已加载到的页数（key -> page） */
@@ -144,24 +161,33 @@ class HomeViewModel : ViewModel() {
 
     private var followLoadingJob: kotlinx.coroutines.Job? = null
 
-    /** 各 Tab 滚动位置恢复 */
+    /** 各 Tab 滚动位置恢复（item 索引 + 像素偏移，恢复后不跳闪） */
     private var _savedFollowIndex = 0
     val savedFollowIndex: Int get() = _savedFollowIndex
+
+    private var _savedFollowOffset = 0
+    val savedFollowOffset: Int get() = _savedFollowOffset
 
     private var _savedRankIndex = 0
     val savedRankIndex: Int get() = _savedRankIndex
 
+    private var _savedRankOffset = 0
+    val savedRankOffset: Int get() = _savedRankOffset
+
     private var _savedRandomIndex = 0
     val savedRandomIndex: Int get() = _savedRandomIndex
+
+    private var _savedRandomOffset = 0
+    val savedRandomOffset: Int get() = _savedRandomOffset
 
     private val _isScrollStateRestored = MutableStateFlow(false)
     val isScrollStateRestored: StateFlow<Boolean> = _isScrollStateRestored
 
-    fun saveScrollState(tab: Int, index: Int) {
+    fun saveScrollState(tab: Int, index: Int, offset: Int = 0) {
         when (tab) {
-            0 -> _savedFollowIndex = index
-            1 -> _savedRankIndex = index
-            2 -> _savedRandomIndex = index
+            0 -> { _savedFollowIndex = index; _savedFollowOffset = offset }
+            1 -> { _savedRankIndex = index; _savedRankOffset = offset }
+            else -> { _savedRandomIndex = index; _savedRandomOffset = offset }
         }
     }
 
@@ -173,6 +199,7 @@ class HomeViewModel : ViewModel() {
         // 冷启动：先展示上次成功刷新的缓存，后台静默刷新替换
         _followFeed.value = com.pika.data.FollowFeedCache.load()
             .map { fillUpdatedAt(it) }
+        _feedSeenMarker.value = com.pika.data.FollowSettings.feedSeenMaxUpdatedAt()
         // 浏览详情页拉到更新时间后（缓存 version 递增），回填关注流中还没有时间的条目
         viewModelScope.launch {
             com.pika.data.UpdatedAtCache.version.collect {
@@ -311,13 +338,16 @@ class HomeViewModel : ViewModel() {
     fun refreshRandom() {
         randomLoaded = true
         _randomLoading.value = true
+        _randomError.value = null
         viewModelScope.launch {
             try {
                 _randomComics.value = SourceManager.current().randomComics()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _randomComics.value = emptyList()
+                // 失败保留旧列表（下拉刷新场景），仅在列表为空时清空；错误必须可见可重试
+                if (_randomComics.value.isEmpty()) _randomComics.value = emptyList()
+                _randomError.value = e.message?.takeIf { it.isNotBlank() } ?: "加载失败，请稍后重试"
             } finally {
                 if (isActive) _randomLoading.value = false
             }

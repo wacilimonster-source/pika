@@ -28,6 +28,10 @@ class SearchViewModel : ViewModel() {
     private val _hotWords = MutableStateFlow<List<String>>(emptyList())
     val hotWords: StateFlow<List<String>> = _hotWords
 
+    /** 搜索历史（最近 10 条，去重置顶；DataStore 持久化） */
+    private val _history = MutableStateFlow<List<String>>(emptyList())
+    val history: StateFlow<List<String>> = _history
+
     /** 官方标签词表（空 = 源不支持标签筛选） */
     private val _tags = MutableStateFlow<List<String>>(emptyList())
     val tags: StateFlow<List<String>> = _tags
@@ -70,17 +74,21 @@ class SearchViewModel : ViewModel() {
     /** 当前搜索任务（用于中途取消） */
     private var searchJob: Job? = null
 
-    /** 用于列表滚动位置恢复 */
+    /** 用于列表滚动位置恢复（item 索引 + 像素偏移，恢复后不跳闪） */
     private var _savedFirstVisibleIndex: Int = 0
     val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
+
+    private var _savedFirstVisibleOffset: Int = 0
+    val savedFirstVisibleOffset: Int get() = _savedFirstVisibleOffset
 
     /** 是否已恢复过（首次组成为 false，之后为 true） */
     var isScrollStateRestored: Boolean = false
         private set
 
     /** 保存列表滚动位置 */
-    fun saveScrollState(firstVisibleIndex: Int) {
+    fun saveScrollState(firstVisibleIndex: Int, firstVisibleOffset: Int = 0) {
         _savedFirstVisibleIndex = firstVisibleIndex
+        _savedFirstVisibleOffset = firstVisibleOffset
     }
 
     /** 通知滚动状态已恢复（用于 LaunchedEffect key 变化触发） */
@@ -130,6 +138,28 @@ class SearchViewModel : ViewModel() {
             } catch (e: Exception) {
                 // 热搜失败忽略
             }
+        }
+    }
+
+    /** 加载搜索历史（进入页面时调用一次） */
+    fun loadHistory() {
+        viewModelScope.launch {
+            _history.value = com.pika.data.SearchHistory.historyAsync()
+        }
+    }
+
+    /** 清空搜索历史 */
+    fun clearHistory() {
+        viewModelScope.launch {
+            com.pika.data.SearchHistory.clear()
+            _history.value = emptyList()
+        }
+    }
+
+    /** 记录搜索历史（新搜索时置顶去重） */
+    private fun recordHistory(keyword: String) {
+        viewModelScope.launch {
+            _history.value = com.pika.data.SearchHistory.record(keyword)
         }
     }
 
@@ -210,6 +240,8 @@ class SearchViewModel : ViewModel() {
         _multiLoading.value = false
         _endReached.value = false
         _keyword.value = keyword
+        // 新搜索（第 1 页）写入历史；跳页/翻页不重复记录
+        if (page == 1) recordHistory(keyword)
         _currentPage.value = 1
         _multiAllComics.clear()
         _confirmedIntersectionIds = emptySet()

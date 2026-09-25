@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +53,37 @@ private val tabs = listOf(
 /** 需要整屏展示、不应挂底部标签栏的路由前缀 */
 private val fullScreenRoutePrefixes = listOf("reader/")
 
+/** 登录失效回跳不覆盖的路由（登录/注册流程本身，回跳它们没有意义） */
+private val nonRestorableRoutes = setOf("login", "register", "forgot-password")
+
+/**
+ * 由当前返回栈顶重建"可回跳"的完整路由（带参数）。
+ * 登录失效跳登录前记录，登录成功后恢复现场（C7）：
+ * 此前 popUpTo(0) 清栈后用户正在看的列表/详情全部丢失。
+ * 无法安全重建参数的路由返回 null（回首页兜底）。
+ */
+private fun restoreRouteFor(entry: androidx.navigation.NavBackStackEntry?): String? {
+    val pattern = entry?.destination?.route ?: return null
+    val base = pattern.substringBefore('?')
+    if (base in nonRestorableRoutes) return null
+    return when {
+        pattern.startsWith("comic/") ->
+            entry.arguments?.getString("ref")?.let { comicRoute(it) }
+        pattern.startsWith("category/{") ->
+            entry.arguments?.getString("categoryId")?.let { "category/${Uri.encode(it)}" }
+        pattern.startsWith("author/{") ->
+            entry.arguments?.getString("author")?.let { "author/${Uri.encode(it)}" }
+        pattern.startsWith("reader/") ->
+            entry.arguments?.getString("ref")?.let { ref ->
+                readerRoute(ref, entry.arguments?.getInt("order") ?: 1)
+            }
+        pattern.startsWith("search") ->
+            entry.arguments?.getString("keyword")?.let { "search?keyword=${Uri.encode(it)}" }
+                ?: "search"
+        else -> base.takeIf { it.isNotBlank() }
+    }
+}
+
 /**
  * 详情页路由。[ref] 必须是作品标识 `源_id`（ComicSummary.ref / ComicDetail.ref），
  * 不能传裸 comicId —— 否则点开的页面会按"当时的活动源"去请求另一源的作品。
@@ -76,8 +108,16 @@ fun MainScreen() {
     val hideBottomBar = hideBottomBarInReader &&
         fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
 
+    // 登录失效前的现场路由：登录成功后回跳（null = 回首页）
+    var pendingReturnRoute by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+
     LaunchedEffect(activeSource, unauthorizedTick) {
         if (!SourceManager.current().isLoggedIn) {
+            if (pendingReturnRoute == null) {
+                pendingReturnRoute = restoreRouteFor(navController.currentBackStackEntry)
+            }
             navController.navigate("login") {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
@@ -119,14 +159,6 @@ fun MainScreen() {
         ) {
             composable("home") {
                 HomeScreen(
-                    onComicClick = { id ->
-                        navController.navigate(comicRoute(id))
-                    },
-                )
-            }
-            composable("rank") {
-                com.pika.ui.rank.RankScreen(
-                    onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
                     },
@@ -215,7 +247,9 @@ fun MainScreen() {
             composable("login") {
                 LoginScreen(
                     onLoggedIn = {
-                        navController.navigate("home") {
+                        val target = pendingReturnRoute ?: "home"
+                        pendingReturnRoute = null
+                        navController.navigate(target) {
                             popUpTo(0) { inclusive = true }
                         }
                     },

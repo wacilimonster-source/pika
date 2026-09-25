@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +35,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -66,6 +68,12 @@ fun DownloadScreen(
     // 显式订阅派生状态：总占用 / 总速度独立刷新，不依赖 tasks 的隐式读取
     val totalBytes by DownloadManager.totalBytesFlow.collectAsState()
     val totalSpeed by DownloadManager.totalSpeedFlow.collectAsState()
+    // 整本删除确认（此前点击即删，无法撤销）：comicId to 标题
+    var pendingDeleteAll by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // 仅 Wi-Fi 下载：流量网络 + 有排队任务时给出可见提示
+    val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
+        .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -121,6 +129,19 @@ fun DownloadScreen(
                         )
                     }
                 }
+            }
+
+            // 仅 Wi-Fi 下载排队提示：让"任务为什么不开始"有明确解释
+            if (wifiOnly &&
+                tasks.any { it.status == DlStatus.PENDING } &&
+                isNetworkMetered(context)
+            ) {
+                Text(
+                    text = "当前为流量网络，已开启「仅 Wi-Fi 下载」，任务将在连接 Wi-Fi 后自动继续",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
             }
 
             // 展开态上提到分支外：此前 remember 位于 else 分支内，
@@ -185,13 +206,40 @@ fun DownloadScreen(
                             },
                             onRetry = { DownloadManager.retry(it) },
                             onDelete = { DownloadManager.remove(it) },
-                            onDeleteAll = { comicTasks.forEach { t -> DownloadManager.remove(t.key) } },
+                            onDeleteAll = {
+                                pendingDeleteAll = comicId to (comicTasks.firstOrNull()?.task?.comicTitle ?: comicId)
+                            },
                         )
                     }
                 }
             }
         }
     }
+
+    pendingDeleteAll?.let { (comicId, title) ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteAll = null },
+            title = { Text("删除整本下载") },
+            text = { Text("删除《$title》的全部下载任务与已下载文件？删除后离线不可读。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDeleteAll = null
+                    // 确认时重新取任务快照：对话框打开期间列表可能已变化
+                    DownloadManager.comicTasks(comicId).forEach { DownloadManager.remove(it.key) }
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteAll = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** 当前网络是否按流量计费 */
+private fun isNetworkMetered(context: android.content.Context): Boolean {
+    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+        as? android.net.ConnectivityManager ?: return true
+    return cm.isActiveNetworkMetered
 }
 
 @Composable

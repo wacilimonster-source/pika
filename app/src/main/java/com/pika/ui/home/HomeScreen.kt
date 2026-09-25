@@ -69,6 +69,8 @@ fun HomeScreen(
     val followRefreshTick by viewModel.refreshTick.collectAsState()
     val randomComics by viewModel.randomComics.collectAsState()
     val randomLoading by viewModel.randomLoading.collectAsState()
+    val randomError by viewModel.randomError.collectAsState()
+    val feedSeenMarker by viewModel.feedSeenMarker.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
 
@@ -77,31 +79,41 @@ fun HomeScreen(
     val randomGridState = rememberLazyGridState()
     val scrollStateRestored by viewModel.isScrollStateRestored.collectAsState()
 
-    // 保存当前 Tab 的滚动位置（导航离开时）
+    // 保存当前 Tab 的滚动位置（导航离开时；含像素偏移，恢复后不跳闪）
     DisposableEffect(Unit) {
         onDispose {
             // 必须按当前 Tab 取对应列表：原实现固定取关注网格，
             // 在排行榜/随便看看页离开时记录的是关注页位置（通常 0），回来位置丢失
-            val index = when (selectedTab) {
-                0 -> followGridState.firstVisibleItemIndex
-                1 -> rankGridState.firstVisibleItemIndex
-                else -> randomGridState.firstVisibleItemIndex
+            val (index, offset) = when (selectedTab) {
+                0 -> followGridState.firstVisibleItemIndex to followGridState.firstVisibleItemScrollOffset
+                1 -> rankGridState.firstVisibleItemIndex to rankGridState.firstVisibleItemScrollOffset
+                else -> randomGridState.firstVisibleItemIndex to randomGridState.firstVisibleItemScrollOffset
             }
-            viewModel.saveScrollState(selectedTab, index)
+            viewModel.saveScrollState(selectedTab, index, offset)
         }
+    }
+    // 离开关注 Tab（切走或退出首页）时推进「已看到」基线：
+    // 下次进入关注流，上次之后的新条目才会带「有更新」圆点
+    var followTabActive by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedTab) {
+        if (followTabActive && selectedTab != 0) viewModel.markFeedSeen()
+        followTabActive = selectedTab == 0
+    }
+    DisposableEffect(Unit) {
+        onDispose { if (selectedTab == 0) viewModel.markFeedSeen() }
     }
     // 恢复滚动位置
     LaunchedEffect(scrollStateRestored) {
-        val index = when (selectedTab) {
-            0 -> viewModel.savedFollowIndex
-            1 -> viewModel.savedRankIndex
-            else -> viewModel.savedRandomIndex
+        val (index, offset) = when (selectedTab) {
+            0 -> viewModel.savedFollowIndex to viewModel.savedFollowOffset
+            1 -> viewModel.savedRankIndex to viewModel.savedRankOffset
+            else -> viewModel.savedRandomIndex to viewModel.savedRandomOffset
         }
-        if (index > 0) {
+        if (index > 0 || offset > 0) {
             when (selectedTab) {
-                0 -> followGridState.scrollToItem(index)
-                1 -> rankGridState.scrollToItem(index)
-                else -> randomGridState.scrollToItem(index)
+                0 -> followGridState.scrollToItem(index, offset)
+                1 -> rankGridState.scrollToItem(index, offset)
+                else -> randomGridState.scrollToItem(index, offset)
             }
             viewModel.markScrollStateRestored()
         }
@@ -156,9 +168,10 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                // 更新横幅
+                // 更新横幅：点横幅主体更新，「稍后再说」本版本内不再自动提示
                 if (updateInfo != null) {
                     Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showUpdateDialog = true }
@@ -168,6 +181,15 @@ fun HomeScreen(
                             text = "发现新版本 v${updateInfo!!.version}，点击更新",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "稍后再说",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clickable { com.pika.core.update.UpdateState.snooze() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
                 }
@@ -199,6 +221,7 @@ fun HomeScreen(
                 emptyHint = followEmptyHint,
                 error = followError,
                 refreshTick = followRefreshTick,
+                newUntil = feedSeenMarker,
                 onLoadMore = {},
                 onRefresh = viewModel::refresh,
                 onComicClick = onComicClick,
@@ -220,6 +243,7 @@ fun HomeScreen(
             else -> RandomTab(
                 comics = randomComics,
                 loading = randomLoading,
+                error = randomError,
                 onRefresh = viewModel::refreshRandom,
                 onComicClick = onComicClick,
                 gridState = randomGridState,
@@ -239,6 +263,8 @@ private fun FollowTab(
     emptyHint: String?,
     error: String? = null,
     refreshTick: Int,
+    /** 「有更新」基线：updatedAt 大于该值的条目显示圆点 */
+    newUntil: String = "",
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
@@ -300,6 +326,7 @@ private fun FollowTab(
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
                     showTailLoading = false,
+                    newUntil = newUntil,
                 )
             }
         }
@@ -416,12 +443,13 @@ private fun RankTab(
     }
 }
 
-/** 随便看看：随机推荐，下拉刷新换一批 */
+/** 随便看看：随机推荐，下拉刷新换一批；失败保留旧内容并给出可点重试 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RandomTab(
     comics: List<com.pika.core.model.ComicSummary>,
     loading: Boolean,
+    error: String?,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
@@ -432,24 +460,54 @@ private fun RandomTab(
         onRefresh = onRefresh,
         modifier = modifier.fillMaxSize(),
     ) {
-        if (comics.isEmpty() && !loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "点击刷新随机推荐",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(Modifier.fillMaxSize()) {
+            // 有旧内容时失败：顶部错误横幅 + 重试（与关注流/排行榜一致）
+            if (error != null && comics.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onRefresh) {
+                        Text("重试")
+                    }
+                }
+            }
+            if (comics.isEmpty() && !loading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = error ?: "点击刷新随机推荐",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                        if (error != null) {
+                            TextButton(onClick = onRefresh) {
+                                Text("重试")
+                            }
+                        }
+                    }
+                }
+            } else {
+                ComicGridView(
+                    comics = comics,
+                    loading = loading,
+                    endReached = true,
+                    listState = gridState,
+                    onLoadMore = {},
+                    onComicClick = onComicClick,
+                    showTailLoading = false,
+                    modifier = Modifier.weight(1f),
                 )
             }
-        } else {
-            ComicGridView(
-                comics = comics,
-                loading = loading,
-                endReached = true,
-                listState = gridState,
-                onLoadMore = {},
-                onComicClick = onComicClick,
-                showTailLoading = false,
-            )
         }
     }
 }

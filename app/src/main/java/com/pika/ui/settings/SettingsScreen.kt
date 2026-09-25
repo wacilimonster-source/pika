@@ -1,5 +1,7 @@
 package com.pika.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -60,6 +62,8 @@ fun SettingsScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val hideBottomBarInReader by ReaderPrefs.current().hideBottomBarInReader
         .collectAsState(initial = true)
+    val volumeKeyPaging by ReaderPrefs.current().volumeKeyPaging
+        .collectAsState(initial = false)
     val gridColumns by GridSettings.columnsFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var readerMode by remember { mutableStateOf(ReaderPrefs.current().readerMode) }
@@ -186,12 +190,71 @@ fun SettingsScreen(
                         )
                     },
                 )
+                SettingsRowDivider()
+                ListItem(
+                    headlineContent = { Text("音量键翻页") },
+                    supportingContent = {
+                        Text("阅读页内音量上/下键翻上一页/下一页（不影响媒体音量）")
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = volumeKeyPaging,
+                            onCheckedChange = {
+                                scope.launch { ReaderPrefs.current().setVolumeKeyPaging(it) }
+                            },
+                        )
+                    },
+                )
+            }
+
+            // ── 下载 ────────────────────────────────────────────────
+            SettingsGroup(header = "下载") {
+                val notifyEnabled by com.pika.data.DownloadPrefs.notifyEnabledFlow
+                    .collectAsState(initial = com.pika.data.DownloadPrefs.notifyEnabled)
+                val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
+                    .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
+                val notifPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { }
+                ListItem(
+                    headlineContent = { Text("下载完成通知") },
+                    supportingContent = { Text("整本下载完成后发送系统通知") },
+                    trailingContent = {
+                        Switch(
+                            checked = notifyEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled && android.os.Build.VERSION.SDK_INT >= 33) {
+                                    notifPermissionLauncher.launch(
+                                        android.Manifest.permission.POST_NOTIFICATIONS,
+                                    )
+                                }
+                                scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(enabled) }
+                            },
+                        )
+                    },
+                )
+                SettingsRowDivider()
+                ListItem(
+                    headlineContent = { Text("仅 Wi-Fi 下载") },
+                    supportingContent = {
+                        Text("流量网络下任务自动排队，连接 Wi-Fi 后继续下载")
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = wifiOnly,
+                            onCheckedChange = {
+                                scope.launch { com.pika.data.DownloadPrefs.setWifiOnly(it) }
+                            },
+                        )
+                    },
+                )
             }
 
             // ── 通用 ────────────────────────────────────────────────
             SettingsGroup(header = "通用") {
                 UpdateSection()
                 SettingsRowDivider()
+                CacheClearRow()
                 ListItem(
                     headlineContent = { Text("调试日志") },
                     supportingContent = { Text("查看应用运行日志") },
@@ -424,4 +487,44 @@ private sealed interface UpdateUiState {
     /** 下载失败（区别于检查失败）：保留服务端原因文案，可重试 */
     data class DownloadFailed(val message: String) : UpdateUiState
     data object Error : UpdateUiState
+}
+
+/** 通用组 · 清理缓存行（图片磁盘缓存 + 内存缓存；已下载内容不受影响） */
+@Composable
+private fun CacheClearRow() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var sizeText by remember { mutableStateOf("统计中…") }
+    var clearing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        sizeText = com.pika.ui.download.formatBytes(
+            com.pika.util.CacheCleaner.imageCacheSize(context),
+        )
+    }
+
+    ListItem(
+        headlineContent = { Text("清理缓存") },
+        supportingContent = { Text("图片缓存 $sizeText（已下载的漫画不受影响）") },
+        trailingContent = {
+            if (clearing) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        },
+        modifier = Modifier.clickable(enabled = !clearing) {
+            clearing = true
+            scope.launch {
+                val cleared = com.pika.util.CacheCleaner.clearImageCache(context)
+                sizeText = com.pika.ui.download.formatBytes(
+                    com.pika.util.CacheCleaner.imageCacheSize(context),
+                )
+                clearing = false
+                android.widget.Toast.makeText(
+                    context,
+                    "已清理 ${com.pika.ui.download.formatBytes(cleared)}",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        },
+    )
 }

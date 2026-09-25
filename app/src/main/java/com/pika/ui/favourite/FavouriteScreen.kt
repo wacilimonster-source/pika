@@ -8,17 +8,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -159,6 +167,10 @@ fun FavouriteScreen(
     val currentPage by viewModel.currentPage.collectAsState()
     val totalPages by viewModel.totalPages.collectAsState()
     val listState = rememberLazyGridState()
+    // 长按取消收藏：待确认条目（null = 无）
+    var pendingUnfavourite by remember { mutableStateOf<ComicSummary?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
     LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
@@ -178,6 +190,7 @@ fun FavouriteScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("我的收藏") },
@@ -213,6 +226,10 @@ fun FavouriteScreen(
                     onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
+                    // 长按快捷取消收藏（免进详情点心形），带确认
+                    onComicLongClick = { ref ->
+                        comics.firstOrNull { it.ref == ref }?.let { pendingUnfavourite = it }
+                    },
                 )
                 if (totalPages > 1) {
                     PaginationBar(
@@ -227,5 +244,39 @@ fun FavouriteScreen(
                 }
             }
         }
+    }
+
+    pendingUnfavourite?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingUnfavourite = null },
+            title = { Text("取消收藏") },
+            text = { Text("不再收藏《${target.title}》？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingUnfavourite = null
+                    scope.launch {
+                        val result = runCatching {
+                            SourceManager.current().favourite(target.id, false)
+                        }
+                        result.fold(
+                            onSuccess = { favourited ->
+                                if (favourited == false) {
+                                    viewModel.jumpToPage(currentPage)
+                                    snackbarHostState.showSnackbar("已取消收藏《${target.title}》")
+                                } else {
+                                    snackbarHostState.showSnackbar("操作未生效，请稍后重试")
+                                }
+                            },
+                            onFailure = { e ->
+                                snackbarHostState.showSnackbar("取消收藏失败：${e.message ?: "未知错误"}")
+                            },
+                        )
+                    }
+                }) { Text("取消收藏") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingUnfavourite = null }) { Text("保留") }
+            },
+        )
     }
 }

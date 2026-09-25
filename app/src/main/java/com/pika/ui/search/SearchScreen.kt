@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -66,6 +68,8 @@ fun SearchScreen(
     val searchError by viewModel.searchError.collectAsState()
     val tags by viewModel.tags.collectAsState()
     val selectedTag by viewModel.selectedTag.collectAsState()
+    val history by viewModel.history.collectAsState()
+    val hotWords by viewModel.hotWords.collectAsState()
     // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
     var input by remember { mutableStateOf(viewModel.keyword.value) }
     var showTagSheet by remember { mutableStateOf(false) }
@@ -85,6 +89,7 @@ fun SearchScreen(
 
     LaunchedEffect(Unit) {
         viewModel.loadHotWords()
+        viewModel.loadHistory()
         viewModel.loadTags()
     }
 
@@ -106,16 +111,19 @@ fun SearchScreen(
         }
     }
 
-    // 保存滚动位置（页面不可见时，如导航到详情）
+    // 保存滚动位置（页面不可见时，如导航到详情；含像素偏移，恢复后不跳闪）
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.saveScrollState(listState.firstVisibleItemIndex)
+            viewModel.saveScrollState(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
         }
     }
     // 恢复滚动位置（首次组成为 false，导航返回后为 true）
     LaunchedEffect(viewModel.isScrollStateRestored) {
-        if (viewModel.savedFirstVisibleIndex > 0) {
-            listState.scrollToItem(viewModel.savedFirstVisibleIndex)
+        if (viewModel.savedFirstVisibleIndex > 0 || viewModel.savedFirstVisibleOffset > 0) {
+            listState.scrollToItem(viewModel.savedFirstVisibleIndex, viewModel.savedFirstVisibleOffset)
             viewModel.markScrollStateRestored()
         }
     }
@@ -255,29 +263,102 @@ fun SearchScreen(
         }
         if (displayComics.isEmpty()) {
             // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = when {
-                            loading -> "搜索中..."
-                            searchError != null -> "搜索失败：$searchError"
-                            keyword.isBlank() -> "输入关键词开始搜索（多个关键词用空格分隔）"
-                            readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
-                            else -> "没有更多结果"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
-                    if (searchError != null && !loading && keyword.isNotBlank()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (keyword.isBlank() && !loading) {
+                    // 未输入关键词：展示搜索历史 + 热搜词（热搜本就在拉取，此前未渲染）
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        if (history.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "搜索历史",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "清空",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clickable { viewModel.clearHistory() }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                history.forEach { h ->
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = {
+                                            input = h
+                                            focusManager.clearFocus()
+                                            listState.requestScrollToItem(0)
+                                            viewModel.search(h, page = 1)
+                                        },
+                                        label = { Text(h, maxLines = 1) },
+                                    )
+                                }
+                            }
+                        }
+                        if (hotWords.isNotEmpty()) {
+                            Text(
+                                text = "热门搜索",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.padding(top = 20.dp),
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                            ) {
+                                hotWords.forEachIndexed { index, word ->
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = {
+                                            input = word
+                                            focusManager.clearFocus()
+                                            listState.requestScrollToItem(0)
+                                            viewModel.search(word, page = 1)
+                                        },
+                                        label = { Text(if (index < 3) "${index + 1}  $word" else word, maxLines = 1) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         Text(
-                            text = "点击重试",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .clickable { viewModel.search(keyword, page = 1) },
+                            text = when {
+                                loading -> "搜索中..."
+                                searchError != null -> "搜索失败：$searchError"
+                                readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                                else -> "没有更多结果"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // 单词搜索此前失败会直接闪退；现在显示错误并可一键重试
+                        if (searchError != null && !loading && keyword.isNotBlank()) {
+                            Text(
+                                text = "点击重试",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(top = 12.dp)
+                                    .clickable { viewModel.search(keyword, page = 1) },
+                            )
+                        }
                     }
                 }
             }

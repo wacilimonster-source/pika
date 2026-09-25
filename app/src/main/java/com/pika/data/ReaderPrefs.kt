@@ -21,10 +21,13 @@ private val Context.readerDataStore by preferencesDataStore(name = "pika_reader"
 private object ReaderKeys {
     const val PROGRESS_PREFIX = "progress_"
     const val FINISHED_PREFIX = "finished_"
+    const val CHAPTERS_READ_PREFIX = "chapters_read_"
     const val READER_MODE = "reader_mode"
     const val BRIGHTNESS = "reader_brightness"
     const val RECENT_READS = "recent_reads"
     const val HIDE_BOTTOM_BAR = "hide_bottom_bar_in_reader"
+    const val VOLUME_KEY_PAGING = "volume_key_paging"
+    const val CHAPTER_LIST_DESC = "chapter_list_desc"
 }
 
 /** 最近阅读条目（首页"继续阅读"用） */
@@ -53,6 +56,9 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
     companion object {
         private lateinit var instance: ReaderPrefs
+
+        /** 最近阅读条数上限 */
+        const val RECENT_READS_MAX = 100
 
         fun init(context: Context) {
             instance = ReaderPrefs(context.applicationContext)
@@ -242,6 +248,55 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 
+    /** 音量键翻页（默认关）：开启后阅读器内音量上/下 = 上/下一页 */
+    val volumeKeyPaging: Flow<Boolean> = appContext.readerDataStore.data
+        .map { it[booleanPreferencesKey(ReaderKeys.VOLUME_KEY_PAGING)] ?: false }
+        .distinctUntilChanged()
+
+    suspend fun setVolumeKeyPaging(enabled: Boolean) {
+        appContext.readerDataStore.edit {
+            it[booleanPreferencesKey(ReaderKeys.VOLUME_KEY_PAGING)] = enabled
+        }
+    }
+
+    /** 章节列表倒序显示（默认正序；阅读器章节抽屉与详情页章节列表共用） */
+    val chapterListDescending: Flow<Boolean> = appContext.readerDataStore.data
+        .map { it[booleanPreferencesKey(ReaderKeys.CHAPTER_LIST_DESC)] ?: false }
+        .distinctUntilChanged()
+
+    suspend fun setChapterListDescending(descending: Boolean) {
+        appContext.readerDataStore.edit {
+            it[booleanPreferencesKey(ReaderKeys.CHAPTER_LIST_DESC)] = descending
+        }
+    }
+
+    // ── 章节已读标记（章节抽屉打勾用） ─────────────────────────────────────
+    // 按 ref 存 "1,2,3" 形式的章节号串；进程内缓存避免抽屉每次打开都读盘
+    private val chapterReadCache = java.util.concurrent.ConcurrentHashMap<String, Set<Int>>()
+
+    suspend fun readChaptersAsync(ref: String): Set<Int> {
+        chapterReadCache[ref]?.let { return it }
+        val raw = runCatching {
+            appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.CHAPTERS_READ_PREFIX + ref)]
+        }.getOrNull()
+        val set = raw?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
+        chapterReadCache[ref] = set
+        return set
+    }
+
+    /** 标记某章已读（保存过该章进度即算读过；幂等） */
+    suspend fun markChapterRead(ref: String, order: Int) {
+        val current = readChaptersAsync(ref)
+        if (order in current) return
+        val updated = current + order
+        chapterReadCache[ref] = updated
+        runCatching {
+            appContext.readerDataStore.edit {
+                it[stringPreferencesKey(ReaderKeys.CHAPTERS_READ_PREFIX + ref)] = updated.joinToString(",")
+            }
+        }
+    }
+
     // ── 最近阅读（首页"继续阅读"） ─────────────────────────────────────────
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
@@ -274,7 +329,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         return list
     }
 
-    /** 记录/刷新最近阅读（最近 6 条，按时间倒序）。[ref] 为作品标识 `源_id` */
+    /** 记录/刷新最近阅读（最近 100 条，按时间倒序；溢出淘汰最旧）。[ref] 为作品标识 `源_id` */
     suspend fun recordRecentRead(
         ref: String,
         title: String,
@@ -292,9 +347,30 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             val entry = RecentRead(id, title, coverUrl, author, order, pageIndex, System.currentTimeMillis(), src.name)
             // 去重按完整标识：另一源的同 id 作品必须各留一条
             val updated = (listOf(entry) + current.filterNot { it.ref == com.pika.core.source.ComicRef.of(src, id) })
-                .take(6)
+                .take(RECENT_READS_MAX)
             prefs[key] = json.encodeToString(updated)
             cachedRecentReads = updated
+        }
+    }
+
+    /** 删除单条最近阅读（按作品标识），并同步内存缓存 */
+    suspend fun removeRecentRead(ref: String) {
+        appContext.readerDataStore.edit { prefs ->
+            val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
+            val current = prefs[key]?.let {
+                runCatching { json.decodeFromString<List<RecentRead>>(it) }.getOrDefault(emptyList())
+            } ?: emptyList()
+            val updated = current.filterNot { it.ref == ref }
+            prefs[key] = json.encodeToString(updated)
+            cachedRecentReads = updated
+        }
+    }
+
+    /** 清空全部最近阅读，并同步内存缓存 */
+    suspend fun clearRecentReads() {
+        appContext.readerDataStore.edit { prefs ->
+            prefs.remove(stringPreferencesKey(ReaderKeys.RECENT_READS))
+            cachedRecentReads = emptyList()
         }
     }
 }
