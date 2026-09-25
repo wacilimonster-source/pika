@@ -47,9 +47,14 @@ object DownloadPrefs {
     /** 下载完成系统通知（默认开） */
     val notifyEnabled: Boolean get() = cachedNotifyEnabled ?: true
 
-    val notifyEnabledFlow: Flow<Boolean> = appContext.downloadDataStore.data
-        .map { it[NOTIFY_ENABLED] ?: true }
-        .distinctUntilChanged()
+    // Flow 构建必须 by lazy：属性初始化器会在 object <clinit>（首次引用类）时求值，
+    // 那时 init() 还没跑，解引用 lateinit appContext 会直接 ExceptionInInitializerError
+    // 闪退冷启动（v1.7.0 线上事故）。首次收集在设置/下载页，彼时 init 早已完成。
+    val notifyEnabledFlow: Flow<Boolean> by lazy {
+        appContext.downloadDataStore.data
+            .map { it[NOTIFY_ENABLED] ?: true }
+            .distinctUntilChanged()
+    }
 
     suspend fun setNotifyEnabled(enabled: Boolean) {
         cachedNotifyEnabled = enabled
@@ -59,9 +64,11 @@ object DownloadPrefs {
     /** 仅 Wi-Fi 下载（默认关）：开启后流量网络下任务排队不启动，连上 Wi-Fi 自动续跑 */
     val wifiOnly: Boolean get() = cachedWifiOnly ?: false
 
-    val wifiOnlyFlow: Flow<Boolean> = appContext.downloadDataStore.data
-        .map { it[WIFI_ONLY] ?: false }
-        .distinctUntilChanged()
+    val wifiOnlyFlow: Flow<Boolean> by lazy {
+        appContext.downloadDataStore.data
+            .map { it[WIFI_ONLY] ?: false }
+            .distinctUntilChanged()
+    }
 
     suspend fun setWifiOnly(enabled: Boolean) {
         cachedWifiOnly = enabled
