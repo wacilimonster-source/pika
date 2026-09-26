@@ -173,15 +173,20 @@ class ComicDetailViewModel : ViewModel() {
         observeDownloaded(comicId)
     }
 
-    /** 相关推荐（源不支持时静默失败） */
+    /**
+     * 相关推荐（官方接口 comics/{id}/recommendation，唯一数据源）。
+     * 失败不再完全静默：写调试日志（此前接口 404/限流/返回空都直接吞掉，区块消失无任何线索）。
+     */
     fun loadRecommendations(comicId: String, gen: Int = loadGeneration) {
         viewModelScope.launch {
             try {
                 val list = src().recommendations(comicId)
+                LogStore.log("Detail", "I", "recommendations: comic=$comicId, ${list.size} items")
                 if (gen == loadGeneration) _recommendations.value = list
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                LogStore.log("Detail", "E", "recommendations failed: comic=$comicId, error=${e.message}")
                 if (gen == loadGeneration) _recommendations.value = emptyList()
             }
         }
