@@ -74,28 +74,6 @@ class SearchViewModel : ViewModel() {
     /** 当前搜索任务（用于中途取消） */
     private var searchJob: Job? = null
 
-    /** 用于列表滚动位置恢复（item 索引 + 像素偏移，恢复后不跳闪） */
-    private var _savedFirstVisibleIndex: Int = 0
-    val savedFirstVisibleIndex: Int get() = _savedFirstVisibleIndex
-
-    private var _savedFirstVisibleOffset: Int = 0
-    val savedFirstVisibleOffset: Int get() = _savedFirstVisibleOffset
-
-    /** 是否已恢复过（首次组成为 false，之后为 true） */
-    var isScrollStateRestored: Boolean = false
-        private set
-
-    /** 保存列表滚动位置 */
-    fun saveScrollState(firstVisibleIndex: Int, firstVisibleOffset: Int = 0) {
-        _savedFirstVisibleIndex = firstVisibleIndex
-        _savedFirstVisibleOffset = firstVisibleOffset
-    }
-
-    /** 通知滚动状态已恢复（用于 LaunchedEffect key 变化触发） */
-    fun markScrollStateRestored() {
-        isScrollStateRestored = true
-    }
-
     /** 翻页时通知 Screen 滚到顶部 */
     private val _shouldScrollToTop = MutableStateFlow(0)
     val shouldScrollToTop: StateFlow<Int> = _shouldScrollToTop
@@ -430,8 +408,24 @@ class SearchViewModel : ViewModel() {
             .take(pageSize)
     }
 
-    /** 发布中间结果（够 1 页即显示），后台继续加载 */
+    /** 发布中间结果（够 1 页即显示），后台继续加载。
+     *
+     * 此前固定发布第 1 页切片：用户跳到更深页后，后台每轮交集扩展都会把列表整体
+     * 替换回第 1 页内容——网格按 item key 保留滚动位置，内容却换了，用户视角就是
+     * "翻了页但停在半中间"。现改为按用户当前页发布：
+     * - 第 1 页：维持原渐进语义（buildDisplay = 前 20 条）；
+     * - 深页：只在当前页切片有真实变化时替换（渐进填充该页），否则保持静默，
+     *   最终一致性由 publishFinalResult 收口。 */
     private fun publishDisplay(intersection: Set<String>, complete: Boolean) {
+        val currentPage = _currentPage.value
+        if (currentPage > 1) {
+            val deep = buildDisplayForPage(currentPage)
+            if (deep.isNotEmpty() && deep != _comics.value) {
+                _comics.value = deep
+                _loading.value = false
+            }
+            return
+        }
         val display = buildDisplay()
         if (display.isEmpty()) return
         val newTotal = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
@@ -445,13 +439,19 @@ class SearchViewModel : ViewModel() {
         _totalPages.value = newTotal
     }
 
-    /** 发布最终结果，多词搜索完成 */
+    /** 发布最终结果，多词搜索完成。
+     *
+     * 必须按用户当前页发布（此前固定发布第 1 页切片）：后台拉完的瞬间若用户在第 2 页，
+     * 整表替换回第 1 页内容会让其正在看的列表凭空换页。交集规模小于预期时钳回最后一页，
+     * 避免停留在无内容的深页（分页条按集数重算后可能只剩 1 页，夹空页会无路可回）。 */
     private fun publishFinalResult(intersection: Set<String>) {
         _confirmedIntersectionIds = intersection
-        _comics.value = buildDisplay()
+        _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        val page = _currentPage.value.coerceAtMost(_totalPages.value)
+        _currentPage.value = page
+        _comics.value = buildDisplayForPage(page)
         _loading.value = false
         _multiLoading.value = false
-        _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
         // 多词结果全部在本地缓存中：还有下一页就不能置 endReached，
         // 否则筛选模式的自动补页链被永久拦死（第 2 页起的交集结果不可达）
         _endReached.value = _totalPages.value <= 1

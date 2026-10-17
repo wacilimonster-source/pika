@@ -31,7 +31,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -93,6 +92,13 @@ fun SearchScreen(
         viewModel.loadTags()
     }
 
+    // 新搜索统一入口：任何会重置为第 1 页的搜索都必须同步归位 filterPage（双侧页码轨）。
+    // 历史词/热搜词/搜索框/标签筛选四个入口此前不归位，筛选模式下页码与内容错位。
+    fun beginSearch(kw: String) {
+        filterPage = 1
+        viewModel.search(kw, page = 1)
+    }
+
     // 从详情页标签点击进入：自动填入关键词并立即搜索（每次导航都是新实例，只执行一次；
     // 已搜索过则跳过，避免从详情返回重组时重新搜索重置结果与滚动状态）
     LaunchedEffect(initialKeyword) {
@@ -100,31 +106,7 @@ fun SearchScreen(
         if (kw.isNotEmpty() && !viewModel.hasSearched) {
             input = kw
             focusManager.clearFocus()
-            viewModel.search(kw, page = 1)
-        }
-    }
-
-    // 翻页时滚到顶部
-    LaunchedEffect(shouldScrollToTop) {
-        if (shouldScrollToTop > 0) {
-            listState.scrollToItem(0)
-        }
-    }
-
-    // 保存滚动位置（页面不可见时，如导航到详情；含像素偏移，恢复后不跳闪）
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.saveScrollState(
-                listState.firstVisibleItemIndex,
-                listState.firstVisibleItemScrollOffset,
-            )
-        }
-    }
-    // 恢复滚动位置（首次组成为 false，导航返回后为 true）
-    LaunchedEffect(viewModel.isScrollStateRestored) {
-        if (viewModel.savedFirstVisibleIndex > 0 || viewModel.savedFirstVisibleOffset > 0) {
-            listState.scrollToItem(viewModel.savedFirstVisibleIndex, viewModel.savedFirstVisibleOffset)
-            viewModel.markScrollStateRestored()
+            beginSearch(kw)
         }
     }
 
@@ -140,7 +122,7 @@ fun SearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
                 focusManager.clearFocus()
-                viewModel.search(input.trim(), page = 1)
+                beginSearch(input.trim())
             }),
             leadingIcon = {
                 if (onBack != null) {
@@ -261,6 +243,21 @@ fun SearchScreen(
                 listState.requestScrollToItem(0)
             }
         }
+        // 回顶保障（两段式之第 2 段，必须在 displayComics 定义之后）：
+        // 未兑现的回顶请求在"当前展示内容"变化后的首个测量点强制执行。
+        // 此前是"请求一次、尽力而为"——单词搜索加载中会清空列表（网格整体卸载），
+        // requestScrollToItem 与挂起 scrollToItem 都只能等"下一次恰好发生的测量"，
+        // 数据迟到时没有落点保证，表现为"翻页后停在旧位置"。
+        // 兑现只跟 tick 走：displayComics 参与 key 只提供"内容落地后补执行"的时机，
+        // 已兑现的请求不会被后续无关内容变化重复执行（筛选补页链追加数据不会把用户拉顶）。
+        // appliedTopTick 初值同步当前 tick：从详情返回时 VM 里的 tick 已兑现过，不得再拉顶。
+        var appliedTopTick by remember { mutableStateOf(viewModel.shouldScrollToTop.value) }
+        LaunchedEffect(shouldScrollToTop, displayComics) {
+            if (shouldScrollToTop > appliedTopTick) {
+                listState.scrollToItem(0)
+                appliedTopTick = shouldScrollToTop
+            }
+        }
         if (displayComics.isEmpty()) {
             // 空态也保留分页条（有多页时，如筛选切片为空），避免无路可翻
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -300,7 +297,7 @@ fun SearchScreen(
                                             input = h
                                             focusManager.clearFocus()
                                             listState.requestScrollToItem(0)
-                                            viewModel.search(h, page = 1)
+                                            beginSearch(h)
                                         },
                                         label = { Text(h, maxLines = 1) },
                                     )
@@ -325,7 +322,7 @@ fun SearchScreen(
                                             input = word
                                             focusManager.clearFocus()
                                             listState.requestScrollToItem(0)
-                                            viewModel.search(word, page = 1)
+                                            beginSearch(word)
                                         },
                                         label = { Text(if (index < 3) "${index + 1}  $word" else word, maxLines = 1) },
                                     )
@@ -356,7 +353,7 @@ fun SearchScreen(
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .padding(top = 12.dp)
-                                    .clickable { viewModel.search(keyword, page = 1) },
+                                    .clickable { beginSearch(keyword) },
                             )
                         }
                     }
@@ -430,6 +427,7 @@ fun SearchScreen(
                         selected = selectedTag == null,
                         onClick = {
                             showTagSheet = false
+                            filterPage = 1
                             viewModel.selectTag(null)
                         },
                         label = { Text("全部") },
@@ -439,6 +437,7 @@ fun SearchScreen(
                             selected = selectedTag == tag,
                             onClick = {
                                 showTagSheet = false
+                                filterPage = 1
                                 viewModel.selectTag(tag)
                             },
                             label = { Text(tag) },
