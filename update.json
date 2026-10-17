@@ -1,6 +1,6 @@
 {
-  "sha256": "1ecc3a47b7734cd44d078d20734da5587c6ec2400bfd736db8a8ea2f25eb4bb1",
-  "version": "1.7.2",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.7.2.apk",
-  "notes": "v1.7.2 更新：\n1. 详情页「猜你喜欢」（相似作品推荐）位置上移：从章节列表底部移到标签之后、章节之前，进页面即可见、点击直达同类作品\n2. 其余内容同 v1.7.1"
+  "sha256": "b1a20f0f01af9549ca6e2e6efc8fcdb9928aceb291b052f88cb58d3ac1aaec40",
+  "version": "1.8.0",
+  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.8.0.apk",
+  "notes": "v1.8.0 更新：\n1. 阅读器大章节卡顿优化：图片解析不再触发整屏重组，图像内存缓存抬升，页数多的章节快滚不再掉帧冻结\n2. 读完提示：读完一章出现结束卡片（本话已读完/全本已读完，可直接进下一话），并伴随一次性轻提示，不再一头雾水翻到底\n3. 下载漫画可导出 zip：下载管理页每本漫画新增导出按钮，自选保存位置；zip 内含 pika.json 清单与 chapters 目录，可分享备份，导出进度可取消（仅收录已完成章节，部分完成会先确认范围）\n4. 修复搜索结果翻页后不回顶：多词搜索后台补页不再错位顶回旧内容，翻页/新搜索定位保证"
 }
