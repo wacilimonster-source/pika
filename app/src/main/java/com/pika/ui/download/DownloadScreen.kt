@@ -1,6 +1,8 @@
 package com.pika.ui.download
 
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,9 +26,11 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,10 +38,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.pika.core.download.DlStatus
 import com.pika.core.download.DownloadManager
+import com.pika.core.download.DownloadExporter
 import com.pika.core.download.TaskRuntime
 import java.util.Locale
 
@@ -75,7 +83,36 @@ fun DownloadScreen(
         .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    // 导出（P3 #3）：点导出 → SAF CreateDocument 选位置 → 下载器流式写 zip。
+    // pendingExport = 待导出 (comicId, 标题)；partialExportConfirm = 部分完成时先确认
+    var pendingExport by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var partialExportConfirm by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val exportState by DownloadExporter.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val request = pendingExport
+        pendingExport = null
+        if (uri != null && request != null) {
+            DownloadExporter.start(context, request.first, uri)
+        }
+    }
+    // 导出完成/失败 → Snackbar（Running 状态由顶部进度卡实时展示）
+    LaunchedEffect(exportState) {
+        when (val s = exportState) {
+            is DownloadExporter.ExportState.Done -> {
+                snackbarHostState.showSnackbar("导出完成：${s.fileName}（${s.chapterCount} 章）")
+            }
+            is DownloadExporter.ExportState.Error -> {
+                snackbarHostState.showSnackbar(s.message)
+            }
+            else -> {}
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("我的下载") },
@@ -144,6 +181,49 @@ fun DownloadScreen(
                 )
             }
 
+            // 导出进度卡：流式写 zip 期间可见、可取消（完成/失败走 Snackbar）
+            (exportState as? DownloadExporter.ExportState.Running)?.let { running ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (running.chapterIndex == 0) {
+                                    "正在导出《${running.comicTitle}》…"
+                                } else {
+                                    "正在导出《${running.comicTitle}》第 ${running.chapterIndex}/${running.chapterCount} 话 · ${running.chapterTitle}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { running.chapterIndex / running.chapterCount.toFloat() },
+                                modifier = Modifier.fillMaxWidth().height(3.dp),
+                            )
+                        }
+                        TextButton(onClick = { DownloadExporter.cancel() }) {
+                            Text("取消")
+                        }
+                    }
+                }
+            }
+
             // 展开态上提到分支外：此前 remember 位于 else 分支内，
             // tasks 在"空 ↔ 非空"之间切换时会被重置，展开状态丢失
             var expandedComic by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -209,6 +289,17 @@ fun DownloadScreen(
                             onDeleteAll = {
                                 pendingDeleteAll = comicId to (comicTasks.firstOrNull()?.task?.comicTitle ?: comicId)
                             },
+                            onExport = { group ->
+                                // 部分完成（还有排队/下载中章）时如实告知收录范围，用户确认后才发起
+                                val done = group.count { it.isFinished }
+                                val title = group.firstOrNull()?.task?.comicTitle ?: comicId
+                                if (done < group.size) {
+                                    partialExportConfirm = comicId to title
+                                } else {
+                                    pendingExport = comicId to title
+                                    exportLauncher.launch(suggestedZipName(title))
+                                }
+                            },
                         )
                     }
                 }
@@ -233,7 +324,36 @@ fun DownloadScreen(
             },
         )
     }
+
+    partialExportConfirm?.let { (comicId, title) ->
+        // 部分完成导出确认：收录范围如实说清，避免"为什么少了几话"
+        val snapshot = DownloadManager.comicTasks(comicId)
+        val done = snapshot.count { it.isFinished }
+        AlertDialog(
+            onDismissRequest = { partialExportConfirm = null },
+            title = { Text("导出《$title》") },
+            text = { Text("还有 ${snapshot.size - done} 章未下载完成这次不会包含在 zip 中，\n先导出已完成的 $done 章？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    partialExportConfirm = null
+                    pendingExport = comicId to title
+                    exportLauncher.launch(suggestedZipName(title))
+                }) { Text("导出已完成") }
+            },
+            dismissButton = {
+                TextButton(onClick = { partialExportConfirm = null }) { Text("取消") }
+            },
+        )
+    }
 }
+
+/** 导出文件推荐名（SAF CreateDocument 的初始输入框内容；用户可自行改名） */
+private fun suggestedZipName(comicTitle: String): String =
+    comicTitle
+        .replace(Regex("[\\\\/:*?\"<>|\n\r]"), "_")
+        .trim()
+        .take(50)
+        .let { if (it.isBlank()) "PiKA导出" else it } + ".zip"
 
 /** 当前网络是否按流量计费 */
 private fun isNetworkMetered(context: android.content.Context): Boolean {
@@ -252,6 +372,7 @@ private fun ComicGroupCard(
     onRetry: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDeleteAll: () -> Unit,
+    onExport: (List<TaskRuntime>) -> Unit,
 ) {
     val first = tasks.first()
     val task = first.task
@@ -302,6 +423,15 @@ private fun ComicGroupCard(
                         .fillMaxWidth()
                         .height(4.dp),
                 )
+            }
+            if (done > 0) {
+                IconButton(onClick = { onExport(tasks) }) {
+                    Icon(
+                        Icons.Filled.SaveAlt,
+                        contentDescription = "导出为 zip",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             IconButton(onClick = onDeleteAll) {
                 Icon(
