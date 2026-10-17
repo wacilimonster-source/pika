@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -176,7 +177,12 @@ fun ReaderScreen(
     }
 
     val listState = rememberLazyListState()
-    val pagerState = rememberPagerState(pageCount = { pages.size })
+    // 翻页模式在真实页之后追加一页虚拟结束页（本话完 / 全本完）。
+    // 滚动流对应的结束区行由 itemContent 按行号越界判断追加（见 items）。
+    // pageCount lambda 内事件期读页数：组合期不订阅页列表（测量期按需失效 Pager）
+    val pagerState = rememberPagerState(pageCount = {
+        if (pages.isEmpty()) 0 else pages.size + 1
+    })
 
     // ── 沉浸式全屏管理 ─────────────────────────────────────────────────────
     val view = LocalView.current
@@ -323,16 +329,29 @@ fun ReaderScreen(
     // ON_STOP/退出兜底、长按保存、模式切换，全部语义等价。
     // 翻页后复位平移（原 LaunchedEffect(pagerState.currentPage)）与预加载前后 2 页
     // （原 LaunchedEffect(currentPage)）也并入本收集器，消除逐页协程重启链。
+    // atEnd：两种模式统一以"结束区越界"判定——滚动流末行（end card row）可见，
+    // 或翻页器落在虚拟结束页；供本话读完一次性轻提示消费（见切章块之后）。
     val pageMirror = remember { mutableIntStateOf(0) }
+    val atEndMirror = remember { mutableStateOf(false) }
+    // 每章只提醒一次（切章复位）
+    val endNotified = remember(vmOrder, pages.size) { mutableStateOf(false) }
+
+    // 事件期读取"当前有效页"：镜像值 + 读取时刻的页数钳制。
+    // 切章后镜像可能短暂残留上一章的页值（收集器随 pages.size 重启的窗口），
+    // 读写盘/进度类消费方一律经这里钳到 [0, pages.size-1]，绝不落越界值。
+    fun effectivePageNow(): Int =
+        pageMirror.intValue.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
     LaunchedEffect(pages.size, scrollMode) {
         snapshotFlow {
             if (scrollMode) {
-                WebtoonRows.pageOfRow(rowPrefix, pages.size, listState.firstVisibleItemIndex)
+                WebtoonRows.pageOfRow(rowPrefix, pages.size, listState.firstVisibleItemIndex) to
+                    (pages.isNotEmpty() && listState.firstVisibleItemIndex >= rowPrefix[pages.size])
             } else {
-                pagerState.currentPage
+                pagerState.currentPage to (pages.isNotEmpty() && pagerState.currentPage >= pages.size)
             }
-        }.collect { page ->
+        }.collect { (page, atEnd) ->
             pageMirror.intValue = page.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+            atEndMirror.value = atEnd
             if (pages.isNotEmpty()) {
                 viewModel.preloadNearby(context, pageMirror.intValue, range = 2)
             }
@@ -364,19 +383,20 @@ fun ReaderScreen(
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (!restoring.value && pages.isNotEmpty()) {
-            viewModel.saveProgress(pageMirror.intValue)
-            viewModel.recordRecentRead(pageMirror.intValue)
+            val latestPage = effectivePageNow()
+            viewModel.saveProgress(latestPage)
+            viewModel.recordRecentRead(latestPage)
         }
     }
     // 退出阅读器兜底：单 Activity + Navigation 下点返回只触发 composable dispose，
     // 不会触发 Activity 的 ON_STOP，因此必须在这里补写一次，否则章内进度会丢。
-    // 退出时机读 pageMirror：dispose 的那一刻从快照状态取最新页码（组合期已不再读）。
+    // 退出时机读 effectivePageNow()：dispose 的那一刻从快照状态取最新有效页。
     // final=true：写盘落到不随 VM 取消的作用域（返回键会立刻销毁 VM 作用域，
     // 在途的 DataStore 写入会被取消导致最后 1 秒内的翻页进度丢失）。
     DisposableEffect(Unit) {
         onDispose {
             if (pages.isNotEmpty() && !restoring.value) {
-                val latestPage = pageMirror.intValue.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+                val latestPage = effectivePageNow()
                 viewModel.saveProgress(latestPage, final = true)
                 viewModel.recordRecentRead(latestPage, final = true)
                 flushSliceBatch()
@@ -391,6 +411,23 @@ fun ReaderScreen(
         showPanel = false
         showChapterSheet = false
         viewModel.switchChapter(context, targetOrder)
+    }
+
+    // 本话读完一次性轻提示：不打断阅读，短暂展示并可一键进入下一话。
+    // atEndMirror 变化时触发（进入/离开结束区）；endNotified 保证每章只提示一次。
+    LaunchedEffect(atEndMirror.value) {
+        if (atEndMirror.value && !endNotified.value && pages.isNotEmpty()) {
+            endNotified.value = true
+            val hasNext = currentChapterIndex in 0 until sortedChapters.size - 1
+            val result = snackbarHostState.showSnackbar(
+                message = if (hasNext) "本话已读完" else "全本已读完 🎉",
+                actionLabel = if (hasNext) "下一话" else null,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                sortedChapters.getOrNull(currentChapterIndex + 1)?.let { switchTo(it.order) }
+            }
+        }
     }
 
     // 双击缩放（两种阅读模式均可），带 200ms 过渡动画
@@ -467,7 +504,9 @@ fun ReaderScreen(
         }
     }
 
-    // 翻页/翻屏（点按区域、音量键共用）：zone -1 上 / +1 下
+    // 翻页/翻屏（点按区域、音量键共用）：zone -1 上 / +1 下。
+    // 横滑模式末真实页再按下翻可以进入虚拟结束页（index == pages.size），
+    // 不再像此前一样被 coerce 静默吞掉；滚动流在结束区行上再翻屏自然停在底部。
     fun pageTurn(zone: Int) {
         when {
             scrollMode -> {
@@ -477,8 +516,9 @@ fun ReaderScreen(
                 }
             }
             else -> {
-                val target = (pagerState.currentPage + zone)
-                    .coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+                if (pages.isEmpty()) return
+                val maxIndex = pages.size // 结束页 index：0..pages.size（共 pages.size+1 页）
+                val target = (pagerState.currentPage + zone).coerceIn(0, maxIndex)
                 scope.launch { pagerState.animateScrollToPage(target) }
             }
         }
@@ -501,9 +541,9 @@ fun ReaderScreen(
 
     // 长按保存当前页到相册（Pictures/PiKA）
     fun saveCurrentPage() {
-        // 事件期读 pageMirror：pointerInput(Unit) 的闭包是首次组合时创建的，
-        // 读组合期旧闭包会拿到旧值；镜像状态在事件时刻取即得最新页
-        val page = pageMirror.intValue
+        // 事件期读取：pointerInput(Unit) 的闭包是首次组合时创建的，
+        // 读组合期普通 val 会拿到旧值；镜像状态在事件时刻取即得最新有效页
+        val page = effectivePageNow()
         val url = viewModel.pageUrlAt(page) ?: return
         scope.launch {
             val result = runCatching {
@@ -581,8 +621,8 @@ fun ReaderScreen(
                             // 切换前先固定当前页码，切过去后定位到同一页
                             // （此前只做了「翻页→滚动」方向的同步，反向缺失：
                             //   读到第 50 页切横滑会瞬间跳回第 1 页，并可能写入错误进度）
-                            // 事件期读 pageMirror：这里在点击时刻取值，组合期闭包不读页位
-                            val target = pageMirror.intValue
+                            // 事件期读 effectivePageNow()：点击时刻取最新有效页
+                            val target = effectivePageNow()
                             resetZoom()
                             scrollMode = mode
                             ReaderPrefs.current().readerMode = if (mode) 0 else 1
@@ -715,31 +755,50 @@ fun ReaderScreen(
                             },
                     ) {
                         // 行号 → (页, 切片) 惰性换算：不再物化 rows 列表，
-                        // item 数由前缀和派生，单页切片上报若未改变总行数不触发重组
+                        // item 数由前缀和派生，单页切片上报若未改变总行数不触发重组。
+                        // 末尾追加 1 行结束区（本话完/全本完的卡片）；
+                        // 滚动分支只在 pages 非空时进入，contentRows > 0 保证。
                         items(
-                            count = contentRows,
+                            count = contentRows + 1,
                             key = { row ->
-                                val (p, s) = sliceOfRow(row)
-                                "row_${p}_$s"
+                                if (row == contentRows) {
+                                    "end_card"
+                                } else {
+                                    val (p, s) = sliceOfRow(row)
+                                    "row_${p}_$s"
+                                }
                             },
                         ) { row ->
-                            val (pageIndex, sliceIndex) = sliceOfRow(row)
-                            WebtoonSplitPage(
-                                pageIndex = pageIndex,
-                                imageUrl = pages[pageIndex].imageUrl,
-                                sliceIndex = sliceIndex,
-                                sliceCount = sliceCounts[pageIndex] ?: 1,
-                                viewportAspect = viewportAspect,
-                                splitEnabled = true,
-                                isPrimary = sliceIndex == 0,
-                                onSliceCountResolved = { p, n ->
-                                    sliceCounts[p] = n
-                                    // 批量落盘（见 sliceBatch）：切章边界/退出阅读器时合并写
-                                    if (n > 1) {
-                                        sliceBatch.getOrPut(vmOrder) { mutableMapOf() }[p] = n
-                                    }
-                                },
-                            )
+                            if (row == contentRows) {
+                                ReaderChapterEndCard(
+                                    isLastChapter = currentChapterIndex == sortedChapters.lastIndex,
+                                    chapterCount = sortedChapters.size,
+                                    nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
+                                    onNext = {
+                                        sortedChapters.getOrNull(currentChapterIndex + 1)
+                                            ?.let { switchTo(it.order) }
+                                    },
+                                    onBack = onBack,
+                                )
+                            } else {
+                                val (pageIndex, sliceIndex) = sliceOfRow(row)
+                                WebtoonSplitPage(
+                                    pageIndex = pageIndex,
+                                    imageUrl = pages[pageIndex].imageUrl,
+                                    sliceIndex = sliceIndex,
+                                    sliceCount = sliceCounts[pageIndex] ?: 1,
+                                    viewportAspect = viewportAspect,
+                                    splitEnabled = true,
+                                    isPrimary = sliceIndex == 0,
+                                    onSliceCountResolved = { p, n ->
+                                        sliceCounts[p] = n
+                                        // 批量落盘（见 sliceBatch）：切章边界/退出阅读器时合并写
+                                        if (n > 1) {
+                                            sliceBatch.getOrPut(vmOrder) { mutableMapOf() }[p] = n
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -758,11 +817,25 @@ fun ReaderScreen(
                                 translationY = panY
                             },
                     ) { page ->
-                        PagerPage(
-                            pageIndex = page,
-                            imageUrl = pages[page].imageUrl,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        // 最后一页是虚拟结束页：本话完/全本完卡片（不存在真实图片 URL）
+                        if (page >= pages.size) {
+                            ReaderChapterEndCard(
+                                isLastChapter = currentChapterIndex == sortedChapters.lastIndex,
+                                chapterCount = sortedChapters.size,
+                                nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
+                                onNext = {
+                                    sortedChapters.getOrNull(currentChapterIndex + 1)
+                                        ?.let { switchTo(it.order) }
+                                },
+                                onBack = onBack,
+                            )
+                        } else {
+                            PagerPage(
+                                pageIndex = page,
+                                imageUrl = pages[page].imageUrl,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }
@@ -986,6 +1059,66 @@ private fun ReaderControlPanel(
                         tint = if (hasNext) Color.White else Color.Gray,
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 结束区卡片（两种阅读模式共用）：滚动流 = 全部内容行之后的额外一行；
+ * 翻页模式 = 虚拟结束页（index == pages.size，pager pageCount = pages.size + 1）。
+ *
+ * 此前读完一章无任何提示（用户报告 #2）：看最后一格不知道是本话完结还是断了，
+ * 还得退回章节列表找下一话。现在结束区直接给结论 + 下一话入口；
+ * 配合一进入结束区就触发的一次性 Snackbar（见页位镜像收集器后的提示 effect）。
+ */
+@Composable
+private fun ReaderChapterEndCard(
+    isLastChapter: Boolean,
+    chapterCount: Int,
+    nextTitle: String?,
+    onNext: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF141414))
+            .padding(horizontal = 32.dp, vertical = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = if (isLastChapter) "全本已读完" else "本话已读完",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = when {
+                isLastChapter -> "已读完全部 $chapterCount 话"
+                nextTitle != null -> "下一话：$nextTitle"
+                else -> "章节刷新后再来看下一话"
+            },
+            color = Color.Gray,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(
+            modifier = Modifier.padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (!isLastChapter) {
+                TextButton(
+                    onClick = onNext,
+                    modifier = Modifier.heightIn(min = 40.dp),
+                ) {
+                    Text("下一话", color = Color.White)
+                }
+            }
+            TextButton(
+                onClick = onBack,
+                modifier = Modifier.heightIn(min = 40.dp),
+            ) {
+                Text("返回", color = Color.Gray)
             }
         }
     }
