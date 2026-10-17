@@ -40,7 +40,16 @@ class PiKAApp : Application() {
         // 安装 BouncyCastle TLS（绕过 Cloudflare 对 BoringSSL 的指纹拦截）
         BcTls.install()
         // 让 Coil 图片加载也走 BC TLS，否则漫画图片会被 Cloudflare 拦截
-        Coil.setImageLoader(ImageLoader.Builder(this).okHttpClient(BcTls.imageLoaderClient).build())
+        // 内存缓存显式抬到 32%（默认 ~25%）：单张长图解码后上限约 35MB，
+        // 默认配额只够驻留 2-3 张——阅读器快滚长章节必然反复解码 + GC 抖动。
+        // 抬到 32% 后主流设备可驻留 3-4 张，覆盖「前页回看 + 当前 + 预载 2 页
+        // + 同页多切片」的最坏窗口（解码上限体系见 WebtoonSplitPage）。
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .okHttpClient(BcTls.imageLoaderClient)
+                .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.32).build() }
+                .build(),
+        )
         PicaClient.init(this)
     }
 }

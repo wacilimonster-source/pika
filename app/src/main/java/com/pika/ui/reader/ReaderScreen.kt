@@ -71,7 +71,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -217,57 +216,58 @@ fun ReaderScreen(
         viewModel.load(context, ref, order)
     }
 
-    // ── 滚动流：页 → 行 平铺（长图分割） ──────────────────────────────────
+    // ── 滚动流：页 ⇄ 行 换算（长图分割；纯函数见 WebtoonRows，可 JVM 单测） ──
     val sliceCounts = remember { mutableStateMapOf<Int, Int>() }
     LaunchedEffect(scrollMode) {
         if (!scrollMode) sliceCounts.clear()
     }
+    // 章内切片增量：批量落盘。onSliceCountResolved 每页都可能上报，即写即合并的
+    // 字符串 join 是 O(既有条目) 且滚动中高频执行；改为 Map<章order, Map<page,count>>
+    // 累积，在切章边界（重启换算缓存前）与阅读器退出时一次性合并写盘。
+    // 键带章 order：切章时 vmOrder 已翻转，不带键会把旧章增量写进新章。
+    val sliceBatch = remember { mutableMapOf<Int, MutableMap<Int, Int>>() }
+    fun flushSliceBatch() {
+        if (sliceBatch.isEmpty()) return
+        val batch = sliceBatch.toMap()
+        sliceBatch.clear()
+        for ((batchOrder, counts) in batch) {
+            if (counts.isNotEmpty()) {
+                com.pika.data.WebtoonSliceCache.putAll(context, ref, batchOrder, counts)
+            }
+        }
+    }
     // 切章必须以 VM 的当前章节为准清空并预置切片数缓存：
     // 路由 order 在切章后不变，按它做 key 会让上一章的切片数污染新章的行换算；
-    // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早
+    // 预置历史缓存后恢复定位前就有真实"页→行"换算，长图章节不再系统性偏早。
+    // 重启时先落盘已累积的各章切片增量（键自带章 order，不随当前 vmOrder 混淆）
     LaunchedEffect(vmOrder, pages.size) {
+        flushSliceBatch()
         sliceCounts.clear()
         if (pages.isNotEmpty()) {
             val cached = com.pika.data.WebtoonSliceCache.load(ref, vmOrder, context)
             if (cached.isNotEmpty()) sliceCounts.putAll(cached)
         }
     }
-    val rows: List<Pair<Int, Int>> = if (scrollMode) {
-        buildList {
-            for (p in pages.indices) {
-                val n = (sliceCounts[p] ?: 1).coerceAtLeast(1)
-                repeat(n) { s -> add(p to s) }
-            }
-        }
-    } else {
-        pages.indices.map { it to 0 }
-    }
 
-    // 切片前缀和：sliceCounts 变化时重建一次（O(n)），行→页查询降为 O(log n)
-    // （原实现在每次滚动回调里从头累加，随页数线性变慢）
+    // 切片前缀和：sliceCounts 变化时重建一次（O(n)），行→页查询降为 O(log n)。
+    // derivedStateOf 值相等时不无效化读者——单个切片上报若未改变行数（普通 1 屏页
+    // 首次解析等），不会触发任何重组；换算一律惰性求值，不再物化 rows 行列表。
+    // （原实现在组合期 buildList 全量重建，每张图片解析 = 整屏重组 + O(总切片数)
+    //   分配，页数多的章节随页数线性放大、快滚时明显卡顿。）
     val rowPrefix by remember(pages.size, scrollMode) {
         derivedStateOf {
-            val arr = IntArray(pages.size + 1)
-            for (p in pages.indices) {
-                arr[p + 1] = arr[p] + (sliceCounts[p] ?: 1).coerceAtLeast(1)
-            }
-            arr
+            WebtoonRows.prefixSum(pageCount = pages.size) { (sliceCounts[it] ?: 1).coerceAtLeast(1) }
         }
+    }
+    // 滚动流 item 数 = 总行数（reader/结束区追加由调用方另行处理）
+    val contentRows by remember(pages.size, scrollMode) {
+        derivedStateOf { if (pages.isEmpty()) 0 else rowPrefix[pages.size] }
     }
 
-    fun rowToPage(row: Int): Int {
-        if (pages.isEmpty()) return 0
-        val prefix = rowPrefix
-        val r = row.coerceAtLeast(0)
-        // 二分查找第一个 prefix[p+1] > r 的页
-        var lo = 0
-        var hi = pages.size - 1
-        while (lo < hi) {
-            val mid = (lo + hi) / 2
-            if (prefix[mid + 1] > r) hi = mid else lo = mid + 1
-        }
-        return lo
-    }
+    fun rowToPage(row: Int): Int = WebtoonRows.pageOfRow(rowPrefix, pages.size, row)
+
+    /** 行号 → (页号, 切片号)；itemContent 内换算（与旧的 rows[index] 等价、O(log n)） */
+    fun sliceOfRow(row: Int): Pair<Int, Int> = WebtoonRows.sliceOfRow(rowPrefix, pages.size, row)
 
     fun rowForPage(page: Int): Int =
         rowPrefix[page.coerceIn(0, pages.size)]
@@ -316,28 +316,42 @@ fun ReaderScreen(
         }
     }
 
-    // 滚动流当前页：监听 firstVisibleItemIndex（snapshotFlow）
-    val scrollVisiblePage = remember { mutableIntStateOf(0) }
-    LaunchedEffect(listState, pages.size) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .collect { row -> scrollVisiblePage.value = rowToPage(row) }
-    }
-    val currentPage = if (scrollMode) {
-        scrollVisiblePage.value.coerceAtMost((pages.size - 1).coerceAtLeast(0))
-    } else {
-        pagerState.currentPage
+    // 页位镜像：单一 snapshotFlow 收集器把"当前页"写入普通快照状态，组合期一律不读。
+    // 此前 currentPage 在组合期直接读 scrollVisiblePage/pagerState.currentPage，
+    // 且作为预加载 effect 的 key 在组合期求值——每跨一行/每翻一页就整屏重组一次。
+    // 现在所有消费方改为事件期读取 pageMirror：面板（仅显示时组合）、进度防抖链、
+    // ON_STOP/退出兜底、长按保存、模式切换，全部语义等价。
+    // 翻页后复位平移（原 LaunchedEffect(pagerState.currentPage)）与预加载前后 2 页
+    // （原 LaunchedEffect(currentPage)）也并入本收集器，消除逐页协程重启链。
+    val pageMirror = remember { mutableIntStateOf(0) }
+    LaunchedEffect(pages.size, scrollMode) {
+        snapshotFlow {
+            if (scrollMode) {
+                WebtoonRows.pageOfRow(rowPrefix, pages.size, listState.firstVisibleItemIndex)
+            } else {
+                pagerState.currentPage
+            }
+        }.collect { page ->
+            pageMirror.intValue = page.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+            if (pages.isNotEmpty()) {
+                viewModel.preloadNearby(context, pageMirror.intValue, range = 2)
+            }
+            // 翻页后复位缩放平移，避免上一页的偏移带到新页
+            if (!scrollMode && zoomScale <= 1f) {
+                panX = 0f
+                panY = 0f
+            }
+        }
     }
 
     // 保存进度：滚动页码变化做 1 秒防抖（连续快速滑动不再逐屏写盘、
     // 也不再高频全量重写"最近阅读"列表），切后台/退出立即保存兜底。
     //
-    // 关键：状态读取必须发生在 snapshotFlow 的 lambda **内部**才有订阅效果。
-    // 原实现把 currentPage（组合期算好的普通 val）放进去，块内没有任何 State 读取，
-    // 于是 flow 只发射一次、本章内几乎不再保存进度。
+    // 状态读取必须发生在 snapshotFlow 的 lambda **内部**才有订阅效果。
     // key 必须含 vmOrder：防抖链随切章重启——否则同页数的两章之间链幸存，
     // 旧章最后一次翻页会被 1 秒防抖带着新章号写盘（进度跨章泄漏）。
     LaunchedEffect(vmOrder, pages.size, scrollMode) {
-        snapshotFlow { if (scrollMode) scrollVisiblePage.value else pagerState.currentPage }
+        snapshotFlow { pageMirror.intValue }
             .distinctUntilChanged()
             .debounce(1_000)
             .collect { page ->
@@ -349,29 +363,25 @@ fun ReaderScreen(
             }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        if (!restoring.value) {
-            viewModel.saveProgress(currentPage)
-            viewModel.recordRecentRead(currentPage)
+        if (!restoring.value && pages.isNotEmpty()) {
+            viewModel.saveProgress(pageMirror.intValue)
+            viewModel.recordRecentRead(pageMirror.intValue)
         }
     }
     // 退出阅读器兜底：单 Activity + Navigation 下点返回只触发 composable dispose，
     // 不会触发 Activity 的 ON_STOP，因此必须在这里补写一次，否则章内进度会丢。
-    // rememberUpdatedState 保证读到的是 dispose 那一刻的最新页码，而非首次组合时的闭包值。
+    // 退出时机读 pageMirror：dispose 的那一刻从快照状态取最新页码（组合期已不再读）。
     // final=true：写盘落到不随 VM 取消的作用域（返回键会立刻销毁 VM 作用域，
     // 在途的 DataStore 写入会被取消导致最后 1 秒内的翻页进度丢失）。
-    val latestPage by rememberUpdatedState(currentPage)
     DisposableEffect(Unit) {
         onDispose {
             if (pages.isNotEmpty() && !restoring.value) {
+                val latestPage = pageMirror.intValue.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
                 viewModel.saveProgress(latestPage, final = true)
                 viewModel.recordRecentRead(latestPage, final = true)
+                flushSliceBatch()
             }
         }
-    }
-
-    // 预加载前后 2 页
-    LaunchedEffect(currentPage) {
-        if (pages.isNotEmpty()) viewModel.preloadNearby(context, currentPage, range = 2)
     }
 
     // ── 切章 ──────────────────────────────────────────────────────────────
@@ -491,12 +501,9 @@ fun ReaderScreen(
 
     // 长按保存当前页到相册（Pictures/PiKA）
     fun saveCurrentPage() {
-        // 只读状态委托：pointerInput(Unit) 的闭包是首次组合时创建的，读普通 val 会拿到旧值
-        val page = if (scrollMode) {
-            scrollVisiblePage.value.coerceAtMost((pages.size - 1).coerceAtLeast(0))
-        } else {
-            pagerState.currentPage
-        }
+        // 事件期读 pageMirror：pointerInput(Unit) 的闭包是首次组合时创建的，
+        // 读组合期旧闭包会拿到旧值；镜像状态在事件时刻取即得最新页
+        val page = pageMirror.intValue
         val url = viewModel.pageUrlAt(page) ?: return
         scope.launch {
             val result = runCatching {
@@ -515,14 +522,7 @@ fun ReaderScreen(
         }
     }
 
-    // 翻页后复位缩放平移，避免上一页的偏移带到新页
-    LaunchedEffect(pagerState.currentPage) {
-        if (zoomScale <= 1f) {
-            panX = 0f
-            panY = 0f
-        }
-    }
-
+    // 翻页后复位缩放平移已并入页位镜像收集器（见其注释）
     // 切章复位缩放（跨章保留缩放没有意义，且滚动流行高已变）
     LaunchedEffect(vmOrder) {
         resetZoom()
@@ -581,7 +581,8 @@ fun ReaderScreen(
                             // 切换前先固定当前页码，切过去后定位到同一页
                             // （此前只做了「翻页→滚动」方向的同步，反向缺失：
                             //   读到第 50 页切横滑会瞬间跳回第 1 页，并可能写入错误进度）
-                            val target = currentPage
+                            // 事件期读 pageMirror：这里在点击时刻取值，组合期闭包不读页位
+                            val target = pageMirror.intValue
                             resetZoom()
                             scrollMode = mode
                             ReaderPrefs.current().readerMode = if (mode) 0 else 1
@@ -603,7 +604,9 @@ fun ReaderScreen(
                         brightness = it
                         ReaderPrefs.current().brightness = it
                     },
-                    pageIndex = currentPage,
+                    // 组合期读 pageMirror 只发生在面板可见时（AnimatedVisibility 隐藏时
+                    // 内容不组合），订阅作用域是该内容 lambda → 页数变化只重组面板
+                    pageIndex = pageMirror.intValue,
                     totalPages = pages.size,
                     hasPrev = currentChapterIndex > 0,
                     hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
@@ -711,14 +714,16 @@ fun ReaderScreen(
                                 translationY = panY
                             },
                     ) {
+                        // 行号 → (页, 切片) 惰性换算：不再物化 rows 列表，
+                        // item 数由前缀和派生，单页切片上报若未改变总行数不触发重组
                         items(
-                            count = rows.size,
-                            key = { index ->
-                                val (p, s) = rows[index]
+                            count = contentRows,
+                            key = { row ->
+                                val (p, s) = sliceOfRow(row)
                                 "row_${p}_$s"
                             },
-                        ) { index ->
-                            val (pageIndex, sliceIndex) = rows[index]
+                        ) { row ->
+                            val (pageIndex, sliceIndex) = sliceOfRow(row)
                             WebtoonSplitPage(
                                 pageIndex = pageIndex,
                                 imageUrl = pages[pageIndex].imageUrl,
@@ -729,11 +734,9 @@ fun ReaderScreen(
                                 isPrimary = sliceIndex == 0,
                                 onSliceCountResolved = { p, n ->
                                     sliceCounts[p] = n
-                                    // 写入持久缓存：下次进入本章恢复定位可直接按真实行号换算
+                                    // 批量落盘（见 sliceBatch）：切章边界/退出阅读器时合并写
                                     if (n > 1) {
-                                        com.pika.data.WebtoonSliceCache.putAll(
-                                            context, ref, vmOrder, mapOf(p to n),
-                                        )
+                                        sliceBatch.getOrPut(vmOrder) { mutableMapOf() }[p] = n
                                     }
                                 },
                             )
