@@ -2,9 +2,28 @@
 
 > 版本基准：v1.8.0 (build 82)，main @ 0bc5cdd
 > 日期：2026-10-24
-> 状态：产品设计（实施中）
+> 状态：**已实施（v1.9.0, build 83）**
 > 范围决策（用户确认）：第一层缺陷 10 项全修 + 第三层质感 12 项全做 + 第二层仅「关注流真分页」。
 > 缺陷编号沿用 `reports/pika-bug-scan-20261017.html`（BUG-xx），优化项沿用其 A 系列。
+
+> 实施记录（2026-10-24，每主题一个提交）：
+> - `a172ae7` F1/F2/F3/F6/F7（阅读器五缺陷，ReaderViewModel+ReaderScreen）
+> - `b845a35` F4–F10（可达性与表单五项，MainScreen/Mine/Follow/UpdateDialog/Login/Register/Favourite + 新增 ErrorRetry）
+> - `ab9d0a2` P1（关注流真分页，HomeViewModel/HomeScreen/ComicGridView）
+> - `6d4c9f5` Q1–Q4（淡入/骨架屏/转场/列表动画，PiKAApp + 新增 Shimmer + 四处接入）
+> - `54a187d` Q5–Q7（翻页预取/首次引导/长按保存分享菜单，ReaderPrefs/ReaderScreen/ImageSaver）
+> - `4ea680c` Q8–Q12（进度平滑/通知直达/Snackbar 动作/撤销/评论点赞，含 PicaApi likeComment 链路）
+> - `e90b740` 复测修复三项：refresh 取消在途触底加载（游标污染）、通知温启动路由改 Compose 状态响应式消费、点赞子评论展平查找
+>
+> 验证：`:app:compileDebugKotlin` / `:app:testDebugUnitTest`（18/18 全绿）/ `:app:assembleDebug` 通过；
+> 两路独立只读复测（L1 10/10 PASS；D9+Q 复测发现 3 项 PARTIAL 已全部修复）；
+> 模拟器（pika_test, API 34）冒烟：冷启动→会话静默恢复→排行榜重试加载→详情页（转场/猜你喜欢/已下载标记）→阅读器（首次引导层→关闭→续读提示）全链路无崩溃（logcat 0 FATAL）。
+>
+> 实施相对设计的偏差与已知边界：
+> 1. Q10 下载失败 Snackbar 以首个非空任务快照建基线：进页前已失败的任务不弹提示（行内仍有重试按钮），避免重启恢复的批量 FAILED 一进页轰炸。
+> 2. Q12 楼中楼子评论暂未给点赞入口（VM 链路已支持，子行是单行文本布局，加按钮收益低），仅顶层评论可点。
+> 3. 复测发现范围外遗留：收藏页翻页失败（列表非空时）错误仍不可见（BUG-23 只覆盖首屏），建议下版本补。
+> 4. 冒烟观察：首次冷启动若 token 过期，可能先闪登录页再被静默重登回首页——既有 SourceManager 行为，与本版改动无关，未处理。
 
 ---
 
