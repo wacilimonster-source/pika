@@ -28,6 +28,7 @@ private object ReaderKeys {
     const val HIDE_BOTTOM_BAR = "hide_bottom_bar_in_reader"
     const val VOLUME_KEY_PAGING = "volume_key_paging"
     const val CHAPTER_LIST_DESC = "chapter_list_desc"
+    const val READER_GUIDE_SHOWN = "reader_guide_shown"
 }
 
 /** 最近阅读条目（首页"继续阅读"用） */
@@ -267,6 +268,17 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     suspend fun setChapterListDescending(descending: Boolean) {
         appContext.readerDataStore.edit {
             it[booleanPreferencesKey(ReaderKeys.CHAPTER_LIST_DESC)] = descending
+        }
+    }
+
+    /** 首次点击分区引导是否已展示（一次性，A7；每安装只出现一次） */
+    val readerGuideShown: Flow<Boolean> = appContext.readerDataStore.data
+        .map { it[booleanPreferencesKey(ReaderKeys.READER_GUIDE_SHOWN)] ?: false }
+        .distinctUntilChanged()
+
+    suspend fun setReaderGuideShown() {
+        appContext.readerDataStore.edit {
+            it[booleanPreferencesKey(ReaderKeys.READER_GUIDE_SHOWN)] = true
         }
     }
 

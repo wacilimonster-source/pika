@@ -52,6 +52,20 @@ object ImageSaver {
             displayName
         }
 
+    /** 下载图片到应用缓存目录（阅读器长按分享用），返回文件。[source] 支持 http(s) URL 与 file: URI */
+    suspend fun downloadToCache(context: Context, source: String, comicTitle: String, page: Int): File =
+        withContext(Dispatchers.IO) {
+            val safeTitle = comicTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(50)
+            val dir = File(context.cacheDir, "share").apply { mkdirs() }
+            // 只保留最近 8 个临时文件：分享是低频动作，避免缓存目录无限膨胀
+            dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(8)?.forEach { it.delete() }
+            val file = File(dir, "${safeTitle}_第${page}页_${System.currentTimeMillis()}.jpg")
+            file.outputStream().use { out ->
+                openSource(source).use { input -> input.copyTo(out, 64 * 1024) }
+            }
+            file
+        }
+
     private fun openSource(source: String): java.io.InputStream =
         if (source.startsWith("file:")) {
             File(java.net.URI(source)).inputStream()

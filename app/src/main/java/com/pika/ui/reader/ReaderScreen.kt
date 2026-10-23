@@ -40,6 +40,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.SaveAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.CircularProgressIndicator
@@ -168,6 +170,14 @@ fun ReaderScreen(
     var showChapterSheet by remember { mutableStateOf(false) }
     var readChapters by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val chapterDesc by ReaderPrefs.current().chapterListDescending.collectAsState(initial = false)
+
+    // 长按页操作菜单（A7 配套：保存 / 分享二选一）；打开时事件期快照当前页
+    var showPageActionSheet by remember { mutableStateOf(false) }
+    var pageActionTarget by remember { mutableIntStateOf(-1) }
+
+    // A7 首次点击分区引导（一次性）：DataStore 标记 + 本地立即消失标记
+    val guideShown by ReaderPrefs.current().readerGuideShown.collectAsState(initial = true)
+    var guideDismissed by remember { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
     val viewportAspect = remember(configuration) {
@@ -554,11 +564,8 @@ fun ReaderScreen(
         }
     }
 
-    // 长按保存当前页到相册（Pictures/PiKA）
-    fun saveCurrentPage() {
-        // 事件期读取：pointerInput(Unit) 的闭包是首次组合时创建的，
-        // 读组合期普通 val 会拿到旧值；镜像状态在事件时刻取即得最新有效页
-        val page = effectivePageNow()
+    // 长按保存当前页到相册（Pictures/PiKA）；[page] 由事件期快照传入（长按菜单打开时已取好）
+    fun saveCurrentPage(page: Int) {
         val url = viewModel.pageUrlAt(page) ?: return
         scope.launch {
             val result = runCatching {
@@ -574,6 +581,39 @@ fun ReaderScreen(
                 if (result.isSuccess) "已保存到相册" else "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
                 Toast.LENGTH_SHORT,
             ).show()
+        }
+    }
+
+    // 分享当前页：下载到 cacheDir/share → FileProvider → 系统分享面板
+    fun shareCurrentPage(page: Int) {
+        val url = viewModel.pageUrlAt(page) ?: return
+        scope.launch {
+            val result = runCatching {
+                val file = com.pika.util.ImageSaver.downloadToCache(
+                    context,
+                    url,
+                    title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
+                    page + 1,
+                )
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file,
+                )
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "image/jpeg"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(send, "分享第 ${page + 1} 页"))
+            }
+            if (result.isFailure) {
+                Toast.makeText(
+                    context,
+                    "分享失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
 
@@ -705,7 +745,11 @@ fun ReaderScreen(
                                 if (zoomScale > 1f) animateZoomTo(1f) else animateZoomTo(2f)
                             }
                         },
-                        onLongPress = { saveCurrentPage() },
+                        // 长按弹操作菜单（保存/分享）：不再直接保存，给用户二选一
+                        onLongPress = {
+                            pageActionTarget = effectivePageNow()
+                            showPageActionSheet = true
+                        },
                     )
                 }
                 // 双指捏合缩放 + 放大态平移（两种阅读模式均可，见 readerZoomGesture 注释）
@@ -822,6 +866,9 @@ fun ReaderScreen(
                 else -> {
                     HorizontalPager(
                         state = pagerState,
+                        // A9 翻页预取：相邻页保持在组合树内，翻页白图几乎消除
+                        // （与 preloadNearby 互补：那边管网络预取，这边管渲染就绪）
+                        beyondViewportPageCount = 1,
                         // 放大后关闭翻页滑动，把拖拽交给上方的平移手势，否则边缘内容看不全
                         userScrollEnabled = zoomScale <= 1f,
                         modifier = Modifier
@@ -864,6 +911,63 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = (1f - brightness).coerceIn(0f, 0.8f))),
                 )
+            }
+
+            // A7 首次点击分区引导：一次性覆盖层，点任意处消失并持久化
+            if (pages.isNotEmpty() && !guideShown && !guideDismissed) {
+                ReaderZoneGuideOverlay(
+                    onDismiss = {
+                        guideDismissed = true
+                        scope.launch { ReaderPrefs.current().setReaderGuideShown() }
+                    },
+                )
+            }
+        }
+    }
+
+    // ── 长按页操作菜单：保存到相册 / 分享此页 ────────────────────────────────
+    if (showPageActionSheet && pageActionTarget >= 0) {
+        val actionPage = pageActionTarget
+        ModalBottomSheet(
+            onDismissRequest = { showPageActionSheet = false },
+            containerColor = Color(0xFF161616),
+        ) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                Text(
+                    text = "第 ${actionPage + 1} 页",
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showPageActionSheet = false
+                            saveCurrentPage(actionPage)
+                        }
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.SaveAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("保存到相册", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showPageActionSheet = false
+                            shareCurrentPage(actionPage)
+                        }
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("分享此页", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                }
+                Spacer(Modifier.height(12.dp))
             }
         }
     }
@@ -1207,6 +1311,63 @@ private fun PagerPage(
                 )
             }
         }
+    }
+}
+
+/**
+ * 首次点击分区引导（A7，一次性）：半透明幕布 + 三分区示意。
+ * 点按任意处即消失并持久化「已看过」，此后不再出现。
+ */
+@Composable
+private fun ReaderZoneGuideOverlay(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp),
+        ) {
+            Text(
+                text = "阅读指引",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(28.dp))
+            Row(Modifier.fillMaxWidth()) {
+                GuideZone("左侧 30%", "上一页", Modifier.weight(0.3f))
+                GuideZone("中间 40%", "呼出菜单", Modifier.weight(0.4f))
+                GuideZone("右侧 30%", "下一页", Modifier.weight(0.3f))
+            }
+            Spacer(Modifier.height(28.dp))
+            Text(
+                text = "双击可缩放 · 长按可保存/分享",
+                color = Color(0xFF9E9E9E),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.height(20.dp))
+            Text(
+                text = "点击任意位置开始阅读",
+                color = Color(0xFFBDBDBD),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GuideZone(title: String, desc: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = title, color = Color.White, style = MaterialTheme.typography.labelMedium)
+        Text(
+            text = desc,
+            color = Color(0xFFB0B0B0),
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
