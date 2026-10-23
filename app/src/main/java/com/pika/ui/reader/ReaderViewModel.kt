@@ -44,7 +44,9 @@ class ReaderViewModel : ViewModel() {
     private val _coverUrl = MutableStateFlow("")
     val coverUrl: StateFlow<String> = _coverUrl
 
-    private val _loading = MutableStateFlow(false)
+    // 初始 true：进入阅读器的最初几帧 pages 为空且未置 loading，
+    // 会先闪现一帧「加载失败」假态（BUG-06）；load() 短路场景 pages 非空不受影响
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading
 
     var comicId: String = ""
@@ -96,10 +98,21 @@ class ReaderViewModel : ViewModel() {
                     if (restore > 0) {
                         runCatchingCancellable { ReaderPrefs.current().markChapterRead(ref, order) }
                     }
-                    // 离线优先：章节已下载则直接读本地文件，弱网/无网也能看
-                    val local = com.pika.core.download.DownloadManager.chapterDir(comicId, order)
-                        .listFiles()?.filter { it.name.startsWith("page_") && it.length() > 0 }
-                        ?.sortedBy { it.name.replace(Regex("\\D"), "").toIntOrNull() ?: 0 }
+                    // 离线优先：仅当下载器判定「完整下载」才读本地（isDownloaded 按任务
+                    // 状态 + 页数校验，.part 半成品不计入）。此前自建 file 枚举把
+                    // 下载中的章当成本地完整章：残页序 + 破图，且不随下载完成刷新
+                    val local = if (com.pika.core.download.DownloadManager.isDownloaded(comicId, order)) {
+                        com.pika.core.download.DownloadManager.chapterDir(comicId, order)
+                            .listFiles()
+                            ?.filter {
+                                it.name.startsWith("page_") &&
+                                    !it.name.endsWith(".part") &&
+                                    it.length() > 0
+                            }
+                            ?.sortedBy { it.name.replace(Regex("\\D"), "").toIntOrNull() ?: 0 }
+                    } else {
+                        null
+                    }
                     if (!local.isNullOrEmpty()) {
                         _pages.value = local.mapIndexed { i, f ->
                             com.pika.core.model.ComicPage(i, f.toURI().toString())
@@ -110,7 +123,10 @@ class ReaderViewModel : ViewModel() {
                     // pages 就绪后再发布恢复页：effect 由状态变化确定性触发，
                     // 触发时 UI 收集到的 pages 必已是本章
                     _pendingRestorePage.value = restore
-                    _chapters.value = pageSource.chapters(comicId)
+                    // 章节列表失败绝不牵连已加载成功的页面（BUG-02）：失败仅静默置空，
+                    // 顶栏退回「第 N 话」兜底，抽屉提供重试（retryChapters）
+                    _chapters.value = runCatchingCancellable { pageSource.chapters(comicId) }
+                        .getOrDefault(emptyList())
                     // 顺便拿封面/作品标题/作者（历史记录用），失败不影响阅读
                     if (_coverUrl.value.isBlank() || _comicTitle.value.isBlank() || _comicAuthor.value.isBlank()) {
                         runCatchingCancellable {
@@ -177,6 +193,23 @@ class ReaderViewModel : ViewModel() {
         load(context, ref, currentOrder)
     }
 
+    /**
+     * 章节列表拉取失败后的重试（章节抽屉重试行用）：只重拉章节列表，
+     * 绝不影响已加载成功的本章页面（load 内章节失败已被静默隔离，见 BUG-02）。
+     */
+    fun retryChapters() {
+        if (ref.isBlank() || comicId.isBlank()) return
+        val source = SourceManager.sourceOf(com.pika.core.source.ComicRef.parse(ref).first)
+        val orderNow = currentOrder
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = runCatchingCancellable { source.chapters(comicId) }.getOrDefault(emptyList())
+            if (list.isNotEmpty() && orderNow == currentOrder) {
+                _chapters.value = list
+                _epTitle.value = list.firstOrNull { it.order == orderNow }?.title.orEmpty()
+            }
+        }
+    }
+
     /** 上一次进度落盘 Job：滚动时逐页触发，取消旧任务避免乱序覆盖（新页码覆盖旧页码） */
     private var progressJob: Job? = null
 
@@ -189,9 +222,13 @@ class ReaderViewModel : ViewModel() {
         val pages = _pages.value
         if (pages.isEmpty()) return
         val safePage = pageIndex.coerceAtLeast(0)
+        // 快照必须在调用点（Main 线程、章节未翻转时）取：防抖 1 秒 + IO 排队窗口内
+        // 切章后，协程体执行时 ref/currentOrder 已指向新章，旧章页码会写进新章进度（BUG-03）
+        val refNow = ref
+        val orderNow = currentOrder
+        val pagesSize = pages.size
+        val chaptersNow = _chapters.value
         if (final) {
-            val refNow = ref
-            val orderNow = currentOrder
             ReaderPrefs.current().ioScope.launch {
                 runCatching {
                     ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
@@ -205,18 +242,18 @@ class ReaderViewModel : ViewModel() {
             // runCatchingCancellable 会重新抛出取消：被后续 saveProgress 取代时立即停止，
             // 而普通写盘失败仍按原行为继续更新内存已读标记
             runCatchingCancellable {
-                ReaderPrefs.current().saveProgress(ref, currentOrder, safePage)
+                ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
                 // 保存过进度即算读过本章（章节抽屉打勾用）
-                ReaderPrefs.current().markChapterRead(ref, currentOrder)
+                ReaderPrefs.current().markChapterRead(refNow, orderNow)
             }
             // 打开过阅读器即已读（内存状态只升不降）
-            com.pika.data.ReaderStatus.markRead(ref)
+            com.pika.data.ReaderStatus.markRead(refNow)
             // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
-            val lastOrder = _chapters.value.maxOfOrNull { it.order } ?: return@launch
-            if (currentOrder == lastOrder && safePage >= pages.size - 1) {
-                if (com.pika.data.ReaderStatus.of(ref) != com.pika.data.ReadStatus.FINISHED) {
-                    runCatchingCancellable { ReaderPrefs.current().saveFinished(ref) }
-                    com.pika.data.ReaderStatus.markFinished(ref)
+            val lastOrder = chaptersNow.maxOfOrNull { it.order } ?: return@launch
+            if (orderNow == lastOrder && safePage >= pagesSize - 1) {
+                if (com.pika.data.ReaderStatus.of(refNow) != com.pika.data.ReadStatus.FINISHED) {
+                    runCatchingCancellable { ReaderPrefs.current().saveFinished(refNow) }
+                    com.pika.data.ReaderStatus.markFinished(refNow)
                 }
             }
         }

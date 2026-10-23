@@ -407,9 +407,21 @@ fun ReaderScreen(
     // ── 切章 ──────────────────────────────────────────────────────────────
     val sortedChapters = remember(chapters) { chapters.sortedBy { it.order } }
     val currentChapterIndex = sortedChapters.indexOfFirst { it.order == vmOrder }
+    // 章节列表未就绪（弱网/失败）时不得判成"最后一章"：空列表下 index 与 lastIndex
+    // 同为 -1 相等，结束卡/Snackbar 会误报「全本已读完 · 0 话」（BUG-07）
+    val chaptersReady = sortedChapters.isNotEmpty()
+    val isLastChapter = chaptersReady && currentChapterIndex == sortedChapters.lastIndex
+    val hasNextChapter = chaptersReady && currentChapterIndex in 0 until sortedChapters.size - 1
     fun switchTo(targetOrder: Int) {
         showPanel = false
         showChapterSheet = false
+        // 切章兜底保存：切章会重启防抖链，旧章最后 1 秒内的翻页进度/历史
+        // 若不在此落一笔就会丢失（saveProgress 在入口快照章号，写入不会串章）
+        if (pages.isNotEmpty() && !restoring.value) {
+            val page = effectivePageNow()
+            viewModel.saveProgress(page)
+            viewModel.recordRecentRead(page)
+        }
         viewModel.switchChapter(context, targetOrder)
     }
 
@@ -418,10 +430,13 @@ fun ReaderScreen(
     LaunchedEffect(atEndMirror.value) {
         if (atEndMirror.value && !endNotified.value && pages.isNotEmpty()) {
             endNotified.value = true
-            val hasNext = currentChapterIndex in 0 until sortedChapters.size - 1
             val result = snackbarHostState.showSnackbar(
-                message = if (hasNext) "本话已读完" else "全本已读完 🎉",
-                actionLabel = if (hasNext) "下一话" else null,
+                message = when {
+                    hasNextChapter -> "本话已读完"
+                    !chaptersReady -> "本话已读完"   // 章节未就绪：不庆祝、不给下一话
+                    else -> "全本已读完 🎉"
+                },
+                actionLabel = if (hasNextChapter) "下一话" else null,
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -649,7 +664,7 @@ fun ReaderScreen(
                     pageIndex = pageMirror.intValue,
                     totalPages = pages.size,
                     hasPrev = currentChapterIndex > 0,
-                    hasNext = currentChapterIndex in 0 until sortedChapters.size - 1,
+                    hasNext = hasNextChapter,
                     onPrevChapter = {
                         sortedChapters.getOrNull(currentChapterIndex - 1)?.let { switchTo(it.order) }
                     },
@@ -771,7 +786,8 @@ fun ReaderScreen(
                         ) { row ->
                             if (row == contentRows) {
                                 ReaderChapterEndCard(
-                                    isLastChapter = currentChapterIndex == sortedChapters.lastIndex,
+                                    isLastChapter = isLastChapter,
+                                    chaptersReady = chaptersReady,
                                     chapterCount = sortedChapters.size,
                                     nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
                                     onNext = {
@@ -820,7 +836,8 @@ fun ReaderScreen(
                         // 最后一页是虚拟结束页：本话完/全本完卡片（不存在真实图片 URL）
                         if (page >= pages.size) {
                             ReaderChapterEndCard(
-                                isLastChapter = currentChapterIndex == sortedChapters.lastIndex,
+                                isLastChapter = isLastChapter,
+                                chaptersReady = chaptersReady,
                                 chapterCount = sortedChapters.size,
                                 nextTitle = sortedChapters.getOrNull(currentChapterIndex + 1)?.title,
                                 onNext = {
@@ -883,6 +900,18 @@ fun ReaderScreen(
                             color = Color.White,
                         )
                     }
+                }
+                // 章节列表拉取失败（load 内已静默隔离，不影响阅读）：抽屉里给出重试入口
+                if (sortedChapters.isEmpty()) {
+                    Text(
+                        text = "章节列表未就绪 · 点击重试",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.retryChapters() }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                    )
                 }
                 LazyColumn(
                     modifier = Modifier
@@ -1075,6 +1104,7 @@ private fun ReaderControlPanel(
 @Composable
 private fun ReaderChapterEndCard(
     isLastChapter: Boolean,
+    chaptersReady: Boolean,
     chapterCount: Int,
     nextTitle: String?,
     onNext: () -> Unit,
@@ -1094,6 +1124,8 @@ private fun ReaderChapterEndCard(
         )
         Text(
             text = when {
+                // 章节列表未就绪：中性提示，不出现「全部 0 话」式荒谬文案（BUG-07）
+                !chaptersReady -> "章节列表未就绪，稍后重进可继续"
                 isLastChapter -> "已读完全部 $chapterCount 话"
                 nextTitle != null -> "下一话：$nextTitle"
                 else -> "章节刷新后再来看下一话"
@@ -1106,7 +1138,7 @@ private fun ReaderChapterEndCard(
             modifier = Modifier.padding(top = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!isLastChapter) {
+            if (!isLastChapter && chaptersReady) {
                 TextButton(
                     onClick = onNext,
                     modifier = Modifier.heightIn(min = 40.dp),
