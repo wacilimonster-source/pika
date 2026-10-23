@@ -368,6 +368,13 @@ fun CategoryComicsScreen(
                         progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
                     )
                 }
+            } else if (displayComics.isEmpty() && loading) {
+                // A2 骨架屏：分类首屏替代空白网格，列数跟随网格设置
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    com.pika.ui.common.ComicGridSkeleton(
+                        columns = com.pika.data.GridSettings.columnsFlow.collectAsState().value,
+                    )
+                }
             } else {
                 // 跳页失败但旧内容还在展示：必须显式提示，否则旧页内容顶着新页码、
                 // 用户以为已翻页成功（此前错误只在列表为空时才显示）

@@ -79,9 +79,11 @@ fun MyCommentsScreen(
                 else -> {
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(comments, key = { it.id }) { comment ->
-                            MyCommentRow(comment, onClick = {
-                                if (comment.comicId.isNotBlank()) onComicClick(comment.comicId)
-                            })
+                            Box(Modifier.animateItem()) {
+                                MyCommentRow(comment, onClick = {
+                                    if (comment.comicId.isNotBlank()) onComicClick(comment.comicId)
+                                })
+                            }
                         }
                         if (loading) {
                             item {

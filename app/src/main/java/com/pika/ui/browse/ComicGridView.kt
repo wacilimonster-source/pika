@@ -77,14 +77,17 @@ fun ComicGridView(
             val isNew = remember(comic.ref, newUntil) {
                 newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
             }
-            ComicCard(
-                comic = comic,
-                readStatus = readStatus,
-                largeTitle = columns == 2,
-                onClick = { onComicClick(comic.ref) },
-                onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
-                isNew = isNew,
-            )
+            // A5 增删动画：条目移除/位置变化时平滑收起（收藏页取消收藏、关注流刷新）
+            Box(Modifier.animateItem()) {
+                ComicCard(
+                    comic = comic,
+                    readStatus = readStatus,
+                    largeTitle = columns == 2,
+                    onClick = { onComicClick(comic.ref) },
+                    onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
+                    isNew = isNew,
+                )
+            }
         }
         if (loading && showTailLoading) {
             item(key = "tail_loading") {

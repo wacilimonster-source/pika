@@ -330,6 +330,12 @@ fun SearchScreen(
                             }
                         }
                     }
+                } else if (loading) {
+                    // A2 骨架屏：搜索首刷替代「搜索中...」文字，列数跟随网格设置
+                    com.pika.ui.common.ComicGridSkeleton(
+                        columns = com.pika.data.GridSettings.columnsFlow.collectAsState().value,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 } else {
                     Column(
                         modifier = Modifier.align(Alignment.Center),
@@ -337,7 +343,6 @@ fun SearchScreen(
                     ) {
                         Text(
                             text = when {
-                                loading -> "搜索中..."
                                 searchError != null -> "搜索失败：$searchError"
                                 readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
                                 else -> "没有更多结果"

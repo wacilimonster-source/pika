@@ -47,6 +47,10 @@ class PiKAApp : Application() {
         Coil.setImageLoader(
             ImageLoader.Builder(this)
                 .okHttpClient(BcTls.imageLoaderClient)
+                // 全局图片淡入（A1）：所有 Coil 请求统一 ~150ms crossfade，
+                // 网格/详情/下载卡的封面不再生硬闪现；封面底色占位由各卡片的
+                // surfaceVariant 色块承担
+                .crossfade(true)
                 .memoryCache { coil.memory.MemoryCache.Builder(this).maxSizePercent(0.32).build() }
                 .build(),
         )

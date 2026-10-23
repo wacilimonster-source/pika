@@ -74,6 +74,8 @@ fun HomeScreen(
     val feedSeenMarker by viewModel.feedSeenMarker.collectAsState()
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
+    // 骨架屏列数跟随用户网格设置（2/3 列），与真实网格一致避免加载完成瞬间跳变
+    val gridColumns by com.pika.data.GridSettings.columnsFlow.collectAsState()
 
     val followGridState = rememberLazyGridState()
     val rankGridState = rememberLazyGridState()
@@ -236,6 +238,7 @@ fun HomeScreen(
                 loading = rankLoading,
                 error = rankError,
                 refreshTick = rankRefreshTick,
+                skeletonColumns = gridColumns,
                 onTypeChange = { viewModel.loadRank(it) },
                 onRefresh = { viewModel.loadRank(rankType, force = true) },
                 onComicClick = onComicClick,
@@ -246,6 +249,7 @@ fun HomeScreen(
                 comics = randomComics,
                 loading = randomLoading,
                 error = randomError,
+                skeletonColumns = gridColumns,
                 onRefresh = viewModel::refreshRandom,
                 onComicClick = onComicClick,
                 gridState = randomGridState,
@@ -346,6 +350,8 @@ private fun RankTab(
     loading: Boolean,
     error: String?,
     refreshTick: Int,
+    /** 骨架屏列数（跟随用户网格设置） */
+    skeletonColumns: Int = 2,
     onTypeChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
@@ -418,9 +424,11 @@ private fun RankTab(
                         }
                     }
                     rankComics.isEmpty() && loading -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("加载中...", style = MaterialTheme.typography.bodyMedium)
-                        }
+                        // A2 骨架屏：首屏以卡片轮廓微光替代文字转圈，等待感知更短
+                        com.pika.ui.common.ComicGridSkeleton(
+                            columns = skeletonColumns,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                     rankComics.isEmpty() -> {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -454,6 +462,8 @@ private fun RandomTab(
     comics: List<com.pika.core.model.ComicSummary>,
     loading: Boolean,
     error: String?,
+    /** 骨架屏列数（跟随用户网格设置） */
+    skeletonColumns: Int = 2,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
@@ -484,7 +494,13 @@ private fun RandomTab(
                     }
                 }
             }
-            if (comics.isEmpty() && !loading) {
+            if (comics.isEmpty() && loading) {
+                // A2 骨架屏：随机推荐首刷时不再空白
+                com.pika.ui.common.ComicGridSkeleton(
+                    columns = skeletonColumns,
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (comics.isEmpty() && !loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(

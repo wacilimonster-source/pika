@@ -94,11 +94,14 @@ fun RecentReadsScreen(
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(recentReads, key = { "${it.ref}#${it.order}" }) { recent ->
-                        RecentReadRow(
-                            recent = recent,
-                            onClick = { onOpenComic(recent.ref) },
-                            onLongClick = { pendingDelete = recent },
-                        )
+                        // A5 增删动画：删除/撤销恢复记录时平滑收起与归位
+                        Box(Modifier.animateItem()) {
+                            RecentReadRow(
+                                recent = recent,
+                                onClick = { onOpenComic(recent.ref) },
+                                onLongClick = { pendingDelete = recent },
+                            )
+                        }
                     }
                 }
             }

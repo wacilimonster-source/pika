@@ -263,7 +263,9 @@ fun DownloadScreen(
                 ) {
                     items(grouped, key = { it.key }) { (comicId, comicTasks) ->
                         val expanded = comicId in expandedComic
-                        ComicGroupCard(
+                        // A5 增删动画：删除任务/整本时卡片平滑收起
+                        Box(Modifier.animateItem()) {
+                            ComicGroupCard(
                             comicId = comicId,
                             tasks = comicTasks,
                             expanded = expanded,
@@ -300,7 +302,8 @@ fun DownloadScreen(
                                     exportLauncher.launch(suggestedZipName(title))
                                 }
                             },
-                        )
+                            )
+                        }
                     }
                 }
             }

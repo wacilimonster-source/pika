@@ -156,6 +156,24 @@ fun MainScreen() {
             navController = navController,
             startDestination = "home",
             modifier = Modifier.padding(innerPadding),
+            // A4 页面转场：水平 1/12 位移 + 淡入淡出，建立导航方向感（此前硬切）；
+            // 返回方向镜像。阅读器路由单独覆盖为纯 fade（见下方 composable）
+            enterTransition = {
+                androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { it / 12 } +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))
+            },
+            exitTransition = {
+                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { -it / 12 } +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { -it / 12 } +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))
+            },
+            popExitTransition = {
+                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { it / 12 } +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220))
+            },
         ) {
             composable("home") {
                 HomeScreen(
@@ -366,6 +384,11 @@ fun MainScreen() {
                     navArgument("ref") { type = NavType.StringType },
                     navArgument("order") { type = NavType.IntType },
                 ),
+                // 阅读器进出用纯 fade：整屏大图做水平位移易晃眼
+                enterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) },
+                exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
+                popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) },
+                popExitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
             ) { entry ->
                 val ref = entry.arguments?.getString("ref") ?: return@composable
                 val order = entry.arguments?.getInt("order") ?: 1
