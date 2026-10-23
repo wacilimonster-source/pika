@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -75,7 +77,10 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
-            .imePadding(),
+            .imePadding()
+            // 键盘弹出时内容可能超出可视高度（小屏/字体放大场景），必须可滚动，
+            // 否则密码框/登录按钮被键盘裁掉且无法滚到（BUG-22）
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

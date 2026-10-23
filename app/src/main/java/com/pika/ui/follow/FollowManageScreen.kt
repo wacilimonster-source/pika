@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -245,12 +249,17 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
     )
 
     if (showTagSheet && tagList.isNotEmpty()) {
+        // 词表可达性修复（BUG-05）：哔咔非 Web 分类返回 60–90 个标签，此前塞进
+        // 不可滚动的 FlowRow——小屏尾部标签被裁剪，不可见也不可点。改为：
+        // 限高 + 纵向滚动 + 顶部即时过滤输入框
+        var tagFilter by remember { mutableStateOf("") }
         ModalBottomSheet(onDismissRequest = { showTagSheet = false }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
             ) {
                 Text(
                     text = "选择标签",
@@ -262,20 +271,50 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 12.dp),
-                ) {
-                    tagList.forEach { tag ->
-                        FilterChip(
-                            selected = selectedTag == tag,
-                            onClick = {
-                                selectedTag = tag
-                                showTagSheet = false
-                            },
-                            label = { Text(tag) },
+                OutlinedTextField(
+                    value = tagFilter,
+                    onValueChange = { tagFilter = it },
+                    singleLine = true,
+                    placeholder = { Text("过滤标签") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+                val visibleTags = tagFilter.trim().takeIf { it.isNotEmpty() }
+                    ?.let { q -> tagList.filter { it.contains(q, ignoreCase = true) } }
+                    ?: tagList
+                if (visibleTags.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 96.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "没有匹配「${tagFilter.trim()}」的标签",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        visibleTags.forEach { tag ->
+                            FilterChip(
+                                selected = selectedTag == tag,
+                                onClick = {
+                                    selectedTag = tag
+                                    showTagSheet = false
+                                },
+                                label = { Text(tag) },
+                            )
+                        }
                     }
                 }
             }

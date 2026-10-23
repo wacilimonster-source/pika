@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -118,7 +120,9 @@ fun RegisterScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(24.dp)
-                .imePadding(),
+                .imePadding()
+                // 键盘弹出时表单可滚动，注册按钮不被裁掉（BUG-22，与登录页同修）
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
         ) {
             OutlinedTextField(

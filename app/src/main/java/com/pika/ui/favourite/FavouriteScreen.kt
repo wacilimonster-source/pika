@@ -204,14 +204,14 @@ fun FavouriteScreen(
         },
     ) { innerPadding ->
         if (error != null && comics.isEmpty()) {
-            Box(
+            // 首屏失败可重试（BUG-23：此前只显示错误文字，只能退出重进）
+            com.pika.ui.common.ErrorRetry(
+                message = error ?: "加载失败",
+                onRetry = { viewModel.load(page = 1) },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(text = error ?: "加载失败", style = MaterialTheme.typography.bodyMedium)
-            }
+            )
         } else {
             Column(
                 modifier = Modifier

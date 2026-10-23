@@ -197,6 +197,7 @@ fun MainScreen() {
                     onOpenFavourites = { navController.navigate("favourites") },
                     onOpenAuthorFavourites = { navController.navigate("author-favourites") },
                     onOpenFollowManage = { navController.navigate("follow-manage") },
+                    onOpenMyComments = { navController.navigate("my-comments") },
                     onOpenReader = { comicId, order ->
                         navController.navigate(readerRoute(comicId, order))
                     },
@@ -242,6 +243,13 @@ fun MainScreen() {
             composable("follow-manage") {
                 com.pika.ui.follow.FollowManageScreen(
                     onBack = { navController.popBackStack() },
+                )
+            }
+            // 我的评论（BUG-04：屏幕与接口早已就绪，此前无路由无入口，属不可达死功能）
+            composable("my-comments") {
+                com.pika.ui.comments.MyCommentsScreen(
+                    onBack = { navController.popBackStack() },
+                    onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
             }
             composable("login") {

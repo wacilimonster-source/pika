@@ -44,7 +44,9 @@ fun UpdateDialog(
     val downloadingProgress = dlState as? UpdateManager.DownloadUi.Downloading
 
     AlertDialog(
-        onDismissRequest = { if (!downloading) onDismiss() },
+        // 下载在 UpdateManager 的 app 级状态机里，关弹窗不会取消下载（BUG-19：
+        // 此前下载中锁死弹窗不可关，用户被强制停在进度页）；关闭后可从横幅重开看进度
+        onDismissRequest = onDismiss,
         title = { Text("发现新版本 v${info.version}") },
         text = {
             Column {
@@ -105,7 +107,7 @@ fun UpdateDialog(
                 }) { Text("立即安装") }
 
                 is UpdateManager.DownloadUi.Downloading ->
-                    TextButton(onClick = {}, enabled = false) { Text("下载中…") }
+                    TextButton(onClick = onDismiss) { Text("后台下载") }
 
                 // Idle / Failed：可发起（重试）下载。autoInstall=false 保留本入口
                 // "手动点安装"的原有交互
@@ -116,7 +118,7 @@ fun UpdateDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { if (!downloading) onDismiss() }) {
+            TextButton(onClick = onDismiss) {
                 Text(if (dlState is UpdateManager.DownloadUi.Done) "稍后安装" else "取消")
             }
         },

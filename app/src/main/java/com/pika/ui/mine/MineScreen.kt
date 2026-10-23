@@ -47,6 +47,7 @@ fun MineScreen(
     onOpenFavourites: () -> Unit = {},
     onOpenAuthorFavourites: () -> Unit = {},
     onOpenFollowManage: () -> Unit = {},
+    onOpenMyComments: () -> Unit = {},
     onOpenReader: (String, Int) -> Unit = { _, _ -> },
     onOpenProfile: () -> Unit = {},
     onOpenRecentReads: () -> Unit = {},
@@ -62,8 +63,10 @@ fun MineScreen(
     var user by remember { mutableStateOf<ComicUser?>(null) }
     var profileLoading by remember { mutableStateOf(false) }
     var profileError by remember { mutableStateOf<String?>(null) }
+    // 重试计数：+1 触发下方 LaunchedEffect 重拉资料（失败态不再是死胡同，BUG-23）
+    var profileRetryTick by remember { mutableStateOf(0) }
 
-    LaunchedEffect(loggedIn, unauthorizedTick) {
+    LaunchedEffect(loggedIn, unauthorizedTick, profileRetryTick) {
         if (loggedIn) {
             profileLoading = true
             profileError = null
@@ -104,19 +107,14 @@ fun MineScreen(
                     CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 }
             } else if (loggedIn && user == null && profileError != null) {
-                // 加载失败不再静默：给出可读提示与重试入口意图
-                Box(
+                // 加载失败给出可读提示 + 重试（此前只显示一行错误文字，只能退出重进）
+                com.pika.ui.common.ErrorRetry(
+                    message = "资料加载失败：$profileError",
+                    onRetry = { profileRetryTick++ },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "资料加载失败：$profileError",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
+                        .height(180.dp),
+                )
             } else if (loggedIn && user != null) {
                 Row(
                     modifier = Modifier
@@ -174,6 +172,9 @@ fun MineScreen(
         MenuRow("收藏的作品", onClick = onOpenFavourites)
         MenuRow("收藏的作者", onClick = onOpenAuthorFavourites)
         MenuRow("关注管理", onClick = onOpenFollowManage)
+        if (loggedIn) {
+            MenuRow("我的评论", onClick = onOpenMyComments)
+        }
         MenuRow("阅读历史", onClick = onOpenRecentReads)
         MenuRow("下载", onClick = onOpenDownloads)
         MenuRow("设置", onClick = onOpenSettings, showBadge = updateAvailable != null)
