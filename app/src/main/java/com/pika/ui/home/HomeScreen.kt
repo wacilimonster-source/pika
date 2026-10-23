@@ -55,8 +55,9 @@ fun HomeScreen(
 ) {
     val activeSource by SourceManager.activeSource.collectAsState()
     val followFeed by viewModel.followFeed.collectAsState()
-    // 注：关注流列表固定不分页（refresh 后取前 120 条并置 endReached=true），
-    // 因此不再收集 followEndReached —— 原先收集了却在渲染处硬编码 true，属无效订阅。
+    // D9 关注流真分页：endReached 由各来源分页游标判定，触底加载逐页深入
+    val followEndReached by viewModel.followEndReached.collectAsState()
+    val followLoadingMore by viewModel.followLoadingMore.collectAsState()
     val followLoading by viewModel.followLoading.collectAsState()
     val followEmptyHint by viewModel.followEmptyHint.collectAsState()
     val followError by viewModel.followError.collectAsState()
@@ -217,12 +218,13 @@ fun HomeScreen(
             0 -> FollowTab(
                 comics = followFeed,
                 loading = followLoading,
-                endReached = true,
+                loadingMore = followLoadingMore,
+                endReached = followEndReached,
                 emptyHint = followEmptyHint,
                 error = followError,
                 refreshTick = followRefreshTick,
                 newUntil = feedSeenMarker,
-                onLoadMore = {},
+                onLoadMore = viewModel::loadMoreFollow,
                 onRefresh = viewModel::refresh,
                 onComicClick = onComicClick,
                 gridState = followGridState,
@@ -253,12 +255,14 @@ fun HomeScreen(
     }
 }
 
-/** 关注信息流：聚合网格（按更新时间由近至远，滚动加载） */
+/** 关注信息流：聚合网格（按更新时间由近至远，触底按来源分页游标加载） */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FollowTab(
     comics: List<com.pika.core.model.ComicSummary>,
     loading: Boolean,
+    /** 触底加载中（区别于下拉刷新：只驱动网格尾部转圈） */
+    loadingMore: Boolean = false,
     endReached: Boolean,
     emptyHint: String?,
     error: String? = null,
@@ -319,14 +323,14 @@ private fun FollowTab(
                 }
                 ComicGridView(
                     comics = comics,
-                    loading = loading,
+                    loading = loadingMore,
                     endReached = endReached,
                     listState = gridState,
                     onLoadMore = onLoadMore,
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
-                    showTailLoading = false,
                     newUntil = newUntil,
+                    showEndHint = true,
                 )
             }
         }

@@ -55,6 +55,8 @@ fun ComicGridView(
     modifier: Modifier = Modifier,
     /** 是否显示尾部加载转圈（与下拉刷新指示器重叠的页面传 false，避免双转圈） */
     showTailLoading: Boolean = true,
+    /** 到底后是否显示「没有更多了」尾行（可分页的列表用，固定列表不受影响） */
+    showEndHint: Boolean = false,
     /** 长按卡片回调（参数为作品标识）；null = 不响应长按（收藏页用于快捷取消收藏） */
     onComicLongClick: ((String) -> Unit)? = null,
     /** 「有更新」判定基线：条目 updatedAt 非空且大于该值时封面左上角显示圆点（关注流用） */
@@ -85,10 +87,23 @@ fun ComicGridView(
             )
         }
         if (loading && showTailLoading) {
-            item {
+            item(key = "tail_loading") {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.padding(16.dp))
                 }
+            }
+        }
+        if (showEndHint && endReached && comics.isNotEmpty()) {
+            item(key = "end_hint") {
+                Text(
+                    text = "— 没有更多了 —",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
             }
         }
     }

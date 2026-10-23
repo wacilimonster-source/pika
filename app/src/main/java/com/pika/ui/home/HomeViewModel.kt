@@ -67,6 +67,10 @@ class HomeViewModel : ViewModel() {
     private val _followLoading = MutableStateFlow(false)
     val followLoading: StateFlow<Boolean> = _followLoading.asStateFlow()
 
+    /** 触底加载中（与下拉刷新的 loading 分开：不驱动 PullToRefresh 指示器） */
+    private val _followLoadingMore = MutableStateFlow(false)
+    val followLoadingMore: StateFlow<Boolean> = _followLoadingMore.asStateFlow()
+
     private val _followEmptyHint = MutableStateFlow<String?>(null)
     val followEmptyHint: StateFlow<String?> = _followEmptyHint.asStateFlow()
 
@@ -156,6 +160,9 @@ class HomeViewModel : ViewModel() {
 
     /** 各关注来源是否已到末页 */
     private var targetEnded = mutableMapOf<String, Boolean>()
+
+    /** 各关注来源连续失败次数（≥3 次才放弃：单次失败下轮触底加载仍会重试该来源） */
+    private var targetFailures = mutableMapOf<String, Int>()
 
     private var targets: List<FollowTarget> = emptyList()
 
@@ -264,7 +271,7 @@ class HomeViewModel : ViewModel() {
         }
     }
 
-    /** 下拉刷新：所有来源重新从第 1 页拉取，取前120条 */
+    /** 下拉刷新：所有来源重新从第 1 页拉取（此后触底加载逐页深入，见 loadMoreFollow） */
     fun refresh() {
         // 刷新时间戳由 refresh 单点维护：无论从下拉、LaunchedEffect 还是 refreshOnResume
         // 进入，节流判定都基于真实刷新时刻，避免初值语义误导导致的重复刷新或漏刷新
@@ -281,13 +288,15 @@ class HomeViewModel : ViewModel() {
         _followEmptyHint.value = null
         _followLoading.value = true
         _followError.value = null
+        lastErrorFromMore = false
         followLoadingJob?.cancel()
         followLoadingJob = viewModelScope.launch {
             try {
                 targetPages.clear()
                 targetEnded.clear()
-                // 只拉各来源第1页，合并后取前120条
-                val result = fetchTargetPage(1)
+                targetFailures.clear()
+                // 只拉各来源第1页；后续页由触底加载按来源各自游标推进
+                val result = fetchTargetPageForNext()
                 val totalFailed = result.failedCount
                 // 全部来源都失败时保留上次内容：若不判断就合并，空结果会清空列表
                 // 并置"关注的内容暂无更新"，把"请求全挂了"伪装成"确实没更新"，误导性极强。
@@ -296,14 +305,14 @@ class HomeViewModel : ViewModel() {
                     mergeIntoFeed(result.items, append = totalFailed > 0)
                     // 只有全部成功才回顶：部分成功时用户在原位继续看，新条目已按时间排入
                     if (totalFailed == 0) _refreshTick.value++
-                    // 取前120条后永远不到底
-                    if (_followFeed.value.size > 120) {
-                        _followFeed.value = _followFeed.value.take(120)
+                    // 成功刷新后持久化缓存（冷启动秒显）；只存前 120 条控制体积，
+                    // 内存 feed 不截断——完整深度交给触底加载（D9）
+                    runCatching {
+                        com.pika.data.FollowFeedCache.save(_followFeed.value.take(120))
                     }
-                    // 成功刷新后持久化缓存（冷启动秒显）；保存失败不影响展示，吞掉异常
-                    runCatching { com.pika.data.FollowFeedCache.save(_followFeed.value) }
                 }
-                _followEndReached.value = true
+                // 是否到底由各来源游标判定：全部来源到末页才到底（此前无条件 take(120) 硬截断）
+                _followEndReached.value = targets.all { targetEnded[it.key] == true }
                 // 部分来源失败要如实告知，不能静默——否则用户只会觉得"内容莫名其妙变少了"
                 _followError.value = when {
                     result.rateLimitSeconds > 0 && result.items.isEmpty() ->
@@ -327,6 +336,47 @@ class HomeViewModel : ViewModel() {
             }
         }
     }
+
+    /** 触底加载（D9）：未到末页的来源各拉下一页，按时间合并（append 只增不减） */
+    fun loadMoreFollow() {
+        if (_followLoading.value || _followLoadingMore.value) return
+        if (_followEndReached.value) return
+        if (targets.isEmpty()) return
+        _followLoadingMore.value = true
+        viewModelScope.launch {
+            try {
+                val result = fetchTargetPageForNext()
+                if (result.items.isNotEmpty()) {
+                    mergeIntoFeed(result.items, append = true)
+                }
+                _followEndReached.value = targets.all { targetEnded[it.key] == true }
+                when {
+                    result.rateLimitSeconds > 0 -> {
+                        lastErrorFromMore = true
+                        _followError.value = "请求过于频繁，${result.rateLimitSeconds} 秒后可再试"
+                    }
+                    result.failedCount > 0 -> {
+                        lastErrorFromMore = true
+                        _followError.value = "${result.failedCount} 个关注来源加载失败，滚动到底将自动重试"
+                    }
+                    lastErrorFromMore -> {
+                        // 本轮干净：清掉此前触底加载留下的横幅（不动刷新自身的错误）
+                        lastErrorFromMore = false
+                        _followError.value = null
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastErrorFromMore = true
+                _followError.value = "加载更多失败（${e.message ?: "网络错误"}）"
+            } finally {
+                if (isActive) _followLoadingMore.value = false
+            }
+        }
+    }
+
+    /** 当前 _followError 是否由触底加载写入（成功后仅清理这类错误） */
+    private var lastErrorFromMore = false
 
     /** 首次进入随便看看 tab 时加载 */
     fun ensureRandomLoaded() {
@@ -355,14 +405,15 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * 拉取所有来源的指定页。串行执行：哔咔服务端对高频并发请求会挂起（限速 ~2/s），
-     * 多词拉取一次几十页，必须与其他来源错开；单词来源排前尽快出内容。
-     * 已到末页的来源直接跳过。
+     * 拉取所有未到末页来源的**下一页**（每来源按自身游标 (targetPages+1) 推进，
+     * refresh 前清空游标即全部从第 1 页开始）。串行执行：哔咔服务端对高频并发请求
+     * 会挂起（限速 ~2/s），多词拉取一次几十页，必须与其他来源错开；单词来源排前尽快出内容。
      *
      * 每个来源之间强制间隔 [TARGET_REQUEST_INTERVAL_MS]，并在检测到服务端限流冷却时立即停止本轮，
      * 避免"打到限流 → 后续来源全灭且被静默吞掉"造成的刷新内容忽多忽少。
+     * 来源失败不立即置末页：连续 3 次失败才放弃，单次失败留给下轮触底加载重试。
      */
-    private suspend fun fetchTargetPage(page: Int): FollowFetchResult {
+    private suspend fun fetchTargetPageForNext(): FollowFetchResult {
         val source = SourceManager.current()
         val result = mutableListOf<ComicSummary>()
         var failed = 0
@@ -385,8 +436,9 @@ class HomeViewModel : ViewModel() {
             if (requested) kotlinx.coroutines.delay(TARGET_REQUEST_INTERVAL_MS)
             requested = true
             started++
+            val page = (targetPages[target.key] ?: 0) + 1
             result += try {
-                when (target.type) {
+                val items = when (target.type) {
                     // 作者作品用全文搜索（关键字=作者名）拉取：浏览接口不带时间字段，
                     // 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。
                     // 走 searchWithRetry：单词/作者来源此前没有任何重试，一次网络抖动就整源消失。
@@ -399,10 +451,15 @@ class HomeViewModel : ViewModel() {
                     FollowTargetType.KEYWORD ->
                         fetchKeywordPage(source, target, page)
                 }
+                targetFailures[target.key] = 0
+                items
             } catch (e: Exception) {
                 // 取消不属于失败，必须向上传播
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                targetEnded[target.key] = true
+                // 不立即置末页：下轮触底加载还会重试该来源；连续 3 次失败才放弃
+                val count = (targetFailures[target.key] ?: 0) + 1
+                targetFailures[target.key] = count
+                if (count >= 3) targetEnded[target.key] = true
                 failed++
                 emptyList()
             }
