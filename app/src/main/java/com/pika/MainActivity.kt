@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.pika.ui.MainScreen
 import com.pika.ui.theme.PiKATextTheme
 import com.pika.ui.theme.PiKATheme
@@ -13,9 +15,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 通知等外部入口投递的待导航路由（MainScreen 消费后清空） */
+/**
+ * 通知等外部入口投递的待导航路由。
+ * 用 Compose 状态承载：MainScreen 组合期读取即订阅，温启动（singleTask onNewIntent）
+ * 写入会触发重组并被消费；普通变量只被一次性的 LaunchedEffect(Unit) 读走（复测发现）。
+ */
 object NavDeeplink {
-    @Volatile var pendingRoute: String? = null
+    var pendingRoute: String? by androidx.compose.runtime.mutableStateOf<String?>(null)
 }
 
 class MainActivity : ComponentActivity() {

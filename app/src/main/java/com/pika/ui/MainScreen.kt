@@ -113,13 +113,12 @@ fun MainScreen() {
         androidx.compose.runtime.mutableStateOf<String?>(null)
     }
 
-    // 通知直达路由（A11）：MainActivity 收进 extra 后由这里消费导航
-    LaunchedEffect(Unit) {
-        com.pika.NavDeeplink.pendingRoute?.let { route ->
+    // 通知直达路由（A11）：组合期读取订阅状态，冷启动/温启动（onNewIntent）写入即触发
+    val pendingNavRoute = com.pika.NavDeeplink.pendingRoute
+    LaunchedEffect(pendingNavRoute) {
+        if (pendingNavRoute != null && pendingNavRoute.startsWith("comic/")) {
             com.pika.NavDeeplink.pendingRoute = null
-            if (route.startsWith("comic/")) {
-                navController.navigate(route)
-            }
+            navController.navigate(pendingNavRoute)
         }
     }
 

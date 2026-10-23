@@ -95,8 +95,11 @@ class ComicDetailViewModel : ViewModel() {
     }
 
     private fun applyLike(commentId: String, delta: Int) {
+        // 展平查找全部子评论列表：只搜第一个列表会漏掉其余楼中楼（复测发现）
         val comment = _comments.value.firstOrNull { it.id == commentId }
-            ?: _subComments.value.values.firstOrNull()?.firstOrNull { it.id == commentId }
+            ?: _subComments.value.values.firstNotNullOfOrNull { list ->
+                list.firstOrNull { it.id == commentId }
+            }
             ?: return
         _likedComments.value = if (delta > 0) {
             _likedComments.value + commentId

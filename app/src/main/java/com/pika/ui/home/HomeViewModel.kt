@@ -71,6 +71,9 @@ class HomeViewModel : ViewModel() {
     private val _followLoadingMore = MutableStateFlow(false)
     val followLoadingMore: StateFlow<Boolean> = _followLoadingMore.asStateFlow()
 
+    /** 触底加载协程：refresh 接管时必须取消，否则在途的旧页号会写回被清空的游标 */
+    private var followMoreJob: kotlinx.coroutines.Job? = null
+
     private val _followEmptyHint = MutableStateFlow<String?>(null)
     val followEmptyHint: StateFlow<String?> = _followEmptyHint.asStateFlow()
 
@@ -289,6 +292,10 @@ class HomeViewModel : ViewModel() {
         _followLoading.value = true
         _followError.value = null
         lastErrorFromMore = false
+        // 刷新接管：取消在途的触底加载——旧协程会在 refresh 清空游标后把
+        // 按旧页号算出的结果写回游标/列表，污染新一轮分页起点（复测发现）
+        followMoreJob?.cancel()
+        _followLoadingMore.value = false
         followLoadingJob?.cancel()
         followLoadingJob = viewModelScope.launch {
             try {
@@ -343,7 +350,7 @@ class HomeViewModel : ViewModel() {
         if (_followEndReached.value) return
         if (targets.isEmpty()) return
         _followLoadingMore.value = true
-        viewModelScope.launch {
+        followMoreJob = viewModelScope.launch {
             try {
                 val result = fetchTargetPageForNext()
                 if (result.items.isNotEmpty()) {
