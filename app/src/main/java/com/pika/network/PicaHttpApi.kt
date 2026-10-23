@@ -144,6 +144,9 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
     override suspend fun myComments(page: Int): ApiResponse<PersonalCommentsResponse> =
         get("users/my-comments", mapOf("page" to page.toString()))
 
+    override suspend fun likeComment(comicId: String, commentId: String): ApiResponse<ActionResponse> =
+        postEmpty("comics/$comicId/comments/$commentId/like")
+
     override suspend fun forgotPassword(body: ForgotPasswordPayload): ApiResponse<JsonObject> =
         post("auth/forgot-password", body)
 

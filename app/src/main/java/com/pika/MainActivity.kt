@@ -13,11 +13,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** 通知等外部入口投递的待导航路由（MainScreen 消费后清空） */
+object NavDeeplink {
+    @Volatile var pendingRoute: String? = null
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLogger()
         enableEdgeToEdge()
+        consumeRouteIntent(intent)
         setContent {
             PiKATheme {
                 PiKATextTheme {
@@ -25,6 +31,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // 下载完成通知点击直达详情（A11）：singleTask 下 activity 已在时走这里
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        consumeRouteIntent(intent)
+    }
+
+    private fun consumeRouteIntent(intent: android.content.Intent?) {
+        val route = intent?.getStringExtra("open_route")?.takeIf { it.isNotBlank() } ?: return
+        NavDeeplink.pendingRoute = route
     }
 
     /** 全局未捕获异常：写 crash.log（保留最近 5 次），便于离线定位闪退 */

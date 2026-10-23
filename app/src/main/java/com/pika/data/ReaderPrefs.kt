@@ -378,6 +378,19 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         }
     }
 
+    /**
+     * 整表恢复最近阅读（A14 撤销用）：把删除/清空前的快照原样写回，
+     * 保留原始时间戳。窗口内的极新记录会被快照覆盖（撤销语义下可接受）。
+     */
+    suspend fun restoreRecentReads(snapshot: List<RecentRead>) {
+        if (snapshot.isEmpty()) return
+        appContext.readerDataStore.edit { prefs ->
+            val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
+            prefs[key] = json.encodeToString(snapshot.take(RECENT_READS_MAX))
+            cachedRecentReads = snapshot.take(RECENT_READS_MAX)
+        }
+    }
+
     /** 清空全部最近阅读，并同步内存缓存 */
     suspend fun clearRecentReads() {
         appContext.readerDataStore.edit { prefs ->

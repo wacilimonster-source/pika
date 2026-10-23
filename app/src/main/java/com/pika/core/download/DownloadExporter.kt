@@ -57,7 +57,12 @@ object DownloadExporter {
             val chapterTitle: String,
         ) : ExportState()
 
-        data class Done(val fileName: String, val chapterCount: Int) : ExportState()
+        /** [fileName] 为 SAF 目标文档显示名；[uri] 供完成后「分享」动作直接使用 */
+        data class Done(
+            val fileName: String,
+            val chapterCount: Int,
+            val uri: Uri? = null,
+        ) : ExportState()
         data class Error(val message: String) : ExportState()
     }
 
@@ -182,7 +187,7 @@ object DownloadExporter {
                     }
                 }
             }
-            _state.value = ExportState.Done(fileName, tasks.size)
+            _state.value = ExportState.Done(fileName, tasks.size, uri)
         } catch (ce: CancellationException) {
             _state.value = ExportState.Error("导出已取消：产物不完整，请重新导出")
             throw ce

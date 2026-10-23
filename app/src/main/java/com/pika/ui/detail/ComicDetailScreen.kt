@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -95,6 +97,8 @@ fun ComicDetailScreen(
     val subComments by viewModel.subComments.collectAsState()
     val loadingSubIds by viewModel.loadingSubIds.collectAsState()
     val replyingTo by viewModel.replyingTo.collectAsState()
+    val likedComments by viewModel.likedComments.collectAsState()
+    val likeError by viewModel.likeError.collectAsState()
     val lastProgress by viewModel.lastProgress.collectAsState()
     val favouriteError by viewModel.favouriteError.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
@@ -119,6 +123,13 @@ fun ComicDetailScreen(
         favouriteError?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeFavouriteError()
+        }
+    }
+
+    LaunchedEffect(likeError) {
+        likeError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeLikeError()
         }
     }
 
@@ -413,6 +424,8 @@ fun ComicDetailScreen(
                             subComments = subComments[comment.id].orEmpty(),
                             loadingSub = comment.id in loadingSubIds,
                             replying = replyingTo == comment.id,
+                            liked = comment.id in likedComments,
+                            onLike = { viewModel.toggleLike(comment) },
                             onReply = { viewModel.setReplyingTo(comment.id) },
                             onToggleSub = { viewModel.toggleSubComments(comment.id) },
                         )
@@ -560,6 +573,9 @@ private fun CommentItem(
     subComments: List<ComicComment>,
     loadingSub: Boolean,
     replying: Boolean,
+    /** 本会话内是否已赞（乐观状态，点赞后高亮） */
+    liked: Boolean,
+    onLike: () -> Unit,
     onReply: () -> Unit,
     onToggleSub: () -> Unit,
 ) {
@@ -593,11 +609,34 @@ private fun CommentItem(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 4.dp),
                 ) {
-                    Text(
-                        text = "赞 ${comment.likesCount}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // 点赞（D2）：可点、会话内已赞高亮；计数由 VM 乐观更新
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                            .clickable(onClick = onLike)
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (liked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                            contentDescription = if (liked) "取消点赞" else "点赞",
+                            tint = if (liked) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = " ${comment.likesCount}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (liked) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                     Spacer(Modifier.width(12.dp))
                     Text(
                         text = "回复",

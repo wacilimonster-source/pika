@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
 import com.pika.data.FollowItem
 import com.pika.data.FollowSettings
+import kotlinx.coroutines.launch
 
 /** 关注管理：添加/删除关键词关注（支持组合关键词 + 可选标签，且关系） */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -58,6 +59,9 @@ fun FollowManageScreen(
     // 组合期不读盘：初值空，LaunchedEffect 中在 IO 线程加载
     var items by remember { mutableStateOf<List<FollowItem>>(emptyList()) }
     var showKeywordDialog by remember { mutableStateOf(false) }
+    // A14 撤销：删除关键词后 Snackbar 内可一键恢复
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     fun reload() {
         items = FollowSettings.items()
@@ -66,6 +70,7 @@ fun FollowManageScreen(
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("关注管理") },
@@ -101,9 +106,22 @@ fun FollowManageScreen(
                 FollowRow(
                     name = item.keywords.joinToString(" + ") + (item.tag?.let { "  [$it]" } ?: ""),
                     onDelete = {
+                        // A14：删除后 5 秒内可撤销（误删关注词不至于要重新手打）
                         FollowSettings.removeItem(item)
                         com.pika.data.FollowFeedCache.clear()
                         reload()
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "已移除关注",
+                                actionLabel = "撤销",
+                                duration = androidx.compose.material3.SnackbarDuration.Long,
+                            )
+                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                FollowSettings.addItem(item.keywords, item.tag)
+                                com.pika.data.FollowFeedCache.clear()
+                                reload()
+                            }
+                        }
                     },
                 )
             }

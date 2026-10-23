@@ -38,8 +38,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -78,6 +80,8 @@ fun DownloadScreen(
     val totalSpeed by DownloadManager.totalSpeedFlow.collectAsState()
     // 整本删除确认（此前点击即删，无法撤销）：comicId to 标题
     var pendingDeleteAll by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // 单章删除确认（A14：与整本一致加确认；删除=文件即删，以确认代替撤销）
+    var pendingDeleteSingle by remember { mutableStateOf<Pair<String, String>?>(null) }
     // 仅 Wi-Fi 下载：流量网络 + 有排队任务时给出可见提示
     val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
         .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
@@ -98,16 +102,57 @@ fun DownloadScreen(
             DownloadExporter.start(context, request.first, uri)
         }
     }
-    // 导出完成/失败 → Snackbar（Running 状态由顶部进度卡实时展示）
+    // 导出完成 → Snackbar 附「分享」一键转发 zip（A12）；失败保持原提示
     LaunchedEffect(exportState) {
         when (val s = exportState) {
             is DownloadExporter.ExportState.Done -> {
-                snackbarHostState.showSnackbar("导出完成：${s.fileName}（${s.chapterCount} 章）")
+                val result = snackbarHostState.showSnackbar(
+                    message = "导出完成：${s.fileName}（${s.chapterCount} 章）",
+                    actionLabel = "分享",
+                    duration = SnackbarDuration.Long,
+                )
+                if (result == SnackbarResult.ActionPerformed && s.uri != null) {
+                    runCatching {
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "application/zip"
+                            putExtra(android.content.Intent.EXTRA_STREAM, s.uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(send, "分享导出文件"))
+                    }
+                }
             }
             is DownloadExporter.ExportState.Error -> {
                 snackbarHostState.showSnackbar(s.message)
             }
             else -> {}
+        }
+    }
+
+    // 下载失败可一键重试（A12）：diff 出新增的 FAILED 任务弹提示。
+    // 首个非空快照只建基线（重启恢复会把未完成任务标为 FAILED，不该一进页就弹）
+    var knownFailedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var failedBaselineReady by remember { mutableStateOf(false) }
+    LaunchedEffect(tasks) {
+        val failed = tasks.filter { it.status == DlStatus.FAILED }.map { it.key }.toSet()
+        if (!failedBaselineReady) {
+            if (tasks.isNotEmpty()) {
+                knownFailedKeys = failed
+                failedBaselineReady = true
+            }
+            return@LaunchedEffect
+        }
+        val newlyFailed = failed - knownFailedKeys
+        knownFailedKeys = failed
+        if (newlyFailed.isNotEmpty()) {
+            val result = snackbarHostState.showSnackbar(
+                message = "${newlyFailed.size} 个任务下载失败",
+                actionLabel = "重试",
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                newlyFailed.forEach { DownloadManager.retry(it) }
+            }
         }
     }
 
@@ -287,7 +332,14 @@ fun DownloadScreen(
                                 }
                             },
                             onRetry = { DownloadManager.retry(it) },
-                            onDelete = { DownloadManager.remove(it) },
+                            onDelete = { key ->
+                                val runtime = tasks.firstOrNull { it.key == key }
+                                pendingDeleteSingle = key to (
+                                    runtime?.task?.epTitle?.ifBlank {
+                                        "第 ${runtime.task.order} 话"
+                                    } ?: key
+                                    )
+                            },
                             onDeleteAll = {
                                 pendingDeleteAll = comicId to (comicTasks.firstOrNull()?.task?.comicTitle ?: comicId)
                             },
@@ -308,6 +360,23 @@ fun DownloadScreen(
                 }
             }
         }
+    }
+
+    pendingDeleteSingle?.let { (key, label) ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteSingle = null },
+            title = { Text("删除章节") },
+            text = { Text("删除「$label」的下载任务与已下载文件？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDeleteSingle = null
+                    DownloadManager.remove(key)
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteSingle = null }) { Text("取消") }
+            },
+        )
     }
 
     pendingDeleteAll?.let { (comicId, title) ->
@@ -382,6 +451,11 @@ private fun ComicGroupCard(
     val done = tasks.count { it.isFinished }
     val downloading = tasks.count { it.status == DlStatus.DOWNLOADING || it.status == DlStatus.PENDING }
     val bytes = tasks.sumOf { it.totalBytes }
+    val animatedGroupProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "groupProgress",
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -421,7 +495,7 @@ private fun ComicGroupCard(
                 )
                 Spacer(Modifier.height(6.dp))
                 LinearProgressIndicator(
-                    progress = { if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size },
+                    progress = { animatedGroupProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp),
@@ -473,6 +547,12 @@ private fun DownloadTaskRow(
     onDelete: () -> Unit,
 ) {
     val task = runtime.task
+    // A10 进度平滑：页级粒度的跳变经 300ms 补间抚平（速度文案由采样器驱动，本身平滑）
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = runtime.progress / 100f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "dlProgress",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -491,7 +571,7 @@ private fun DownloadTaskRow(
             when (runtime.status) {
                 DlStatus.DOWNLOADING, DlStatus.PENDING -> {
                     LinearProgressIndicator(
-                        progress = { runtime.progress / 100f },
+                        progress = { animatedProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp),

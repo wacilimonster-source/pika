@@ -54,6 +54,9 @@ interface PicaApi {
 
     suspend fun myComments(page: Int): ApiResponse<PersonalCommentsResponse>
 
+    /** 点赞/取消点赞评论（服务端 toggle 型，ActionResponse.action = "like"/"unlike"） */
+    suspend fun likeComment(comicId: String, commentId: String): ApiResponse<ActionResponse>
+
     // ---------- 账号 ----------
 
     suspend fun forgotPassword(body: ForgotPasswordPayload): ApiResponse<JsonObject>

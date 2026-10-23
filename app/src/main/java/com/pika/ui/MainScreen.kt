@@ -113,6 +113,16 @@ fun MainScreen() {
         androidx.compose.runtime.mutableStateOf<String?>(null)
     }
 
+    // 通知直达路由（A11）：MainActivity 收进 extra 后由这里消费导航
+    LaunchedEffect(Unit) {
+        com.pika.NavDeeplink.pendingRoute?.let { route ->
+            com.pika.NavDeeplink.pendingRoute = null
+            if (route.startsWith("comic/")) {
+                navController.navigate(route)
+            }
+        }
+    }
+
     LaunchedEffect(activeSource, unauthorizedTick) {
         if (!SourceManager.current().isLoggedIn) {
             if (pendingReturnRoute == null) {

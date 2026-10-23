@@ -66,6 +66,56 @@ class ComicDetailViewModel : ViewModel() {
     private val _replyingTo = MutableStateFlow<String?>(null)
     val replyingTo: StateFlow<String?> = _replyingTo
 
+    // ── 评论点赞（D2）──────────────────────────────────────────────────────
+
+    /** 本会话内已赞的评论 id（服务端不回传已赞状态，UI 以此高亮） */
+    private val _likedComments = MutableStateFlow<Set<String>>(emptySet())
+    val likedComments: StateFlow<Set<String>> = _likedComments
+
+    private val _likeError = MutableStateFlow<String?>(null)
+    val likeError: StateFlow<String?> = _likeError
+
+    /** 点赞/取消点赞：乐观更新（图标与计数立即变），失败回滚并提示 */
+    fun toggleLike(comment: ComicComment) {
+        val comicId = loadedComicId
+        if (comicId.isEmpty()) return
+        val liked = comment.id in _likedComments.value
+        val delta = if (liked) -1 else 1
+        applyLike(comment.id, delta)
+        viewModelScope.launch {
+            try {
+                src().likeComment(comicId, comment.id)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                applyLike(comment.id, -delta)
+                _likeError.value = "点赞失败：${e.message ?: "网络错误"}"
+            }
+        }
+    }
+
+    private fun applyLike(commentId: String, delta: Int) {
+        val comment = _comments.value.firstOrNull { it.id == commentId }
+            ?: _subComments.value.values.firstOrNull()?.firstOrNull { it.id == commentId }
+            ?: return
+        _likedComments.value = if (delta > 0) {
+            _likedComments.value + commentId
+        } else {
+            _likedComments.value - commentId
+        }
+        val updated = comment.copy(likesCount = (comment.likesCount + delta).coerceAtLeast(0))
+        _comments.value = _comments.value.map { if (it.id == commentId) updated else it }
+        _subComments.value = _subComments.value.mapValues { (_, list) ->
+            list.map { if (it.id == commentId) updated else it }
+        }
+    }
+
+    fun consumeLikeError(): String? {
+        val v = _likeError.value
+        _likeError.value = null
+        return v
+    }
+
     var loadedComicId: String = ""
         private set
 

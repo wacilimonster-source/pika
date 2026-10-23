@@ -1,6 +1,7 @@
 package com.pika.core.download
 
 import android.content.Context
+import androidx.core.graphics.drawable.toBitmap
 import com.pika.core.log.LogStore
 import com.pika.core.source.SourceManager
 import com.pika.network.BcTls
@@ -399,7 +400,7 @@ object DownloadManager {
                     val allDone = _tasks.value
                         .filter { it.task.comicId == t.comicId }
                         .let { list -> list.isNotEmpty() && list.all { it.isFinished } }
-                    if (allDone) notifyComplete(t.comicId, t.comicTitle)
+                    if (allDone) notifyComplete(t)
                 } catch (e: Exception) {
                     mutex.withLock {
                         _tasks.value = _tasks.value.map {
@@ -427,8 +428,9 @@ object DownloadManager {
     // ── 完成通知 ──────────────────────────────────────────────────────────
     private const val NOTIFY_CHANNEL_ID = "download"
 
-    /** 整本下载完成系统通知（设置可关；通知未授权时静默跳过） */
-    private fun notifyComplete(comicId: String, title: String) {
+    /** 整本下载完成系统通知（设置可关；通知未授权时静默跳过）。
+     *  A11：封面大图 + 点击直达该漫画详情（路由 extra 由 MainActivity 转给导航）。 */
+    private suspend fun notifyComplete(task: DownloadTask) {
         if (!com.pika.data.DownloadPrefs.notifyEnabled) return
         try {
             val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
@@ -450,21 +452,34 @@ object DownloadManager {
             ) {
                 return
             }
-            val intent = android.content.Intent(appContext, com.pika.MainActivity::class.java)
+            val route = "comic/" + com.pika.core.source.ComicRef.ofName(task.source, task.comicId)
+            val intent = android.content.Intent(appContext, com.pika.MainActivity::class.java).apply {
+                putExtra("open_route", route)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             val pending = android.app.PendingIntent.getActivity(
                 appContext,
-                0,
+                route.hashCode(),
                 intent,
-                android.app.PendingIntent.FLAG_IMMUTABLE,
+                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val notification = androidx.core.app.NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
+            // 封面大图：尽力而为（取不到不影响通知本身）
+            val largeIcon: android.graphics.Bitmap? = runCatching {
+                val request = coil.request.ImageRequest.Builder(appContext)
+                    .data(task.coverUrl.takeIf { it.isNotBlank() })
+                    .allowHardware(false)
+                    .size(256)
+                    .build()
+                coil.Coil.imageLoader(appContext).execute(request).drawable?.toBitmap()
+            }.getOrNull()
+            val builder = androidx.core.app.NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("下载完成")
-                .setContentText("《$title》全部章节已下载完成")
+                .setContentText("《${task.comicTitle}》全部章节已下载完成")
                 .setAutoCancel(true)
                 .setContentIntent(pending)
-                .build()
-            manager.notify("dl_$comicId".hashCode(), notification)
+            if (largeIcon != null) builder.setLargeIcon(largeIcon)
+            manager.notify("dl_${task.comicId}".hashCode(), builder.build())
         } catch (e: Exception) {
             LogStore.log("DownloadManager", "E", "notify complete failed: ${e.message}")
         }

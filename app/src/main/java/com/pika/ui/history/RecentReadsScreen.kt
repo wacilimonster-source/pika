@@ -58,12 +58,15 @@ fun RecentReadsScreen(
     var pendingDelete by remember { mutableStateOf<RecentRead?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // A14 撤销：删除/清空前快照，Snackbar「撤销」整表恢复（保留原时间戳）
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         recentReads = ReaderPrefs.current().recentReadsAsync()
     }
 
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("阅读历史") },
@@ -116,8 +119,20 @@ fun RecentReadsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
+                    val snapshot = recentReads
                     recentReads = recentReads.filterNot { it.ref == target.ref }
-                    scope.launch { ReaderPrefs.current().removeRecentRead(target.ref) }
+                    scope.launch {
+                        ReaderPrefs.current().removeRecentRead(target.ref)
+                        val result = snackbarHostState.showSnackbar(
+                            message = "已删除记录",
+                            actionLabel = "撤销",
+                            duration = androidx.compose.material3.SnackbarDuration.Long,
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            recentReads = snapshot
+                            ReaderPrefs.current().restoreRecentReads(snapshot)
+                        }
+                    }
                 }) { Text("删除") }
             },
             dismissButton = {
@@ -134,8 +149,20 @@ fun RecentReadsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showClearConfirm = false
+                    val snapshot = recentReads
                     recentReads = emptyList()
-                    scope.launch { ReaderPrefs.current().clearRecentReads() }
+                    scope.launch {
+                        ReaderPrefs.current().clearRecentReads()
+                        val result = snackbarHostState.showSnackbar(
+                            message = "已清空阅读历史",
+                            actionLabel = "撤销",
+                            duration = androidx.compose.material3.SnackbarDuration.Long,
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            recentReads = snapshot
+                            ReaderPrefs.current().restoreRecentReads(snapshot)
+                        }
+                    }
                 }) { Text("清空") }
             },
             dismissButton = {

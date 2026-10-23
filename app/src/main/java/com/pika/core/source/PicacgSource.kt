@@ -408,6 +408,12 @@ class PicacgSource : Source {
         )
     }
 
+    /** 点赞/取消点赞（服务端 toggle 型）：返回点赞后的状态 */
+    override suspend fun likeComment(comicId: String, commentId: String): Boolean {
+        val data = PicaClient.safeCall { PicaClient.api.likeComment(comicId, commentId) }
+        return data.action.equals("like", ignoreCase = true)
+    }
+
     // ---------- 账号管理 ----------
 
     /** 纯确认型接口（无返回体）：只校验业务 code */

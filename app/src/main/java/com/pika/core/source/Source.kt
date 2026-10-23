@@ -125,6 +125,10 @@ interface Source {
     suspend fun myComments(page: Int): PageResult<MyComicComment> =
         throw UnsupportedOperationException("当前源不支持评论")
 
+    /** 点赞/取消点赞评论（toggle 型），返回点赞后的状态（true = 已赞）；默认源不支持 */
+    suspend fun likeComment(comicId: String, commentId: String): Boolean =
+        throw UnsupportedOperationException("当前源不支持评论点赞")
+
     // ---------- 账号管理 ----------
 
     /** 忘记密码：发送重置邮件（默认源不支持） */
