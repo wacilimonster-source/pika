@@ -52,10 +52,14 @@ fun LogScreen(onBack: () -> Unit) {
     val logs by LogStore.logs.collectAsState()
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
-    // 上次崩溃的报告（进程死亡前落盘，见 CrashReporter）：横幅 + 查看/复制/忽略
+    // 上次崩溃/异常退出的报告（ANR、系统杀进程等非 Java 异常也留痕，见 CrashReporter）
     var crashReport by remember { mutableStateOf<String?>(null) }
+    var hasCrash by remember { mutableStateOf(false) }
     var showCrashDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { crashReport = CrashReporter.pendingReport(context) }
+    LaunchedEffect(Unit) {
+        crashReport = CrashReporter.pendingReport(context)
+        hasCrash = CrashReporter.hasCrashReport(context)
+    }
 
     Scaffold(
         topBar = {
@@ -85,12 +89,12 @@ fun LogScreen(onBack: () -> Unit) {
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
-                            text = "检测到上次异常退出",
+                            text = if (hasCrash) "检测到上次异常退出" else "上次会话诊断报告",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.error,
                         )
                         Text(
-                            text = "崩溃报告已保存（含堆栈、版本与崩溃前日志），建议复制后反馈",
+                            text = "崩溃堆栈 / 系统退出原因 / 主线程冻结记录（如有）已保存，建议复制后反馈",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp),
@@ -109,6 +113,13 @@ fun LogScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // 版本显示：反馈排障时首先确认实际运行的版本
+            Text(
+                text = "当前版本 ${CrashReporter.versionText(context)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

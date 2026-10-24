@@ -20,10 +20,11 @@ class PiKAApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // 崩溃捕获最先安装：后续任何初始化阶段的崩溃都会落盘（含堆栈/日志尾部），
-        // 下次启动在 设置→调试日志 顶部可查看；看门狗记录主线程卡顿时刻的调用栈
+        // 崩溃/异常退出取证最先安装（ANR、系统杀进程都不走 Java 异常，取证通道见 CrashReporter）；
+        // 看门狗记录主线程阻塞栈并落前台心跳
         com.pika.core.log.CrashReporter.install(this)
-        com.pika.core.log.MainThreadWatchdog.start()
+        com.pika.core.log.MainThreadWatchdog.start(this)
+        com.pika.core.log.AppSessionState.register(this)
         // 禁漫源下线一次性迁移：必须最先执行（先于一切缓存预热，见 JmRemovalMigration）
         com.pika.data.JmRemovalMigration.run(this)
         SourcePrefs.init(this)
@@ -62,5 +63,26 @@ class PiKAApp : Application() {
                 .build(),
         )
         PicaClient.init(this)
+    }
+
+    /**
+     * 系统内存压力响应：RUNNING_LOW 起清空 Coil 图片内存缓存（单张长图解码后
+     * 可达 35MB，是本应用最大内存头），降低长图连续加载时被系统按内存不足
+     * 杀进程（lmkd）的风险——此类杀进程无任何 Java 异常，只能靠退出原因取证。
+     * 事件写入 LogStore，随崩溃/诊断报告留存为证据。
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            runCatching {
+                val cache = Coil.imageLoader(this).memoryCache
+                val beforeMb = (cache?.size ?: 0) / (1024 * 1024)
+                cache?.clear()
+                com.pika.core.log.LogStore.log(
+                    "Memory", "W",
+                    "系统内存紧张(level=$level)，已清空图片内存缓存(原约${beforeMb}MB)以降低被杀风险",
+                )
+            }
+        }
     }
 }
