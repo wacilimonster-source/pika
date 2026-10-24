@@ -102,10 +102,19 @@ object BcTls {
     fun warnFallbackShared() = warnFallbackOnce()
 
     /** 供 Coil 图片加载使用（同样走 BC TLS，避免漫画图片被 Cloudflare 拦截）。
-     *  附带瞬时失败自动重试（连接重置/读写超时/5xx/限流）：同一次请求内部静默重试，
-     *  Coil/Compose 侧请求流不变，详见 RetryInterceptor 注释。 */
+     *  每主机并发从 OkHttp 默认 5 提到 8（浏览器同源并发量级）：阅读器可视页+预取
+     *  常态 5-7 路并发，默认 5 在弱网失败叠加自动重试占位时会饿死正常请求
+     *  （v1.9.3 卡死事故的放大器）。配合 RetryInterceptor 的并发重试限额(6)，
+     *  任何场景下至少保留 2 个槽位给正常请求。
+     *  附带瞬时失败自动重试（连接重置/读写超时/5xx/限流/403），详见其注释。 */
     val imageLoaderClient: OkHttpClient by lazy {
         applyTo(OkHttpClient.Builder())
+            .dispatcher(
+                okhttp3.Dispatcher().apply {
+                    maxRequests = 64
+                    maxRequestsPerHost = 8
+                },
+            )
             .addInterceptor(com.pika.image.RetryInterceptor())
             .build()
     }

@@ -21,18 +21,20 @@ import java.util.concurrent.Semaphore
  *
  * 策略：
  * - 只重试**瞬时**失败：IOException（连接失败/读写超时/连接重置等）与
- *   HTTP 408/429/5xx（含 Cloudflare 520-526）。403/404 等确定性失败不重试
- *   （重试无法恢复，只会拖慢出错反馈与浪费流量）。
- * - 最多 2 次重试（共 3 次尝试），退避 400ms/1200ms。
- * - **并发重试限额（v1.9.4 关键修复）**：Coil 经 OkHttp enqueue 走异步调度器，
- *   受「每主机最多 5 个并发」约束。弱网下若多个失败请求各自占着槽位做
- *   「等待退避 + 3 次尝试」（最长数十秒），槽位会被重试占满 → 其余图片请求
- *   全部排队 → 全屏加载中卡死（v1.9.3 真机回归）。故全进程最多 [MAX_CONCURRENT_RETRIES]
- *   个请求可处于重试态：进入重试前 tryAcquire 信号量，拿不到名额就放弃重试、
- *   按 v1.9.1 的行为直接把失败交还上层（仍有手动重试兜底）。限额 3 < 每主机 5，
- *   数学上保证至少 2 个槽位永远留给正常请求。
+ *   HTTP 403/408/429/5xx（含 Cloudflare 520-526）。404 等确定性失败不重试。
+ *   403 多为 Cloudflare 边缘节点瞬时拦截——换路重连即恢复（用户实测手动重试必然成功）；
+ *   真死链 403 会被有限次重试后放弃，代价仅 ~5s 额外占用，可接受。
+ * - 最多 3 次重试（共 4 次尝试），退避 400ms/1200ms/3000ms（总额外等待 ≈4.6s，
+ *   与「用户注意到失败→手动点重试」的时间尺度对齐——v1.9.5 的 1.6s 窗口太短，
+ *   弱网下大量页面等不到恢复就放弃，用户被迫手动重试）。
+ * - **并发重试限额**：Coil 经 OkHttp enqueue 走异步调度器，受每主机并发上限约束
+ *   （imageLoaderClient 已提至 8）。全进程最多 [MAX_CONCURRENT_RETRIES] 个请求可
+ *   处于重试态：进入重试前 tryAcquire 信号量，拿不到名额就放弃重试、按无重试行为
+ *   直接把失败交还上层（仍有手动重试兜底）。限额 6 < 每主机 8，保证至少 2 个槽位
+ *   永远留给正常请求（v1.9.3 曾因重试占满默认 5 槽导致全屏卡死，此约束不可移除）。
  * - 取消感知：Coil 会在页面滚出屏幕/切章/退出阅读器时取消请求，被取消的调用
  *   必须立即放行，绝不重试（否则僵尸重试会顶着已销毁的协程继续打网络）。
+ * - 重试用尽时把失败原因写入 LogStore（应用日志页可见），供后续按原因精准调参。
  */
 class RetryInterceptor : Interceptor {
 
@@ -49,7 +51,10 @@ class RetryInterceptor : Interceptor {
                         attempt < MAX_RETRIES &&
                         !call.isCanceled()
                     // 成功 / 确定性失败 / 额度用尽 / 已取消：原样交还调用方（不关闭）
-                    if (!retryable) return response
+                    if (!retryable) {
+                        if (slotHeld && attempt >= MAX_RETRIES) logGiveUp("HTTP ${response.code}", call)
+                        return response
+                    }
                     if (!slotHeld && !retrySlots.tryAcquire()) {
                         LogStore.log(TAG, "W", "并发自动重试已满($MAX_CONCURRENT_RETRIES)，本次按普通失败交还（可手动重试）：HTTP ${response.code}")
                         return response
@@ -61,7 +66,12 @@ class RetryInterceptor : Interceptor {
                     logRetry(attempt, "HTTP $code", call)
                 } catch (e: IOException) {
                     // 取消的调用（页面滚出屏幕/切章）直接放行；Coil 侧以取消收场
-                    if (call.isCanceled() || attempt >= MAX_RETRIES) throw e
+                    if (call.isCanceled() || attempt >= MAX_RETRIES) {
+                        if (slotHeld && attempt >= MAX_RETRIES && !call.isCanceled()) {
+                            logGiveUp(e.javaClass.simpleName, call)
+                        }
+                        throw e
+                    }
                     if (!slotHeld && !retrySlots.tryAcquire()) throw e
                     slotHeld = true
                     logRetry(attempt, e.javaClass.simpleName, call)
@@ -92,22 +102,29 @@ class RetryInterceptor : Interceptor {
         LogStore.log(TAG, "I", msg)
     }
 
-    /** 视为瞬时失败、值得重试的 HTTP 状态码：请求超时/限流/5xx（含 Cloudflare 520-526） */
+    /** 自动重试额度用尽：记录失败原因（HTTP 码/异常类），供按原因统计与调参 */
+    private fun logGiveUp(cause: String, call: Call) {
+        val url = call.request().url.toString().let { if (it.length > 140) "…${it.takeLast(140)}" else it }
+        LogStore.log(TAG, "W", "自动重试${MAX_RETRIES}次后仍失败($cause)，等待手动重试：$url")
+    }
+
+    /** 视为瞬时失败、值得重试的 HTTP 状态码：403（CF 边缘瞬时拦截）/ 请求超时 / 限流 / 5xx（含 CF 520-526） */
     private fun Int.isTransientHttpFailure(): Boolean =
-        this == 408 || this == 429 || this in 500..599
+        this == 403 || this == 408 || this == 429 || this in 500..599
 
     private companion object {
         const val TAG = "RetryInterceptor"
 
-        /** 最多自动重试次数（共 3 次尝试） */
-        const val MAX_RETRIES = 2
+        /** 最多自动重试次数（共 4 次尝试） */
+        const val MAX_RETRIES = 3
 
-        /** 退避间隔：第 1 次重试前 400ms，第 2 次前 1200ms（总额外等待 ≈1.6s） */
-        val BACKOFF_MS = longArrayOf(400L, 1200L)
+        /** 退避间隔：400ms/1200ms/3000ms（总额外等待 ≈4.6s，对齐手动重试的时间尺度） */
+        val BACKOFF_MS = longArrayOf(400L, 1200L, 3000L)
 
         /** 全进程同时处于「自动重试中」的请求上限。
-         *  必须 < OkHttp 每主机并发默认值 5，保证重试风暴下仍有槽位留给正常请求。 */
-        const val MAX_CONCURRENT_RETRIES = 3
+         *  必须 < 每主机并发上限 8（见 BcTls.imageLoaderClient），保证重试风暴下
+         *  仍有 ≥2 个槽位留给正常请求（v1.9.3 卡死事故的教训）。 */
+        const val MAX_CONCURRENT_RETRIES = 6
 
         /** 并发重试限额：tryAcquire 非阻塞获取，拿不到即放弃本次重试 */
         val retrySlots = Semaphore(MAX_CONCURRENT_RETRIES)
