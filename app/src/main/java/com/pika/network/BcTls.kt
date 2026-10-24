@@ -101,9 +101,13 @@ object BcTls {
     /** 供 PicaHttpEngine 等每请求路径复用同一份"只告警一次"逻辑 */
     fun warnFallbackShared() = warnFallbackOnce()
 
-    /** 供 Coil 图片加载使用（同样走 BC TLS，避免漫画图片被 Cloudflare 拦截） */
+    /** 供 Coil 图片加载使用（同样走 BC TLS，避免漫画图片被 Cloudflare 拦截）。
+     *  附带瞬时失败自动重试（连接重置/读写超时/5xx/限流）：同一次请求内部静默重试，
+     *  Coil/Compose 侧请求流不变，详见 RetryInterceptor 注释。 */
     val imageLoaderClient: OkHttpClient by lazy {
-        applyTo(OkHttpClient.Builder()).build()
+        applyTo(OkHttpClient.Builder())
+            .addInterceptor(com.pika.image.RetryInterceptor())
+            .build()
     }
 
     /**

@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,10 +68,8 @@ fun WebtoonSplitPage(
     var measuredRatio by remember(pageIndex) { mutableStateOf<Float?>(null) }
     val heightRatio: Float = measuredRatio ?: (safeSliceCount * viewportAspect)
 
-    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）。
-    // tick 同时驱动自动重试（PageAutoRetryEffect）与手动点击；(pageIndex, imageUrl) 重置
-    // 计数——切章时 item 键复用组合节点，防止上一章用尽的自动额度传染给新章同位置的页
-    val retry = rememberPageRetryState(pageIndex, imageUrl)
+    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
+    var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
     // 解码像素上限：单张位图高度封顶，防超长图整图解码 OOM 闪退；
     // 超出的部分按比例缩略，分割渲染仍完整展示，仅清晰度略降。
     // 上限按设备内存等级自适应（lowMemory 设备降到 4k，减轻 35MB/张 的位图压力）
@@ -78,7 +77,7 @@ fun WebtoonSplitPage(
     val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(LocalContext.current)
-            .data(if (retry.tick == 0) imageUrl else "$imageUrl#retry${retry.tick}")
+            .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
             // model 追加 fragment 会把默认缓存键一并漂移：显式固定为裸 URL，
             // 重试成功的结果能被其他切片/预取/回滚重建的 item 直接复用
             // （否则存进 #retryN 键下，回滚后请求裸 URL 全量重新下载）
@@ -92,9 +91,6 @@ fun WebtoonSplitPage(
     )
     // Coil 2.7 的 painter.state 是快照属性（getter 读内部 mutableStateOf），读取即订阅重组
     val state = painter.state
-
-    // Error 态自动重试：1s/2s/4s 退避共 3 次，用尽后回退「点击重试」手动态
-    PageAutoRetryEffect(state, retry)
 
     // 图片加载成功后用真实尺寸刷新宽高比，并上报切片数（仅首屏）
     val intrinsicSize = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
@@ -132,7 +128,7 @@ fun WebtoonSplitPage(
                     pageIndex = pageIndex,
                     contentScale = ContentScale.FillWidth,
                     fullHeightDp = with(density) { (widthPx * heightRatio).toDp() },
-                    retry = retry,
+                    onRetry = { retryTick++ },
                 )
             }
         } else {
@@ -151,14 +147,14 @@ fun WebtoonSplitPage(
                     contentScale = ContentScale.FillWidth,
                     fullHeightDp = totalHeightDp,
                     offsetY = -(sliceIndex * sliceHeightPx).roundToInt(),
-                    retry = retry,
+                    onRetry = { retryTick++ },
                 )
             }
         }
     }
 }
 
-/** 单切片内容：成功画图，加载中占位，失败先自动重试、额度用尽后可点击重试。 */
+/** 单切片内容：成功画图，加载中占位，失败可点击重试。 */
 @Composable
 private fun PageImage(
     painter: AsyncImagePainter,
@@ -166,7 +162,7 @@ private fun PageImage(
     pageIndex: Int,
     contentScale: ContentScale,
     fullHeightDp: androidx.compose.ui.unit.Dp,
-    retry: PageRetryState,
+    onRetry: () -> Unit,
     offsetY: Int = 0,
 ) {
     when (state) {
@@ -184,16 +180,11 @@ private fun PageImage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    // 自动重试等待中点击 = 立即手动重试（清零计数重新计满一轮）
-                    .clickable(onClick = retry::retryManually),
+                    .clickable(onClick = onRetry),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (retry.autoRetriesLeft) {
-                        "第 ${pageIndex + 1} 页加载失败\n正在自动重试…"
-                    } else {
-                        "第 ${pageIndex + 1} 页加载失败\n点击重试"
-                    },
+                    text = "第 ${pageIndex + 1} 页加载失败\n点击重试",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
                 )
