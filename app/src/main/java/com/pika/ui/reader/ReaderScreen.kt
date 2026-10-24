@@ -1276,7 +1276,7 @@ private fun ReaderBrightnessOverlay(brightnessProvider: () -> Float) {
     }
 }
 
-/** 横滑翻页模式的单页渲染：加载转圈占位、失败可点击重试（与滚动流体验对齐） */
+/** 横滑翻页模式的单页渲染：加载转圈占位、失败先自动重试、额度用尽后可点击重试（与滚动流体验对齐） */
 @Composable
 private fun PagerPage(
     pageIndex: Int,
@@ -1285,11 +1285,12 @@ private fun PagerPage(
 ) {
     val context = LocalContext.current
     val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
-    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（与 WebtoonSplitPage 同一手法）
-    var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
+    // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（与 WebtoonSplitPage 同一手法）。
+    // tick 同时驱动自动重试与手动点击；(pageIndex, imageUrl) 重置计数防跨章传染
+    val retry = rememberPageRetryState(pageIndex, imageUrl)
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
-            .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            .data(if (retry.tick == 0) imageUrl else "$imageUrl#retry${retry.tick}")
             // 缓存键固定为裸 URL：重试成功结果可被预取/其他页复用（与 WebtoonSplitPage 一致）
             .memoryCacheKey(imageUrl)
             .diskCacheKey(imageUrl)
@@ -1297,6 +1298,9 @@ private fun PagerPage(
             .build(),
     )
     val state = painter.state
+
+    // Error 态自动重试：1s/2s/4s 退避共 3 次，用尽后回退「点击重试」手动态
+    PageAutoRetryEffect(state, retry)
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when (state) {
@@ -1313,10 +1317,11 @@ private fun PagerPage(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "点击重试",
+                        text = if (retry.autoRetriesLeft) "正在自动重试…" else "点击重试",
                         color = Color.White,
                         style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.clickable { retryTick++ },
+                        // 自动重试等待中点击 = 立即手动重试（清零计数重新计满一轮）
+                        modifier = Modifier.clickable { retry.retryManually() },
                     )
                 }
             }
