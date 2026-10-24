@@ -72,7 +72,8 @@ object FollowSettings {
         while (list.any { it.createdAt == ts }) ts++
         list.add(0, FollowItem(keywords = words, tag = tag, createdAt = ts))
         val p = prefs ?: return
-        p.edit().putString(KEY_ITEMS, json.encodeToString(list)).commit()
+        // apply() 异步落盘：调用点在 UI 点击，commit() 会主线程同步 fsync（卡顿/ANR 风险）
+        p.edit().putString(KEY_ITEMS, json.encodeToString(list)).apply()
     }
 
     /**
@@ -89,6 +90,7 @@ object FollowSettings {
                     items().filterNot { it.keywords == item.keywords && it.tag == item.tag }
                 ),
             )
-            .commit()
+            // 同 addItem：异步落盘，不在主线程同步 fsync
+            .apply()
     }
 }

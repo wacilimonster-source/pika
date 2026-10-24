@@ -78,6 +78,11 @@ fun WebtoonSplitPage(
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(LocalContext.current)
             .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            // model 追加 fragment 会把默认缓存键一并漂移：显式固定为裸 URL，
+            // 重试成功的结果能被其他切片/预取/回滚重建的 item 直接复用
+            // （否则存进 #retryN 键下，回滚后请求裸 URL 全量重新下载）
+            .memoryCacheKey(imageUrl)
+            .diskCacheKey(imageUrl)
             .size(coil.size.Size(
                 width = Int.MAX_VALUE,
                 height = decodeHeightCap,

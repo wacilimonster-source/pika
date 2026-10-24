@@ -296,11 +296,15 @@ fun DownloadScreen(
                     }
                 }
             } else {
-                // 按漫画分组：漫画头卡片 + 展开的章节行
-                val grouped = tasks
-                    .groupBy { it.task.comicId }
-                    .entries
-                    .sortedByDescending { it.value.maxOfOrNull { t -> t.task.createdAt } ?: 0L }
+                // 按漫画分组：漫画头卡片 + 展开的章节行。
+                // remember(tasks)：tasks 每下载一页就发新 List,不缓存会在组合期
+                // 反复 O(n log n) 分组排序(批量下载整本时每页进度触发一次)
+                val grouped = remember(tasks) {
+                    tasks
+                        .groupBy { it.task.comicId }
+                        .entries
+                        .sortedByDescending { it.value.maxOfOrNull { t -> t.task.createdAt } ?: 0L }
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),

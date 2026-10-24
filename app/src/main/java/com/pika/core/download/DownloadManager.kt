@@ -496,6 +496,7 @@ object DownloadManager {
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
         conn.setRequestProperty("User-Agent", "okhttp/4.12.0")
+        var success = false
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
@@ -513,9 +514,12 @@ object DownloadManager {
                 tmp.delete()
                 throw e
             }
+            success = true
             return dest.length()
         } finally {
-            conn.disconnect()
+            // 成功路径不 disconnect：流已读尽并关闭，平台连接池会复用连接
+            // （整本下载 N 张图省 N-1 次 TCP+TLS 握手）；失败时流不可复用，保守断开
+            if (!success) conn.disconnect()
         }
     }
 

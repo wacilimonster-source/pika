@@ -16,6 +16,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,6 +31,30 @@ class ReaderViewModel : ViewModel() {
 
     private val _chapters = MutableStateFlow<List<ComicChapter>>(emptyList())
     val chapters: StateFlow<List<ComicChapter>> = _chapters
+
+    /** 已下载章节号集合（章节抽屉「已下载」角标）。
+     *  此前抽屉每个 item 在组合期调 isDownloaded()（内部 listFiles() 目录遍历），
+     *  长篇几百话时打开/滚动抽屉每行一次磁盘 IO；现改为章节列表或下载任务变化时
+     *  在 IO 线程重算一次（与详情页 ComicDetailViewModel.observeDownloaded 同范式）。 */
+    private val _downloadedOrders = MutableStateFlow<Set<Int>>(emptySet())
+    val downloadedOrders: StateFlow<Set<Int>> = _downloadedOrders.asStateFlow()
+
+    private var downloadedJob: Job? = null
+
+    /** 启动已下载章节的观测（幂等；comicId 随首次 load() 就绪，chapters 变化即触发重算） */
+    fun observeDownloaded() {
+        if (downloadedJob != null) return
+        downloadedJob = viewModelScope.launch(Dispatchers.IO) {
+            combine(_chapters, com.pika.core.download.DownloadManager.tasks) { chs, _ -> chs }
+                .collectLatest { chs ->
+                    val id = comicId
+                    _downloadedOrders.value = chs.asSequence()
+                        .map { it.order }
+                        .filter { com.pika.core.download.DownloadManager.isDownloaded(id, it) }
+                        .toSet()
+                }
+        }
+    }
 
     private val _epTitle = MutableStateFlow("")
     val epTitle: StateFlow<String> = _epTitle

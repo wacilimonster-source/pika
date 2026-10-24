@@ -108,7 +108,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
-import com.pika.core.download.DownloadManager
 import com.pika.data.ReaderPrefs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -145,11 +144,16 @@ fun ReaderScreen(
     // 当前章节号以 VM 为准：切章只改 VM，导航路由参数不变，
     // 上下话按钮/标题按路由算会错乱（第二次"下一话"失效、上一话跳错章）
     val vmOrder by viewModel.currentOrderFlow.collectAsState()
+    // 已下载章节集合：IO 线程预计算，抽屉不再逐行做目录遍历磁盘 IO
+    val downloadedOrders by viewModel.downloadedOrders.collectAsState()
 
     var scrollMode by remember { mutableStateOf(ReaderPrefs.current().readerMode == 0) }
     var showPanel by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(ReaderPrefs.current().brightness) }
     var zoomScale by remember { mutableFloatStateOf(1f) }
+    // 捏合期间 zoomScale 每帧变化：userScrollEnabled 派生为布尔，
+    // 只在跨过 1f 边界时才触发列表/翻页器重组（此前每帧重组整个阅读内容分支）
+    val scrollEnabled by remember { derivedStateOf { zoomScale <= 1f } }
     // 缩放平移偏移：双击放大后允许拖动查看画面边缘（否则放大后只能看正中央）
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
@@ -230,6 +234,10 @@ fun ReaderScreen(
     // ── 加载章节
     LaunchedEffect(ref, order) {
         viewModel.load(context, ref, order)
+    }
+    // 已下载章节观测（幂等，启动一次即可；随章节列表/下载任务变化自动重算）
+    LaunchedEffect(Unit) {
+        viewModel.observeDownloaded()
     }
 
     // ── 滚动流：页 ⇄ 行 换算（长图分割；纯函数见 WebtoonRows，可 JVM 单测） ──
@@ -803,7 +811,7 @@ fun ReaderScreen(
                     LazyColumn(
                         state = listState,
                         // 放大后关闭列表滚动，把拖拽交给上方的平移手势
-                        userScrollEnabled = zoomScale <= 1f,
+                        userScrollEnabled = scrollEnabled,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -870,7 +878,7 @@ fun ReaderScreen(
                         // （与 preloadNearby 互补：那边管网络预取，这边管渲染就绪）
                         beyondViewportPageCount = 1,
                         // 放大后关闭翻页滑动，把拖拽交给上方的平移手势，否则边缘内容看不全
-                        userScrollEnabled = zoomScale <= 1f,
+                        userScrollEnabled = scrollEnabled,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -904,14 +912,9 @@ fun ReaderScreen(
                 }
             }
 
-            // 亮度蒙层
-            if (brightness < 1f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = (1f - brightness).coerceIn(0f, 0.8f))),
-                )
-            }
+            // 亮度蒙层：亮度的高频读取隔离在子组件内——滑条拖动每帧变化时只重组
+            // 这一薄层，不再带动含列表/翻页器的整个内容作用域重组
+            ReaderBrightnessOverlay { brightness }
 
             // A7 首次点击分区引导：一次性覆盖层，点任意处消失并持久化
             if (pages.isNotEmpty() && !guideShown && !guideDismissed) {
@@ -1052,7 +1055,7 @@ fun ReaderScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                             }
-                            if (DownloadManager.isDownloaded(viewModel.comicId, chapter.order)) {
+                            if (chapter.order in downloadedOrders) {
                                 Text(
                                     text = "已下载",
                                     color = Color(0xFF8A8A8A),
@@ -1260,6 +1263,19 @@ private fun ReaderChapterEndCard(
     }
 }
 
+/** 亮度蒙层：以 lambda 读亮度，把高频状态订阅隔离在本组件的重组作用域内 */
+@Composable
+private fun ReaderBrightnessOverlay(brightnessProvider: () -> Float) {
+    val brightness = brightnessProvider()
+    if (brightness < 1f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = (1f - brightness).coerceIn(0f, 0.8f))),
+        )
+    }
+}
+
 /** 横滑翻页模式的单页渲染：加载转圈占位、失败可点击重试（与滚动流体验对齐） */
 @Composable
 private fun PagerPage(
@@ -1274,6 +1290,9 @@ private fun PagerPage(
     val painter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
             .data(if (retryTick == 0) imageUrl else "$imageUrl#retry$retryTick")
+            // 缓存键固定为裸 URL：重试成功结果可被预取/其他页复用（与 WebtoonSplitPage 一致）
+            .memoryCacheKey(imageUrl)
+            .diskCacheKey(imageUrl)
             .size(coil.size.Size(width = Int.MAX_VALUE, height = decodeHeightCap))
             .build(),
     )

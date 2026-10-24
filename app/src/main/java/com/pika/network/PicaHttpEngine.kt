@@ -177,6 +177,14 @@ class PicaHttpEngine(
         private val connection: HttpURLConnection,
     ) {
         val bodyString: String get() = body.toString(Charsets.UTF_8)
-        fun close() = connection.disconnect()
+
+        /**
+         * 2xx 时 body 已被完整读尽并关闭：不 disconnect，让平台 KeepAliveCache 复用连接
+         * （省去每个 API 请求一次完整 TCP+TLS 握手，BCJSSE 握手成本数倍于 Conscrypt）。
+         * 非 2xx 的 errorStream 无法保证读尽/可复用，保守断开。
+         */
+        fun close() {
+            if (code !in 200..299) connection.disconnect()
+        }
     }
 }
