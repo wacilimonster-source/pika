@@ -20,6 +20,10 @@ class PiKAApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 崩溃捕获最先安装：后续任何初始化阶段的崩溃都会落盘（含堆栈/日志尾部），
+        // 下次启动在 设置→调试日志 顶部可查看；看门狗记录主线程卡顿时刻的调用栈
+        com.pika.core.log.CrashReporter.install(this)
+        com.pika.core.log.MainThreadWatchdog.start()
         // 禁漫源下线一次性迁移：必须最先执行（先于一切缓存预热，见 JmRemovalMigration）
         com.pika.data.JmRemovalMigration.run(this)
         SourcePrefs.init(this)

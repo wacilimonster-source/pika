@@ -6,9 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -18,10 +21,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +40,7 @@ import android.content.Context
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pika.core.log.CrashReporter
 import com.pika.core.log.LogStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,6 +52,10 @@ fun LogScreen(onBack: () -> Unit) {
     val logs by LogStore.logs.collectAsState()
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
+    // 上次崩溃的报告（进程死亡前落盘，见 CrashReporter）：横幅 + 查看/复制/忽略
+    var crashReport by remember { mutableStateOf<String?>(null) }
+    var showCrashDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { crashReport = CrashReporter.pendingReport(context) }
 
     Scaffold(
         topBar = {
@@ -65,6 +75,40 @@ fun LogScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            crashReport?.let { report ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    tonalElevation = 2.dp,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            text = "检测到上次异常退出",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Text(
+                            text = "崩溃报告已保存（含堆栈、版本与崩溃前日志），建议复制后反馈",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Row {
+                            TextButton(onClick = { showCrashDialog = true }) { Text("查看") }
+                            TextButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("crash", report))
+                            }) { Text("复制") }
+                            TextButton(onClick = {
+                                CrashReporter.dismissReport(context)
+                                crashReport = null
+                            }) { Text("忽略") }
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,6 +157,28 @@ fun LogScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (showCrashDialog && crashReport != null) {
+        AlertDialog(
+            onDismissRequest = { showCrashDialog = false },
+            title = { Text("上次崩溃报告") },
+            text = {
+                Text(
+                    text = crashReport.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    modifier = Modifier
+                        .heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showCrashDialog = false }) { Text("关闭") }
+            },
+        )
     }
 
     if (showClearDialog) {
