@@ -103,8 +103,10 @@ class CoilRetryInterceptor : Interceptor {
         val BACKOFF_MS = longArrayOf(500L, 1500L, 3000L)
 
         /** 全进程同时处于「管线重试中」的请求上限。
-         *  退避为协程 delay 不占网络通道；限额只防失败风暴期的自愈风暴放大。 */
-        const val MAX_CONCURRENT = 8
+         *  退避为协程 delay 不占网络通道，实际并发由 OkHttp 每主机 8 兜底；
+         *  限额只防失败风暴期的自愈链放大。真实阅读可见页+预取可同时挂 8-10 路，
+         *  取 12 保证阵发期不因名额把可恢复的失败推给手动。 */
+        const val MAX_CONCURRENT = 12
 
         val slots = Semaphore(MAX_CONCURRENT)
     }

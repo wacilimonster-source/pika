@@ -55,7 +55,11 @@ class RetryInterceptor : Interceptor {
                         !call.isCanceled()
                     // 成功 / 确定性失败 / 额度用尽 / 已取消：原样交还调用方（不关闭）
                     if (!retryable) {
-                        if (slotHeld && attempt >= MAX_RETRIES) logGiveUp("HTTP ${response.code}", call)
+                        // 只有最终结果本身是失败才记「用尽」：重试后第 N 次尝试返回 2xx
+                        // 是「恢复成功」，绝不能记成失败（曾有 HTTP 200 误报教训）
+                        if (slotHeld && attempt >= MAX_RETRIES && !response.isSuccessful) {
+                            logGiveUp("HTTP ${response.code}", call)
+                        }
                         return response
                     }
                     if (!slotHeld && !retrySlots.tryAcquire()) {
