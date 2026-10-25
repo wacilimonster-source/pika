@@ -68,6 +68,7 @@ object CrashReporter {
     private const val CRASH_FILE = "last_crash.txt"
     private const val DIAG_FILE = "startup_diagnostic.txt"
     private const val FREEZE_FILE = "freeze.log"
+    private const val IMG_FAIL_FILE = "image_failures.log"
     private const val ALIVE_FILE = "last_alive.txt"
     private const val EXIT_SEEN_FILE = "last_exit_seen.txt"
 
@@ -77,10 +78,15 @@ object CrashReporter {
     @Volatile
     private var installed = false
 
+    /** 供落盘型记录接口使用（install 时持有 Application 上下文） */
+    @Volatile
+    private var appContext: Context? = null
+
     /** 在 Application.onCreate 最先调用。先汇总额上次会话的诊断证据，再装崩溃钩子。 */
     fun install(context: Context) {
         if (installed) return
         installed = true
+        appContext = context.applicationContext
         prepareStartupDiagnostics(context)
         if (pendingReport(context) != null) {
             LogStore.log(TAG, "E", "检测到上次会话异常证据（崩溃/退出原因/冻结记录），设置 → 调试日志 顶部可查看或复制")
@@ -121,6 +127,7 @@ object CrashReporter {
             file(context, CRASH_FILE).delete()
             file(context, DIAG_FILE).delete()
             file(context, FREEZE_FILE).delete()
+            file(context, IMG_FAIL_FILE).delete()
         }
     }
 
@@ -177,6 +184,14 @@ object CrashReporter {
                 sections += "--- 上次会话主线程冻结记录（≥4s 阻塞，看门狗落盘） ---\n$freeze"
             }
             writeText(context, FREEZE_FILE, "") // 已消费，防跨会话累积
+
+            // 4) 上次会话的图片加载失败记录（自动重试耗尽/受限）——LogStore 是内存态，
+            //    进程结束即丢；用户「复现后查日志」永远迟到一步，必须落盘才能取证
+            val imgFail = readText(context, IMG_FAIL_FILE)
+            if (!imgFail.isNullOrBlank()) {
+                sections += "--- 上次会话图片加载失败记录（自动重试耗尽/受限，RetryInterceptor 落盘） ---\n$imgFail"
+            }
+            writeText(context, IMG_FAIL_FILE, "")
 
             if (sections.isNotEmpty()) {
                 writeText(
@@ -263,6 +278,19 @@ object CrashReporter {
             file(context, ALIVE_FILE).writeText(
                 "${System.currentTimeMillis()} ${if (AppSessionState.isForeground) "fg" else "bg"}",
             )
+        }
+    }
+
+    /** [RetryInterceptor] 专用：图片自动重试耗尽/受限记录落盘。
+     *  LogStore 是内存态、随进程死亡清零——「复现后查日志」永远迟到一步，
+     *  落盘后随下次启动的诊断报告一并呈现，才能按失败原因继续调参。 */
+    fun appendImageFailure(text: String) {
+        val ctx = appContext ?: return
+        runCatching {
+            val f = file(ctx, IMG_FAIL_FILE)
+            // 防膨胀：超过 64KB 丢弃旧记录（保留最近一次会话量级即可）
+            if (f.length() > 64 * 1024) f.delete()
+            f.appendText("${fmtFull(System.currentTimeMillis())} $text\n")
         }
     }
 

@@ -1,6 +1,7 @@
 package com.pika.image
 
 import android.util.Log
+import com.pika.core.log.CrashReporter
 import com.pika.core.log.LogStore
 import okhttp3.Call
 import okhttp3.Interceptor
@@ -8,6 +9,7 @@ import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.Semaphore
+import kotlin.random.Random
 
 /**
  * 图片加载的瞬时失败自动重试（OkHttp 应用层）。
@@ -24,9 +26,9 @@ import java.util.concurrent.Semaphore
  *   HTTP 403/408/429/5xx（含 Cloudflare 520-526）。404 等确定性失败不重试。
  *   403 多为 Cloudflare 边缘节点瞬时拦截——换路重连即恢复（用户实测手动重试必然成功）；
  *   真死链 403 会被有限次重试后放弃，代价仅 ~5s 额外占用，可接受。
- * - 最多 3 次重试（共 4 次尝试），退避 400ms/1200ms/3000ms（总额外等待 ≈4.6s，
- *   与「用户注意到失败→手动点重试」的时间尺度对齐——v1.9.5 的 1.6s 窗口太短，
- *   弱网下大量页面等不到恢复就放弃，用户被迫手动重试）。
+ * - 最多 4 次重试（共 5 次尝试），退避 400ms/1200ms/3000ms/6000ms + 小抖动
+ *   （总额外等待 ≈10.6s——对齐「用户注意到失败→手动点重试」的时间尺度；
+ *   v1.9.5 的 1.6s 与 v1.9.6 的 4.6s 窗口实测仍偏短，真机仍有零星页面需手点）。
  * - **并发重试限额**：Coil 经 OkHttp enqueue 走异步调度器，受每主机并发上限约束
  *   （imageLoaderClient 已提至 8）。全进程最多 [MAX_CONCURRENT_RETRIES] 个请求可
  *   处于重试态：进入重试前 tryAcquire 信号量，拿不到名额就放弃重试、按无重试行为
@@ -34,7 +36,8 @@ import java.util.concurrent.Semaphore
  *   永远留给正常请求（v1.9.3 曾因重试占满默认 5 槽导致全屏卡死，此约束不可移除）。
  * - 取消感知：Coil 会在页面滚出屏幕/切章/退出阅读器时取消请求，被取消的调用
  *   必须立即放行，绝不重试（否则僵尸重试会顶着已销毁的协程继续打网络）。
- * - 重试用尽时把失败原因写入 LogStore（应用日志页可见），供后续按原因精准调参。
+ * - 重试用尽/受限时把失败原因写入 LogStore **并落盘**（CrashReporter.appendImageFailure，
+ *   LogStore 随进程死亡清零，落盘才能进入下次启动的诊断报告），供按原因精准调参。
  */
 class RetryInterceptor : Interceptor {
 
@@ -56,7 +59,9 @@ class RetryInterceptor : Interceptor {
                         return response
                     }
                     if (!slotHeld && !retrySlots.tryAcquire()) {
-                        LogStore.log(TAG, "W", "并发自动重试已满($MAX_CONCURRENT_RETRIES)，本次按普通失败交还（可手动重试）：HTTP ${response.code}")
+                        val msg = "并发自动重试已满($MAX_CONCURRENT_RETRIES)，本次按普通失败交还（可手动重试）：HTTP ${response.code} ${shortUrl(call)}"
+                        LogStore.log(TAG, "W", msg)
+                        CrashReporter.appendImageFailure(msg)
                         return response
                     }
                     slotHeld = true
@@ -84,10 +89,11 @@ class RetryInterceptor : Interceptor {
         }
     }
 
-    /** 退避等待；线程被中断时按取消处理，立即放弃重试（finally 释放限额名额） */
+    /** 退避等待（带 0-400ms 抖动，避免弱网恢复瞬间多页同步重试形成风暴）；
+     *  线程被中断时按取消处理，立即放弃重试（finally 释放限额名额） */
     private fun backoff(attempt: Int) {
         try {
-            Thread.sleep(BACKOFF_MS[attempt])
+            Thread.sleep(BACKOFF_MS[attempt] + Random.nextLong(0, 400))
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             throw InterruptedIOException("Retry backoff interrupted")
@@ -95,18 +101,21 @@ class RetryInterceptor : Interceptor {
     }
 
     private fun logRetry(attempt: Int, cause: String, call: Call) {
-        val url = call.request().url.toString().let { if (it.length > 140) "…${it.takeLast(140)}" else it }
-        val msg = "图片瞬时失败($cause)，${BACKOFF_MS[attempt]}ms 后第 ${attempt + 1} 次自动重试：$url"
+        val msg = "图片瞬时失败($cause)，${BACKOFF_MS[attempt]}ms 后第 ${attempt + 1} 次自动重试：${shortUrl(call)}"
         Log.i(TAG, msg)
         // 同步进应用日志页：崩溃报告会带上 LogStore 尾部，重试活动是排障关键证据
         LogStore.log(TAG, "I", msg)
     }
 
-    /** 自动重试额度用尽：记录失败原因（HTTP 码/异常类），供按原因统计与调参 */
+    /** 自动重试额度用尽：记录失败原因（HTTP 码/异常类）并落盘（进程死后可取证） */
     private fun logGiveUp(cause: String, call: Call) {
-        val url = call.request().url.toString().let { if (it.length > 140) "…${it.takeLast(140)}" else it }
-        LogStore.log(TAG, "W", "自动重试${MAX_RETRIES}次后仍失败($cause)，等待手动重试：$url")
+        val msg = "自动重试${MAX_RETRIES}次后仍失败($cause)，等待手动重试：${shortUrl(call)}"
+        LogStore.log(TAG, "W", msg)
+        CrashReporter.appendImageFailure(msg)
     }
+
+    private fun shortUrl(call: Call): String =
+        call.request().url.toString().let { if (it.length > 140) "…${it.takeLast(140)}" else it }
 
     /** 视为瞬时失败、值得重试的 HTTP 状态码：403（CF 边缘瞬时拦截）/ 请求超时 / 限流 / 5xx（含 CF 520-526） */
     private fun Int.isTransientHttpFailure(): Boolean =
@@ -115,11 +124,11 @@ class RetryInterceptor : Interceptor {
     private companion object {
         const val TAG = "RetryInterceptor"
 
-        /** 最多自动重试次数（共 4 次尝试） */
-        const val MAX_RETRIES = 3
+        /** 最多自动重试次数（共 5 次尝试） */
+        const val MAX_RETRIES = 4
 
-        /** 退避间隔：400ms/1200ms/3000ms（总额外等待 ≈4.6s，对齐手动重试的时间尺度） */
-        val BACKOFF_MS = longArrayOf(400L, 1200L, 3000L)
+        /** 退避间隔：400ms/1200ms/3000ms/6000ms（总额外等待 ≈10.6s，对齐手动重试的时间尺度） */
+        val BACKOFF_MS = longArrayOf(400L, 1200L, 3000L, 6000L)
 
         /** 全进程同时处于「自动重试中」的请求上限。
          *  必须 < 每主机并发上限 8（见 BcTls.imageLoaderClient），保证重试风暴下
