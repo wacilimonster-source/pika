@@ -2,6 +2,7 @@ package com.pika.image
 
 import android.util.Log
 import coil.intercept.Interceptor
+import coil.network.HttpException
 import coil.request.CachePolicy
 import coil.request.ErrorResult
 import coil.request.ImageRequest
@@ -41,14 +42,16 @@ class CoilRetryInterceptor : Interceptor {
         var attempt = 0
         var held = false
         try {
-            while (true) {
-                val result = chain.proceed(requestOf(request, attempt))
-                val error = (result as? ErrorResult)?.throwable
-                val retryable = error is IOException && attempt < MAX_RETRIES
-                if (!retryable) {
-                    if (error != null && attempt >= MAX_RETRIES) logGiveUp(error, request)
-                    return result
-                }
+        while (true) {
+            val result = chain.proceed(requestOf(request, attempt))
+            val error = (result as? ErrorResult)?.throwable
+            val retryable = error != null &&
+                error.isTransient() &&
+                attempt < MAX_RETRIES
+            if (!retryable) {
+                if (error != null && attempt >= MAX_RETRIES) logGiveUp(error, request)
+                return result
+            }
                 if (!held && !slots.tryAcquire()) {
                     val msg = "管线重试并发已满($MAX_CONCURRENT)，按失败交还（可手动重试）：${error.javaClass.simpleName} ${shortUrl(request)}"
                     Log.w(TAG, msg)
@@ -73,6 +76,17 @@ class CoilRetryInterceptor : Interceptor {
         } else {
             request
         }
+
+    /** 可重试的瞬时失败：IOException（体流中断/解码）与瞬时 HTTP 错误
+     *  （403 CF 边缘拦截/408/429/5xx）。HttpException 虽已由 RetryInterceptor
+     *  在同一调用内快重试过，但管线级重试另起新连接、时间窗口更长，覆盖
+     *  「阵发超过 10.6s」的场景；确定性失败（404 等）不重试 */
+    private fun Throwable.isTransient(): Boolean {
+        if (this is IOException) return true
+        if (this !is HttpException) return false
+        val code = response.code
+        return code == 403 || code == 408 || code == 429 || code in 500..599
+    }
 
     private fun logRetry(attempt: Int, error: Throwable, request: ImageRequest) {
         val msg = "图片管线失败(${error.javaClass.simpleName}: ${error.message})，${BACKOFF_MS[attempt]}ms 后第 ${attempt + 1} 次重试${if (attempt == FRESH_ATTEMPT) "（绕过磁盘缓存）" else ""}：${shortUrl(request)}"

@@ -20,9 +20,11 @@ import kotlin.coroutines.coroutineContext
  * 语义：
  * - 共享的是整条剩余链的结果（含内存缓存/磁盘/网络/解码），共享 [coil.request.SuccessResult]
  *   的 drawable 引用不产生位图拷贝；切片渲染本来就是同一份位图按偏移平移绘制。
- * - 等待者收到的若为异常（首领失败/被取消）则降级为自己执行：失败结果不缓存、
- *   用户点重试的请求永远新开执行，不会拿到陈旧的失败结果（ErrorResult 仍在
- *   合流窗口内共享——同一 URL 的并发请求同失败是合理结果，避免失败风暴放大）。
+ * - **失败结果不共享（v1.9.11 关键修复）**：首领失败（ErrorResult，含体流中断/解码/
+ *   HTTP 错误）时等待者不再直接接受失败，而是重新竞选首领自行下载（上限
+ *   [MAX_REELECT] 次后接受失败交给上层）——v1.9.1-1.9.10 的行为是把首领的一次
+ *   瞬时失败共享给全部切片，整页瞬间失败且不自愈，而 v1.9.0 的六路独立下载
+ *   天然有冗余掩盖网络抖动；本修复在保留合流省流量的同时恢复该冗余。
  * - 首领结束**先摘除窗口条目再唤醒等待者**（v1.9.6 修复：相反顺序在 Main.immediate
  *   内联恢复下会主线程活锁，见 intercept 内注释）。
  * - key 含解码尺寸：尺寸不同的请求（如网格封面按测量值各自定尺寸）互不共享，
@@ -35,6 +37,7 @@ class CoalescingInterceptor : Interceptor {
     override suspend fun intercept(chain: Interceptor.Chain): ImageResult {
         val request = chain.request
         val key = coalesceKey(request, chain)
+        var reelects = 0
         while (true) {
             val mine = CompletableDeferred<ImageResult>()
             val leader = inFlight.putIfAbsent(key, mine)
@@ -55,18 +58,33 @@ class CoalescingInterceptor : Interceptor {
                     .onFailure { mine.completeExceptionally(it) }
                 return outcome.getOrThrow()
             }
-            // 等待者：共享首领结果；首领失败/取消则重新竞选（首领已把自己摘除，
-            // 本协程大概率成为新首领）。取消必须甄别来源：只有自身被取消才放行——
-            // 快滚时首领切片滚出屏幕被 Coil 取消，同图其余切片仍可见，
-            // 不能把首领的取消传染给它们（否则可见页集体进错误态）
-            try {
-                return leader.await()
+            // 等待者：共享首领成功结果；首领失败（ErrorResult）/异常/取消则重新竞选。
+            // 取消必须甄别来源：只有自身被取消才放行——快滚时首领切片滚出屏幕被
+            // Coil 取消，同图其余切片仍可见，不能被传染。
+            val shared = try {
+                leader.await()
             } catch (e: CancellationException) {
                 coroutineContext.ensureActive()
+                null
             } catch (e: Exception) {
-                // 降级重试：走下一轮循环
+                // 首领以异常收场（罕见，引擎层通常把失败包装为 ErrorResult 返回）
+                null
             }
+            if (shared != null) {
+                // 失败结果不共享：等待者重新竞选自行下载（恢复 v1.9.0 六路冗余的
+                // 抗瞬时故障能力），限额防永久坏链被无限串联重下
+                if (shared !is coil.request.ErrorResult || reelects >= MAX_REELECT) {
+                    return shared
+                }
+                reelects++
+            }
+            // 循环：竞选新首领或等待新首领（循环即重新 putIfAbsent）
         }
+    }
+
+    private companion object {
+        /** 等待者对「首领失败结果」的最大重新竞选次数（防坏链无限串联重下） */
+        const val MAX_REELECT = 3
     }
 
     private fun coalesceKey(request: ImageRequest, chain: Interceptor.Chain): String {
