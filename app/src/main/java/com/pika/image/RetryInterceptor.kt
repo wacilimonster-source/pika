@@ -110,6 +110,8 @@ class RetryInterceptor : Interceptor {
     /** 自动重试额度用尽：记录失败原因（HTTP 码/异常类）并落盘（进程死后可取证） */
     private fun logGiveUp(cause: String, call: Call) {
         val msg = "自动重试${MAX_RETRIES}次后仍失败($cause)，等待手动重试：${shortUrl(call)}"
+        // Log.w 进 logcat：adb 实时排障（模拟器联调）时无需等落盘文件
+        Log.w(TAG, msg)
         LogStore.log(TAG, "W", msg)
         CrashReporter.appendImageFailure(msg)
     }

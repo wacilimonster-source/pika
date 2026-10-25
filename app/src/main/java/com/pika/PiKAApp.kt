@@ -54,7 +54,16 @@ class PiKAApp : Application() {
                 .okHttpClient(BcTls.imageLoaderClient)
                 // 在途请求合流：同 URL 同尺寸的并发请求只下载/解码一次（长图多切片、
                 // 网格同封面等场景，见 CoalescingInterceptor 类注释）
-                .components { add(com.pika.image.CoalescingInterceptor()) }
+                .components {
+                    // 错误取证放最外（记录最终结果，含 HTTP 层不可见的体流中断/解码失败）
+                    add(com.pika.image.ErrorLoggingInterceptor())
+                    // 管线级自动重试：覆盖体流中断/解码失败（RetryInterceptor 只见响应头，
+                    // 此类失败对 HTTP 层不可见——弱网「手点必好」的根因，见类注释）
+                    add(com.pika.image.CoilRetryInterceptor())
+                    // 在途请求合流：同 URL 同尺寸的并发请求只下载/解码一次（长图多切片、
+                    // 网格同封面等场景，见 CoalescingInterceptor 类注释）
+                    add(com.pika.image.CoalescingInterceptor())
+                }
                 // 全局图片淡入（A1）：所有 Coil 请求统一 ~150ms crossfade，
                 // 网格/详情/下载卡的封面不再生硬闪现；封面底色占位由各卡片的
                 // surfaceVariant 色块承担

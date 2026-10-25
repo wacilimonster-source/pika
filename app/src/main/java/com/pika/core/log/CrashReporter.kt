@@ -194,9 +194,12 @@ object CrashReporter {
             writeText(context, IMG_FAIL_FILE, "")
 
             if (sections.isNotEmpty()) {
+                // 带生成时间戳：报告在用户点「忽略」前会一直显示，
+                // 无时间戳会把上一轮的旧报告误当成新证据（真机已发生过一次）
                 writeText(
                     context, DIAG_FILE,
-                    "=== 上次会话诊断 ===\n" + sections.joinToString("\n\n"),
+                    "=== 上次会话诊断（生成于 ${fmtFull(System.currentTimeMillis())}） ===\n" +
+                        sections.joinToString("\n\n"),
                 )
             }
         } catch (t: Throwable) {
