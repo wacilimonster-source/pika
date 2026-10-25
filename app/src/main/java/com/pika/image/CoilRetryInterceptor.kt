@@ -27,10 +27,10 @@ import kotlinx.coroutines.delay
  * - 仅重试 [IOException] 形态（体流/解码）；HttpException（头层）已由
  *   RetryInterceptor 用尽预算，不重复（避免最坏 5×N 次网络尝试）。
  * - 第 1 次重试用原请求（500ms 后，可能命中健康缓存或合流新首领）；
- *   第 2 次禁用磁盘缓存读（2s 后），绕过可能被半截响应污染的缓存条目、
- *   强制完整新下载（成功后仍写回缓存）。
- * - 全进程并发重试限额（信号量 tryAcquire，拿不到名额直接按失败交还，
- *   行为等同无本拦截器；绝不占满网络通道——v1.9.3 卡死事故教训）。
+ *   第 2 次禁用磁盘缓存读（1.5s 后），绕过可能被半截响应污染的缓存条目；
+ *   第 3 次同上（3s 后），覆盖秒级阵发故障窗口（代理节点不稳的典型时长）。
+ * - 全进程并发重试限额 8：退避是协程 delay（不占网络通道/线程），限额仅防
+ *   失败风暴期无限自愈风暴；拿不到名额直接按失败交还，行为等同无本拦截器。
  * - 取消立即放行（页面滚出屏幕/切章时 proceed 抛 CancellationException，
  *   天然不重试）；delay 期间取消同理，finally 释放名额。
  */
@@ -66,9 +66,9 @@ class CoilRetryInterceptor : Interceptor {
         }
     }
 
-    /** 第 2 次重试绕过磁盘缓存读（防半截响应污染条目），成功仍写回 */
+    /** 第 2 次及以后的重试绕过磁盘缓存读（防半截响应污染条目），成功仍写回 */
     private fun requestOf(request: ImageRequest, attempt: Int): ImageRequest =
-        if (attempt == FRESH_ATTEMPT) {
+        if (attempt >= FRESH_ATTEMPT) {
             request.newBuilder().diskCachePolicy(CachePolicy.WRITE_ONLY).build()
         } else {
             request
@@ -93,17 +93,18 @@ class CoilRetryInterceptor : Interceptor {
     private companion object {
         const val TAG = "CoilRetry"
 
-        /** 最多管线级重试次数（共 3 次尝试） */
-        const val MAX_RETRIES = 2
+        /** 最多管线级重试次数（共 4 次尝试，总退避窗口 ≈5s） */
+        const val MAX_RETRIES = 3
 
-        /** 第 2 次重试（下标 2）绕过磁盘缓存 */
+        /** 第 2 次重试（下标 2）起绕过磁盘缓存 */
         const val FRESH_ATTEMPT = 2
 
-        /** 退避：第 1 次重试前 500ms，第 2 次前 2000ms */
-        val BACKOFF_MS = longArrayOf(500L, 2000L)
+        /** 退避：重试前 500ms / 1.5s / 3s */
+        val BACKOFF_MS = longArrayOf(500L, 1500L, 3000L)
 
-        /** 全进程同时处于「管线重试中」的请求上限（弱网故障期防止占满网络通道） */
-        const val MAX_CONCURRENT = 4
+        /** 全进程同时处于「管线重试中」的请求上限。
+         *  退避为协程 delay 不占网络通道；限额只防失败风暴期的自愈风暴放大。 */
+        const val MAX_CONCURRENT = 8
 
         val slots = Semaphore(MAX_CONCURRENT)
     }

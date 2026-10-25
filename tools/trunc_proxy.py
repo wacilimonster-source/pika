@@ -11,7 +11,7 @@ import threading
 UPSTREAM = ("127.0.0.1", 7897)
 LISTEN_PORT = 7899
 LIMIT = 65536    # 64KB 处掐断（图片通常几百 KB）
-COUNT = 60       # 影响前 60 条隧道
+COUNT = 120       # 影响前 60 条隧道
 
 count_lock = threading.Lock()
 affected = 0
