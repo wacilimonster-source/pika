@@ -180,6 +180,11 @@ class ReaderViewModel : ViewModel() {
             } catch (e: Exception) {
                 // 加载失败必须清空页面：切章失败若残留上一章内容，会顶着新章标题展示，
                 // 且当前页码会被防抖保存成新章的阅读进度（进度污染）
+                android.util.Log.e("ReaderLoad", "整章加载失败: ${e.javaClass.simpleName}: ${e.message} ref=$ref order=$order")
+                com.pika.core.log.LogStore.log(
+                    "ReaderLoad", "E",
+                    "整章加载失败(${e.javaClass.simpleName}: ${e.message}) ref=$ref order=$order — 界面上的「重试」即此处",
+                )
                 _pages.value = emptyList()
             } finally {
                 if (isActive) _loading.value = false

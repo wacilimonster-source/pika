@@ -92,6 +92,17 @@ fun WebtoonSplitPage(
     // Coil 2.7 的 painter.state 是快照属性（getter 读内部 mutableStateOf），读取即订阅重组
     val state = painter.state
 
+    // 渲染层失败留痕：图片管线的失败由 ErrorLoggingInterceptor 记录；本层再记一条
+    // 「画家态」失败（页号+URL），用于分辨「管线零失败但页面显示失败」的盲区
+    LaunchedEffect(state) {
+        if (state is AsyncImagePainter.State.Error) {
+            val t = state.result.throwable
+            val msg = "渲染层失败(第${pageIndex + 1}页): ${t.javaClass.simpleName}: ${t.message} <- $imageUrl"
+            android.util.Log.e("PainterErr", msg)
+            com.pika.core.log.LogStore.log("PainterErr", "E", msg)
+        }
+    }
+
     // 图片加载成功后用真实尺寸刷新宽高比，并上报切片数（仅首屏）
     val intrinsicSize = (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize
     LaunchedEffect(intrinsicSize) {

@@ -1298,6 +1298,16 @@ private fun PagerPage(
     )
     val state = painter.state
 
+    // 渲染层失败留痕（与 WebtoonSplitPage 同一盲区分辨用途，见其注释）
+    LaunchedEffect(state) {
+        if (state is AsyncImagePainter.State.Error) {
+            val t = state.result.throwable
+            val msg = "渲染层失败(横滑第${pageIndex + 1}页): ${t.javaClass.simpleName}: ${t.message} <- $imageUrl"
+            android.util.Log.e("PainterErr", msg)
+            com.pika.core.log.LogStore.log("PainterErr", "E", msg)
+        }
+    }
+
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when (state) {
             is AsyncImagePainter.State.Loading -> {

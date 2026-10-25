@@ -73,10 +73,21 @@ class CoalescingInterceptor : Interceptor {
             if (shared != null) {
                 // 失败结果不共享：等待者重新竞选自行下载（恢复 v1.9.0 六路冗余的
                 // 抗瞬时故障能力），限额防永久坏链被无限串联重下
-                if (shared !is coil.request.ErrorResult || reelects >= MAX_REELECT) {
-                    return shared
+                if (shared is coil.request.ErrorResult && reelects < MAX_REELECT) {
+                    reelects++
+                } else {
+                    // **必须以等待者自己的请求重建 result**（v1.9.12 根因修复）：
+                    // Coil 的 RealInterceptorChain 会在每个拦截器返回后校验
+                    // result.request.target 是否仍是本请求的——直接转交首领的
+                    // result 携带首领的 target，必然抛
+                    // 「Interceptor cannot modify the request's target」，
+                    // 画家进错误态且绕过一切日志（v1.9.1 起全部「页面失败、
+                    // 手点秒出」的本体）。copy 只换 request，drawable/缓存键照搬。
+                    return when (shared) {
+                        is coil.request.SuccessResult -> shared.copy(request = chain.request)
+                        is coil.request.ErrorResult -> shared.copy(request = chain.request)
+                    }
                 }
-                reelects++
             }
             // 循环：竞选新首领或等待新首领（循环即重新 putIfAbsent）
         }
