@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -173,6 +174,8 @@ fun PaginationBar(
 
     if (showJump) {
         AlertDialog(
+            // S14-9b：键盘弹出时抬升对话框，输入框/跳转按钮不被遮挡
+            modifier = Modifier.imePadding(),
             onDismissRequest = { showJump = false },
             title = { Text("跳转到指定页") },
             text = {

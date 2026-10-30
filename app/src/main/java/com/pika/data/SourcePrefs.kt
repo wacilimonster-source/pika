@@ -8,6 +8,7 @@ import com.pika.core.AppScope
 import com.pika.core.source.SourceType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 
 private val Context.dataStore by preferencesDataStore(name = "pika_prefs")
 
@@ -72,8 +73,12 @@ class SourcePrefs private constructor(private val appContext: Context) {
 
     // ---------- 设备 UUID（持久化，首次生成） ----------
 
+    /** 首启并发生成串行化（S14-6）：冷启动多请求并发首取时，无锁会让多个协程各生成
+     *  一个 uuid 交叉写入，会话内 app-uuid 短暂不一致（统计口径漂移，下次启动自愈） */
+    private val uuidMutex = kotlinx.coroutines.sync.Mutex()
+
     /** 协程上下文中的推荐入口：读盘/写盘均挂起，不阻塞调用线程 */
-    suspend fun getOrCreateAppUuidAsync(): String {
+    suspend fun getOrCreateAppUuidAsync(): String = uuidMutex.withLock {
         cachedAppUuid?.let { return it }
 
         val existing = appContext.dataStore.data.first()[Keys.APP_UUID]
@@ -85,7 +90,7 @@ class SourcePrefs private constructor(private val appContext: Context) {
         val uuid = java.util.UUID.randomUUID().toString()
         cachedAppUuid = uuid
         appContext.dataStore.edit { it[Keys.APP_UUID] = uuid }
-        return uuid
+        uuid
     }
 
     /** 同步版本：仅供热路径之外、无法改造为协程的调用方（优先用 [getOrCreateAppUuidAsync]） */

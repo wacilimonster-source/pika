@@ -40,6 +40,8 @@ class PicacgSource : Source {
         val data = PicaClient.safeCall {
             PicaClient.api.login(com.pika.network.LoginPayload(email = email, password = password))
         }
+        // 显式登录成功即恢复 401 静默重登能力（清除用户登出时置的标志，见 SourceManager.S2）
+        SourceManager.onLoginSuccess()
         SourcePrefs.current().setPicaLogin(token = data.token, email = email)
         // 账号变化可能带来分类权限差异，清一次内存缓存
         categoriesMutex.withLock { categoriesCache = null; categoriesAt = 0L }

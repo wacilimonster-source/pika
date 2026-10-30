@@ -99,13 +99,15 @@ object DownloadExporter {
     private val mutex = Mutex() // 同一时间只允许一个导出任务
 
     /**
-     * 开始导出。返回 false = 已有导出在进行（忽略本次请求）。
+     * 开始导出。返回 false = 已有导出在进行（忽略本次请求，由调用方提示）。
      * [uri] 为 SAF CreateDocument 返回的目标；[comicId] 从任务表聚合已完成章节。
+     *
+     * busy 时不再把 _state 覆写成 Error（S7）：那会让 Running 进度卡被错误文案
+     * 闪断覆盖，且这条 Error 随后会被下一章的 Running 替换、永不被消费。
      */
     fun start(context: Context, comicId: String, uri: Uri): Boolean {
         if (job?.isActive == true) {
             LogStore.log("DownloadExporter", "W", "export ignored: busy")
-            _state.value = ExportState.Error("已有导出任务在进行，请等它结束")
             return false
         }
         job = scope.launch {
@@ -119,6 +121,14 @@ object DownloadExporter {
     /** 取消导出。产物不完整（见类注释），UI 需明示用户重新导出。 */
     fun cancel() {
         job?.cancel()
+    }
+
+    /**
+     * 消费终态（S7）：Done/Error 提示展示完毕后由 UI 调用置空，
+     * 否则状态永驻——重进下载页 LaunchedEffect 会对旧值再弹一次（提示重放）。
+     */
+    fun consume() {
+        _state.value = null
     }
 
     private suspend fun runExport(context: Context, comicId: String, uri: Uri) {

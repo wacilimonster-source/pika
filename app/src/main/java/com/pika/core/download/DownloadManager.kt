@@ -26,9 +26,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
-/** 下载任务状态 */
+/** 下载任务状态。CANCELED 曾是死枚举（无任何写入点）已移除——
+ *  @Serializable 枚举：历史 manifest 从未写入过该值（persist 一直过滤），删除安全 */
 @Serializable
-enum class DlStatus { PENDING, DOWNLOADING, COMPLETED, FAILED, CANCELED }
+enum class DlStatus { PENDING, DOWNLOADING, COMPLETED, FAILED }
 
 /** 持久化任务描述 */
 @Serializable
@@ -307,6 +308,15 @@ object DownloadManager {
     // ── 调度 ──────────────────────────────────────────────────────────────
 
     /**
+     * 「仅 Wi-Fi 下载」开关变化后的重调度（S14-3）：关闭开关时让排队中的任务立即
+     * 补位启动（pump 幂等，重复调用无副作用）；开启开关不杀运行中任务，
+     * 已运行任务继续到完成，后续任务由网络恢复/下次 pump 把关。
+     */
+    fun notifyWifiOnlyChanged() {
+        pump()
+    }
+
+    /**
      * 把空闲并发槽补满：单次 pump 可能启动多个任务（此前每次只启动 1 个，
      * 导致 CONCURRENCY 名存实亡、整本下载实为串行）。
      */
@@ -401,6 +411,10 @@ object DownloadManager {
                         .filter { it.task.comicId == t.comicId }
                         .let { list -> list.isNotEmpty() && list.all { it.isFinished } }
                     if (allDone) notifyComplete(t)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 任务被删除/重新入队/重试接管而取消（cancelRun）不是失败：
+                    // 放行，绝不把 PENDING 覆写成 FAILED（S11；与 CoroutineExt 约定一致）
+                    throw e
                 } catch (e: Exception) {
                     mutex.withLock {
                         _tasks.value = _tasks.value.map {
@@ -530,7 +544,6 @@ object DownloadManager {
         try {
             manifestFile().parentFile?.mkdirs()
             val tasks = _tasks.value
-                .filter { it.status != DlStatus.CANCELED }
                 .map { it.task }
             // 先写临时文件再原子替换：直接覆写时进程被杀会把清单截断，
             // 下次恢复为空列表后任意一次 persist 又用空内容覆盖，全部任务记录丢失
@@ -549,13 +562,16 @@ object DownloadManager {
         }
     }
 
-    private fun restoreTasks() {
+    private suspend fun restoreTasks() {
         val f = manifestFile()
         if (!f.exists()) return
         try {
             val saved: List<DownloadTask> =
                 json.decodeFromString(ListSerializer(DownloadTask.serializer()), f.readText())
-            _tasks.value = saved.map { task ->
+            // 目录清理/页数统计/字节遍历都是慢 IO，在锁外构建恢复清单；
+            // 合并入表在锁内完成——冷启动窗口内的 enqueue 也持同一把锁，
+            // 裸赋值整表覆盖会把窗口内用户刚入队的任务清空（S3：点了下载却没反应）
+            val restored = saved.map { task ->
                 val dir = chapterDir(task.comicId, task.order)
                 // 清理上次运行残留的 .part 半成品：不计入页数，也不再占空间
                 dir.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
@@ -572,6 +588,12 @@ object DownloadManager {
                     totalBytes = bytes,
                     error = if (finished) "" else "上次未完成，可重试",
                 )
+            }
+            mutex.withLock {
+                val current = _tasks.value
+                val keys = current.mapTo(HashSet()) { it.key }
+                // 内存里已有的任务（窗口期内入队/重置）是最新意图，优先保留；仅补入缺失的
+                _tasks.value = current + restored.filter { it.key !in keys }
             }
         } catch (e: Exception) {
             // 恢复失败必须可见：静默吞掉会让内存列表为空，之后任意一次 persist

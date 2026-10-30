@@ -70,9 +70,13 @@ fun WebtoonSplitPage(
 
     // 失败重试：改变 model（追加 fragment）强制 Coil 重新请求（HTTP 请求不受 fragment 影响）
     var retryTick by remember(pageIndex) { mutableIntStateOf(0) }
-    // 解码像素上限：单张位图高度封顶，防超长图整图解码 OOM 闪退；
-    // 超出的部分按比例缩略，分割渲染仍完整展示，仅清晰度略降。
-    // 上限按设备内存等级自适应（lowMemory 设备降到 4k，减轻 35MB/张 的位图压力）
+    // 解码像素上限：宽高都封顶，防超大图整图解码后「Canvas: trying to draw too
+    // large bitmap」直接闪退（P1，v1.9.13 回归实测：13830×8192 的超宽长图 = 108MB，
+    // 超过 Android Canvas 100MB 上限）。此前只限制高度，宽度传 Int.MAX_VALUE
+    // 表示不约束——超宽图（跨页彩图/长条扫描）会解码成巨图。
+    // 宽度上限 2160：典型手机屏宽 ~1080，留 2 倍余量；与高度上限组合的最坏位图
+    // 2160×8192×4 ≈ 70MB（<100MB Canvas 上限），低内存档更小。
+    // 上限按设备内存等级自适应（lowMemory 设备高度降到 4k，减轻位图压力）
     val context = LocalContext.current
     val decodeHeightCap = remember(context) { maxDecodeHeightPx(context) }
     val painter = rememberAsyncImagePainter(
@@ -84,7 +88,7 @@ fun WebtoonSplitPage(
             .memoryCacheKey(imageUrl)
             .diskCacheKey(imageUrl)
             .size(coil.size.Size(
-                width = Int.MAX_VALUE,
+                width = MAX_DECODE_WIDTH_PX,
                 height = decodeHeightCap,
             ))
             .build(),
@@ -226,6 +230,12 @@ internal fun computeSliceCount(imageHeightRatio: Float, viewportAspect: Float): 
 
 /** 单张位图解码高度上限（px）：1080 宽 × 8192 高 ≈ 35MB */
 private const val MAX_DECODE_HEIGHT_PX = 8192
+
+/** 单张位图解码宽度上限（px）：超宽图（跨页彩图/长条扫描）必须同样封顶，
+ *  否则 13830×8192 这类图解码成 108MB 位图，绘制时触发
+ *  「Canvas: trying to draw too large bitmap」闪退（Android Canvas 上限 100MB）。
+ *  2160 覆盖 1080 屏宽的 2 倍余量，与高度上限组合的最坏位图约 70MB。 */
+internal const val MAX_DECODE_WIDTH_PX = 2160
 
 /**
  * 按设备内存等级自适应解码上限：

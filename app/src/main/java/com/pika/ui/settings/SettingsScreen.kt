@@ -213,9 +213,22 @@ fun SettingsScreen(
                     .collectAsState(initial = com.pika.data.DownloadPrefs.notifyEnabled)
                 val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
                     .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
+                val context = androidx.compose.ui.platform.LocalContext.current
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
-                ) { }
+                ) { granted ->
+                    // S4：开关状态必须跟随真实权限授予结果。此前回调为空体——用户在系统
+                    // 弹窗点「拒绝」后 Switch 仍显示开启，实际一条通知都不会发，
+                    // 且权限已拒绝后系统也不再弹申请，用户无从自救。
+                    scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(granted) }
+                    if (!granted) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "未授予通知权限：下载完成将不会有系统通知，可在系统设置中开启",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
                 ListItem(
                     headlineContent = { Text("下载完成通知") },
                     supportingContent = { Text("整本下载完成后发送系统通知") },
@@ -224,11 +237,13 @@ fun SettingsScreen(
                             checked = notifyEnabled,
                             onCheckedChange = { enabled ->
                                 if (enabled && android.os.Build.VERSION.SDK_INT >= 33) {
+                                    // 授予结果由上方回调写入：不再无条件置 true
                                     notifPermissionLauncher.launch(
                                         android.Manifest.permission.POST_NOTIFICATIONS,
                                     )
+                                } else {
+                                    scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(enabled) }
                                 }
-                                scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(enabled) }
                             },
                         )
                     },
@@ -244,6 +259,8 @@ fun SettingsScreen(
                             checked = wifiOnly,
                             onCheckedChange = {
                                 scope.launch { com.pika.data.DownloadPrefs.setWifiOnly(it) }
+                                // 开关变化即时重调度：关闭「仅 Wi-Fi」后流量网络下的排队任务立刻补位启动（S14-3）
+                                com.pika.core.download.DownloadManager.notifyWifiOnlyChanged()
                             },
                         )
                     },
@@ -429,9 +446,11 @@ private fun UpdateSection() {
                         // 下载转入后台继续：对话框可关，进度在 UpdateManager 里不丢
                         TextButton(onClick = { dialogOpen = false }) { Text("后台运行") }
                     }
-                    else -> {
-                        TextButton(onClick = { dialogOpen = false }) { Text("关闭") }
+                    state == UpdateUiState.Downloaded -> {
+                        TextButton(onClick = { dialogOpen = false }) { Text("稍后安装") }
                     }
+                    // 其余状态 confirmButton 已是「关闭」：不再重复渲染第二个「关闭」
+                    else -> null
                 }
             },
         )

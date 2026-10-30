@@ -61,14 +61,37 @@ object SourceManager {
     // 裸 check-then-act 的 reloginInProgress 无同步，会重复 login（浪费并可能触发风控）
     private val reloginMutex = Mutex()
 
+    /**
+     * 用户主动登出后的短标志：为 true 时 [onUnauthorized] 不再做静默重登。
+     *
+     * 背景（幽灵会话）：登出默认保留凭据（供下次一键填充），在途请求（关注流分页/
+     * 资料刷新）的 401 会触发 onUnauthorized 用保留凭据静默 login → token 写回，
+     * 体验为「点了退出但实际还登录着」。置位后 401 一律按已登出处理；
+     * 下一次成功登录（用户显式登录或凭据重登成功）清除标志。
+     */
+    @Volatile
+    private var loggingOut = false
+
+    /** 登录成功后清除登出标志（恢复 401 静默重登能力）。由各源 login() 调用 */
+    fun onLoginSuccess() {
+        loggingOut = false
+    }
+
     suspend fun onUnauthorized(type: SourceType = _activeSource.value) {
         if (!reloginMutex.tryLock()) return
         try {
+            if (loggingOut) {
+                // 刚退出登录后的在途 401：不重登（否则复活会话），确保登出状态即可
+                sources.getValue(type).logout()
+                if (type == _activeSource.value) _unauthorizedTick.update { it + 1 }
+                return
+            }
             val creds = com.pika.data.SecureAccountStore.load(type)
             if (creds != null) {
                 try {
                     sources.getValue(type).login(creds.first, creds.second)
-                    // 静默恢复成功，无需登出
+                    // 静默恢复成功，无需登出；凭据重登也算一次成功登录
+                    loggingOut = false
                     Log.d("SourceManager", "silent re-login ok: $type")
                     return
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -112,6 +135,8 @@ object SourceManager {
     /** 用户主动登出：默认保留保存的凭据（下次登录可一键填充/静默恢复） */
     suspend fun logout(deleteSavedCredentials: Boolean = false) {
         val type = _activeSource.value
+        // 先置登出标志再清 token：窗口期内任何在途 401 都不得用保留凭据复活会话（S2）
+        loggingOut = true
         if (deleteSavedCredentials) {
             com.pika.data.SecureAccountStore.clear(type)
         }

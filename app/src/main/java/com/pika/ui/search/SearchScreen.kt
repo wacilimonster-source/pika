@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -406,12 +408,18 @@ fun SearchScreen(
     }
 
     if (showTagSheet && tags.isNotEmpty()) {
+        // 词表可达性修复（N1，与 FollowManageScreen 的 BUG-05 修法一致）：
+        // 哔咔非 Web 分类返回 60–90 个标签，此前塞进不可滚动的 FlowRow——
+        // ModalBottomSheet 内容超高即裁剪，尾部标签不可见也不可点。改为：
+        // 限高 + 纵向滚动 + 顶部即时过滤输入框
+        var tagFilter by remember { mutableStateOf("") }
         ModalBottomSheet(onDismissRequest = { showTagSheet = false }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp),
             ) {
                 Text(
                     text = "标签筛选",
@@ -423,30 +431,60 @@ fun SearchScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 12.dp),
-                ) {
-                    FilterChip(
-                        selected = selectedTag == null,
-                        onClick = {
-                            showTagSheet = false
-                            filterPage = 1
-                            viewModel.selectTag(null)
-                        },
-                        label = { Text("全部") },
-                    )
-                    tags.forEach { tag ->
+                OutlinedTextField(
+                    value = tagFilter,
+                    onValueChange = { tagFilter = it },
+                    singleLine = true,
+                    placeholder = { Text("过滤标签") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+                val visibleTags = tagFilter.trim().takeIf { it.isNotEmpty() }
+                    ?.let { q -> tags.filter { it.contains(q, ignoreCase = true) } }
+                    ?: tags
+                if (visibleTags.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 96.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "没有匹配「${tagFilter.trim()}」的标签",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
                         FilterChip(
-                            selected = selectedTag == tag,
+                            selected = selectedTag == null,
                             onClick = {
                                 showTagSheet = false
                                 filterPage = 1
-                                viewModel.selectTag(tag)
+                                viewModel.selectTag(null)
                             },
-                            label = { Text(tag) },
+                            label = { Text("全部") },
                         )
+                        visibleTags.forEach { tag ->
+                            FilterChip(
+                                selected = selectedTag == tag,
+                                onClick = {
+                                    showTagSheet = false
+                                    filterPage = 1
+                                    viewModel.selectTag(tag)
+                                },
+                                label = { Text(tag) },
+                            )
+                        }
                     }
                 }
             }

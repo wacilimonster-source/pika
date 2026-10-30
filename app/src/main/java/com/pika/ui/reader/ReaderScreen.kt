@@ -445,8 +445,13 @@ fun ReaderScreen(
 
     // 本话读完一次性轻提示：不打断阅读，短暂展示并可一键进入下一话。
     // atEndMirror 变化时触发（进入/离开结束区）；endNotified 保证每章只提示一次。
-    LaunchedEffect(atEndMirror.value) {
-        if (atEndMirror.value && !endNotified.value && pages.isNotEmpty()) {
+    // key 与条件都含 restoring（S5）：切到更短章节的瞬间 Pager/LazyList 把当前位置
+    // 钳位到新上限（虚拟结束页/结束卡行），恢复定位尚未滚回——此时 atEnd 是假的，
+    // 误弹「本话已读完」且消耗掉 endNotified，用户之后真正读完反而不再提示；
+    // 恢复完成（restoring 翻回 false）后 effect 以新 key 组合重跑：若真在末尾
+    // （如拖进度条直达最后页）仍会正确提示，不丢真实通知。
+    LaunchedEffect(atEndMirror.value, restoring.value) {
+        if (atEndMirror.value && !endNotified.value && pages.isNotEmpty() && !restoring.value) {
             endNotified.value = true
             val result = snackbarHostState.showSnackbar(
                 message = when {
@@ -850,6 +855,11 @@ fun ReaderScreen(
                                 )
                             } else {
                                 val (pageIndex, sliceIndex) = sliceOfRow(row)
+                                // S10：组合期快照章号。旧章切片的解析回调可能在切章后的
+                                // 亚帧窗口才执行（事件期读 vmOrder 已是新章号）——按快照
+                                // 比对，跨章回调一律丢弃；sliceBatch 键用快照（旧章计数
+                                // 归旧章，与"键自带章 order"的批注同一语义）。
+                                val orderSnapshot = vmOrder
                                 WebtoonSplitPage(
                                     pageIndex = pageIndex,
                                     imageUrl = pages[pageIndex].imageUrl,
@@ -859,10 +869,12 @@ fun ReaderScreen(
                                     splitEnabled = true,
                                     isPrimary = sliceIndex == 0,
                                     onSliceCountResolved = { p, n ->
-                                        sliceCounts[p] = n
+                                        if (orderSnapshot == vmOrder) {
+                                            sliceCounts[p] = n
+                                        }
                                         // 批量落盘（见 sliceBatch）：切章边界/退出阅读器时合并写
                                         if (n > 1) {
-                                            sliceBatch.getOrPut(vmOrder) { mutableMapOf() }[p] = n
+                                            sliceBatch.getOrPut(orderSnapshot) { mutableMapOf() }[p] = n
                                         }
                                     },
                                 )
@@ -1293,7 +1305,12 @@ private fun PagerPage(
             // 缓存键固定为裸 URL：重试成功结果可被预取/其他页复用（与 WebtoonSplitPage 一致）
             .memoryCacheKey(imageUrl)
             .diskCacheKey(imageUrl)
-            .size(coil.size.Size(width = Int.MAX_VALUE, height = decodeHeightCap))
+            // 宽高双封顶（与 WebtoonSplitPage 一致）：只限高度时超宽图会解码成
+            // 100MB+ 位图，绘制触发「Canvas: trying to draw too large bitmap」闪退
+            .size(coil.size.Size(
+                width = MAX_DECODE_WIDTH_PX,
+                height = decodeHeightCap,
+            ))
             .build(),
     )
     val state = painter.state

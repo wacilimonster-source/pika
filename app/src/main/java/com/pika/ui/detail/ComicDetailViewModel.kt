@@ -1,5 +1,8 @@
 package com.pika.ui.detail
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicChapter
@@ -142,7 +145,9 @@ class ComicDetailViewModel : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    var commentSupported: Boolean = true
+    // S14-2：能力位必须是 Compose 状态——普通 var 变化不触发重组，评论不支持/
+    // 收藏不支持时对应 UI（入口/按钮）的隐藏会滞后到下一次无关重组才生效
+    var commentSupported: Boolean by mutableStateOf(true)
         private set
 
     /** 本地历史进度（上次阅读到第几话第几页），无则 null */
@@ -319,7 +324,7 @@ class ComicDetailViewModel : ViewModel() {
     }
 
     // ── 收藏 ──────────────────────────────────────────────────────────────
-    private var favouriteSupported: Boolean = true
+    private var favouriteSupported: Boolean by mutableStateOf(true)
     private val _favourited = MutableStateFlow(false)
     val favourited: StateFlow<Boolean> = _favourited
 
@@ -378,9 +383,15 @@ class ComicDetailViewModel : ViewModel() {
             try {
                 val result = src().comments(comicId, page)
                 if (gen != loadGeneration) return@launch
-                _comments.value = if (page == 1) result.items else _comments.value + result.items
+                // 追加前按 id 去重：分页漂移产生的重复评论会让 LazyColumn key 重复而闪退
+                _comments.value = if (page == 1) result.items
+                else (_comments.value + result.items).distinctBy { it.id }
                 _commentEndReached.value = page >= result.pages
                 commentPage = page
+                // S15：以服务端回传的 isLiked 播种点赞基线（此前该字段从未消费，
+                // 对已赞评论的首次点击会被当「点赞」发出，服务端实际切成取消赞）
+                val liked = result.items.filter { it.isLiked }.map { it.id }
+                _likedComments.value = if (page == 1) liked.toSet() else (_likedComments.value + liked).toSet()
             } catch (e: UnsupportedOperationException) {
                 commentSupported = false
                 _commentError.value = null

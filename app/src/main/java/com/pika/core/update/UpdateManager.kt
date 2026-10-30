@@ -87,8 +87,12 @@ object UpdateManager {
         if (_downloadUi.value is DownloadUi.Downloading) return
         downloadJob?.cancel()
         val appContext = context.applicationContext
+        // S12：Downloading 置位提到调用点**同步**完成——此前置位在 launch 协程体内，
+        // 「检查状态→置位」跨异步边界，更新弹窗与横幅同帧双击会让两个下载协程齐跑、
+        // 同写一个 APK（SHA-256 会拦住坏包，但表现为下载两次+校验失败）。同步置位后
+        // 第二次调用在第一行即被拦截，平滑复用同一进度。
+        _downloadUi.value = DownloadUi.Downloading(0f, 0L, -1L)
         downloadJob = downloadScope.launch {
-            _downloadUi.value = DownloadUi.Downloading(0f, 0L, -1L)
             try {
                 val apk = downloadAndVerify(appContext, info) { p, done, total ->
                     _downloadUi.value = DownloadUi.Downloading(p, done, total)
@@ -140,26 +144,17 @@ object UpdateManager {
 
     /**
      * 检查更新：拉取远端信息并对比版本号。
+     *
+     * S13：检查链路双源——raw.githubusercontent.com 主源（ts 查询参数防 CDN 边缘
+     * 缓存），失败自动尝试 jsDelivr 镜像（与 APK 下载的双源对齐，被墙/限速网络下
+     * 检查不再单点）。注意 jsDelivr 对 gh 分支有较长缓存，发版流程需按 C1 清单
+     * purge 该镜像 URL，否则兜底源可能短期返回旧版本号。
      */
     suspend fun checkResult(): CheckResult = withContext(Dispatchers.IO) {
         // 网络失败与"更新信息格式错误"分开归因：update.json 损坏时报"网络异常"会误导排障
-        val text = try {
-            val urlWithTs = "$UPDATE_URL?ts=${System.currentTimeMillis()}"
-            val request = Request.Builder()
-                .url(urlWithTs)
-                .cacheControl(CacheControl.FORCE_NETWORK)
-                .build()
-            client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    return@withContext CheckResult.Failed("网络异常或服务器未就绪（HTTP ${resp.code}）")
-                }
-                resp.body?.string().orEmpty()
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return@withContext CheckResult.Failed("网络异常或服务器未就绪")
-        }
+        val text = fetchUpdateJson("$UPDATE_URL?ts=${System.currentTimeMillis()}")
+            ?: jsDelivrUpdateUrl()?.let { fetchUpdateJson(it) }
+            ?: return@withContext CheckResult.Failed("网络异常或服务器未就绪（主源与镜像均不可达）")
         val info = try {
             json.decodeFromString(UpdateInfo.serializer(), text)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -173,6 +168,29 @@ object UpdateManager {
         }
         if (!isNewer(info.version, currentVersionName)) return@withContext CheckResult.UpToDate
         CheckResult.Available(info)
+    }
+
+    /** 拉取 update.json 原文；任何失败（HTTP 非 2xx / IO / 空）返回 null 交由调用方换源 */
+    private fun fetchUpdateJson(url: String): String? = try {
+        val request = Request.Builder()
+            .url(url)
+            .cacheControl(CacheControl.FORCE_NETWORK)
+            .build()
+        client.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) null else resp.body?.string()?.takeIf { it.isNotBlank() }
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+
+    /** 由 raw 直链 UPDATE_URL 推导 jsDelivr 镜像地址（非 raw 形态返回 null，无兜底源） */
+    private fun jsDelivrUpdateUrl(): String? {
+        val m = Regex("https://raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)")
+            .find(UPDATE_URL) ?: return null
+        val (owner, repo, branch, file) = m.destructured
+        return "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$file"
     }
 
     /**

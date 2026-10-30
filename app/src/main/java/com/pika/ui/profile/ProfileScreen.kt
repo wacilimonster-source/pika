@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -82,7 +83,11 @@ fun ProfileScreen(
             scope.launch {
                 try {
                     val ctx = context.applicationContext
-                    val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    // S9：读整文件（≤5MB）同样必须切 IO——scope 是 Main 调度器，
+                    // 主线程同步读大图会冻结 UI，低端机有 ANR 风险
+                    val bytes = withContext(Dispatchers.IO) {
+                        ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }
                     if (bytes != null && bytes.size <= 5 * 1024 * 1024) {
                         loading = true
                         error = null
@@ -364,6 +369,8 @@ private fun EditTextDialog(
 ) {
     var value by remember { mutableStateOf(initial) }
     AlertDialog(
+        // S14-9b：键盘弹出时抬升对话框，输入框/确定按钮不被遮挡
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -393,6 +400,8 @@ private fun ChangePasswordDialog(
     var confirm by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
+        // S14-9b：键盘弹出时抬升对话框，三段输入/确定按钮不被遮挡
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = { Text("修改密码") },
         text = {

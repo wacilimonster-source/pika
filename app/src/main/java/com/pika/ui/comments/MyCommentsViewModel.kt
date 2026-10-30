@@ -33,7 +33,9 @@ class MyCommentsViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val result = SourceManager.current().myComments(p)
-                _comments.value = if (p == 1) result.items else _comments.value + result.items
+                // 追加前按 id 去重：分页漂移产生的重复条目会让 LazyColumn key 重复而闪退
+                _comments.value = if (p == 1) result.items
+                else (_comments.value + result.items).distinctBy { it.id }
                 endReached = p >= result.pages
                 page = p
             } catch (e: UnsupportedOperationException) {

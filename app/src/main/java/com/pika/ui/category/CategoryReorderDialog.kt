@@ -61,6 +61,9 @@ fun CategoryReorderDialog(
     var dragOffsetY by remember { mutableStateOf(0f) }
     // 当前悬浮的目标索引
     var hoverIndex by remember { mutableStateOf<Int?>(null) }
+    // S14-8：真实行高查询——48dp 假设与实际行高（内边距/字体缩放）有偏差，
+    // 快速拖动时按估算换位会错位累积；优先用被拖项的实测高度，测量不到再回退
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -74,6 +77,7 @@ fun CategoryReorderDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.heightIn(max = 400.dp),
                 ) {
                     // 提供稳定 key（分类 id）：否则拖拽重排后列表项状态会错位
@@ -141,7 +145,12 @@ fun CategoryReorderDialog(
                                             val currentId = draggedId ?: return@detectDragGesturesAfterLongPress
                                             val currentIdx = order.indexOfFirst { it.first == currentId }
                                             if (currentIdx < 0) return@detectDragGesturesAfterLongPress
-                                            val itemHeight = 48.dp.toPx()
+                                            // S14-8：优先取被拖项的实测高度（含字体缩放/内边距），
+                                            // 取不到（快速甩出可视区）回退 48dp 估算
+                                            val itemHeight = listState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.key == currentId }
+                                                ?.size?.toFloat()?.takeIf { it > 0f }
+                                                ?: 48.dp.toPx()
                                             val targetIdx = (currentIdx + (dragOffsetY / itemHeight).roundToInt())
                                                 .coerceIn(0, order.size - 1)
                                             hoverIndex = targetIdx

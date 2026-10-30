@@ -59,6 +59,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import com.pika.core.download.DlStatus
 import com.pika.core.download.DownloadManager
 import com.pika.core.download.DownloadExporter
@@ -86,23 +87,32 @@ fun DownloadScreen(
     val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
         .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     // 导出（P3 #3）：点导出 → SAF CreateDocument 选位置 → 下载器流式写 zip。
     // pendingExport = 待导出 (comicId, 标题)；partialExportConfirm = 部分完成时先确认
     var pendingExport by remember { mutableStateOf<Pair<String, String>?>(null) }
     var partialExportConfirm by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // S14-9a：SAF 弹窗在途标志——连续两击「导出」此前会叠两层系统文件选择器
+    var exportLaunching by remember { mutableStateOf(false) }
     val exportState by DownloadExporter.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri ->
+        exportLaunching = false
         val request = pendingExport
         pendingExport = null
         if (uri != null && request != null) {
-            DownloadExporter.start(context, request.first, uri)
+            val started = DownloadExporter.start(context, request.first, uri)
+            if (!started) {
+                // S7：busy 拒绝不再写 Error 态覆盖 Running 卡，由本页轻提示
+                scope.launch { snackbarHostState.showSnackbar("已有导出任务在进行，请等它结束") }
+            }
         }
     }
-    // 导出完成 → Snackbar 附「分享」一键转发 zip（A12）；失败保持原提示
+    // 导出完成 → Snackbar 附「分享」一键转发 zip（A12）；失败保持原提示。
+    // 终态展示完毕即 consume（S7）：否则 Done/Error 永驻，重进本页会对旧值重放一次
     LaunchedEffect(exportState) {
         when (val s = exportState) {
             is DownloadExporter.ExportState.Done -> {
@@ -111,6 +121,7 @@ fun DownloadScreen(
                     actionLabel = "分享",
                     duration = SnackbarDuration.Long,
                 )
+                DownloadExporter.consume()
                 if (result == SnackbarResult.ActionPerformed && s.uri != null) {
                     runCatching {
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
@@ -124,15 +135,20 @@ fun DownloadScreen(
             }
             is DownloadExporter.ExportState.Error -> {
                 snackbarHostState.showSnackbar(s.message)
+                DownloadExporter.consume()
             }
             else -> {}
         }
     }
 
-    // 下载失败可一键重试（A12）：diff 出新增的 FAILED 任务弹提示。
+    // 下载失败可一键重试（A12）：diff 出新增的 FAILED 任务弹提示（N3 事件化）。
+    // diff 只做纯计算（随 tasks 刷新重启无副作用），Snackbar 展示放在以「事件态」
+    // 为 key 的独立 effect——此前展示与 diff 同 effect，批量下载中 tasks 每页进度
+    // 都发新 List 令 effect 每秒重启、把在途 Snackbar 撤下，用户来不及点「重试」。
     // 首个非空快照只建基线（重启恢复会把未完成任务标为 FAILED，不该一进页就弹）
     var knownFailedKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var failedBaselineReady by remember { mutableStateOf(false) }
+    var newlyFailedEvent by remember { mutableStateOf<Set<String>?>(null) }
     LaunchedEffect(tasks) {
         val failed = tasks.filter { it.status == DlStatus.FAILED }.map { it.key }.toSet()
         if (!failedBaselineReady) {
@@ -145,14 +161,19 @@ fun DownloadScreen(
         val newlyFailed = failed - knownFailedKeys
         knownFailedKeys = failed
         if (newlyFailed.isNotEmpty()) {
-            val result = snackbarHostState.showSnackbar(
-                message = "${newlyFailed.size} 个任务下载失败",
-                actionLabel = "重试",
-                duration = SnackbarDuration.Long,
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                newlyFailed.forEach { DownloadManager.retry(it) }
-            }
+            newlyFailedEvent = newlyFailed
+        }
+    }
+    LaunchedEffect(newlyFailedEvent) {
+        val failed = newlyFailedEvent ?: return@LaunchedEffect
+        newlyFailedEvent = null // 先消费再展示：展示期间新失败可再次触发（同键去重由 StateFlow 语义保证）
+        val result = snackbarHostState.showSnackbar(
+            message = "${failed.size} 个任务下载失败",
+            actionLabel = "重试",
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            failed.forEach { DownloadManager.retry(it) }
         }
     }
 
@@ -353,7 +374,9 @@ fun DownloadScreen(
                                 val title = group.firstOrNull()?.task?.comicTitle ?: comicId
                                 if (done < group.size) {
                                     partialExportConfirm = comicId to title
-                                } else {
+                                } else if (!exportLaunching) {
+                                    // S14-9a：SAF 在途期禁点，连续两击不再叠两层文件选择器
+                                    exportLaunching = true
                                     pendingExport = comicId to title
                                     exportLauncher.launch(suggestedZipName(title))
                                 }
@@ -412,8 +435,11 @@ fun DownloadScreen(
             confirmButton = {
                 TextButton(onClick = {
                     partialExportConfirm = null
-                    pendingExport = comicId to title
-                    exportLauncher.launch(suggestedZipName(title))
+                    if (!exportLaunching) {
+                        exportLaunching = true
+                        pendingExport = comicId to title
+                        exportLauncher.launch(suggestedZipName(title))
+                    }
                 }) { Text("导出已完成") }
             },
             dismissButton = {

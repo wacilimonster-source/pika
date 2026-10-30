@@ -49,7 +49,9 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         val resp = engine.execute(method, path, query, bodyJson)
         try {
             if (resp.code !in 200..299) {
-                throw PicaException("${resp.code}: ${resp.bodyString}", httpCode = resp.code)
+                // S14-5：响应体可能是 CDN 返回的整页 HTML，原文进错误提示/日志既刷屏又无用，
+                // 截断为摘要（保留头部，足够辨认网关错误类型）
+                throw PicaException("${resp.code}: ${resp.bodyString.take(200)}${if (resp.bodyString.length > 200) "…" else ""}", httpCode = resp.code)
             }
             return parseResponse(resp)
         } finally {

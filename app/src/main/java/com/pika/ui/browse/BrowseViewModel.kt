@@ -60,6 +60,10 @@ class BrowseViewModel : ViewModel() {
     /** 已拉取的原始数据（未过滤/未重排），供筛选与排序使用 */
     private val rawItems = mutableListOf<ComicSummary>()
 
+    /** rawItems 已包含的作品标识（去重哨兵）：服务端分页漂移时同一 id 会出现在两页，
+     *  原样追加会让 ComicGridView 的 key=ref 重复而闪退 */
+    private val rawKeys = HashSet<String>()
+
     private var category: String? = null
 
     /** 已加载数据的标识（源+分类，由界面传入）：从详情返回重组时相同且有数据则跳过重载，保留累积分页与滚动状态 */
@@ -145,7 +149,10 @@ class BrowseViewModel : ViewModel() {
             _loading.value = true
             _error.value = null
             try {
-                if (!append) rawItems.clear()
+                if (!append) {
+                    rawItems.clear()
+                    rawKeys.clear()
+                }
                 if (token != loadToken) return@launch
                 val p = page.coerceAtLeast(1)
                 val result = SourceManager.current().browse(
@@ -156,7 +163,8 @@ class BrowseViewModel : ViewModel() {
                     tag = _tag.value,
                 )
                 if (token != loadToken) return@launch
-                rawItems += result.items
+                // add() 既是去重判定也是登记：分页漂移产生的重复 id 在此被丢弃
+                rawItems += result.items.filter { rawKeys.add(it.ref) }
                 _currentPage.value = p
                 _totalPages.value = result.pages.coerceAtLeast(1)
                 _endReached.value = p >= result.pages
@@ -208,6 +216,7 @@ class BrowseViewModel : ViewModel() {
 
     private fun reload() {
         rawItems.clear()
+        rawKeys.clear()
         _comics.value = emptyList()
         _error.value = null
         _endReached.value = false

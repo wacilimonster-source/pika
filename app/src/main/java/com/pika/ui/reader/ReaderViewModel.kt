@@ -361,7 +361,9 @@ class ReaderViewModel : ViewModel() {
             loader.enqueue(
                 ImageRequest.Builder(context)
                     .data(url)
-                    .size(coil.size.Size(width = Int.MAX_VALUE, height = cap))
+                    // 宽高双封顶，必须与展示请求完全一致（同 memoryCacheKey 共用缓存条目；
+                    // 尺寸不一致会让预取解码结果以错误尺寸进入缓存）
+                    .size(coil.size.Size(width = 2160, height = cap))
                     .memoryCacheKey(url)
                     .diskCacheKey(url)
                     .build()

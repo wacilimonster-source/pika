@@ -289,6 +289,11 @@ class SearchViewModel : ViewModel() {
         val categories = if (tagFilter == null) emptyList() else listOf(tagFilter)
         coroutineScope {
             val semaphore = Semaphore(multiConcurrency)
+            // S6：失败必须可见——此前各阶段请求失败被 runCatching 吞成「空结果」，
+            // 与「该词真的没有结果」不可区分，交集偏小甚至为空且无任何提示/重试。
+            // 这里分别记录「请求失败次数」与「是否被限流提前打断」，最终透出。
+            var fetchFailures = 0
+            var rateLimited = false
             // 注意：async 必须挂在 coroutineScope 的 this 上（结构化并发）。
             // 原实现误用外部 viewModelScope，导致 await 抛异常时这些子协程不被取消，
             // 会继续发请求并往共享容器塞数据，污染下一次搜索。
@@ -298,6 +303,7 @@ class SearchViewModel : ViewModel() {
                     val first = com.pika.core.runCatchingCancellable {
                         searchWithRetry(source, word, startPage, categories)
                     }.getOrNull()
+                    // 探测失败不计数：pages 回退 1 后阶段 2 会重拉该词第 1 页，可自愈
                     word to (first?.pages ?: 1).coerceIn(1, 50)
                 }
             }
@@ -310,14 +316,22 @@ class SearchViewModel : ViewModel() {
 
             // 阶段 1：拉每词起始页，建立初始交集
             for (word in words) {
-                if (rateLimitCooldownExceeded()) break
+                if (rateLimitCooldownExceeded()) {
+                    rateLimited = true
+                    break
+                }
                 val page = (wordProgress[word] ?: 0) + 1
-                val items = semaphore.withPermit {
+                val resp = semaphore.withPermit {
                     delay(250)
                     com.pika.core.runCatchingCancellable {
                         searchWithRetry(source, word, page, categories)
-                    }.getOrNull()?.items ?: emptyList()
+                    }.getOrNull()
                 }
+                if (resp == null) {
+                    fetchFailures++
+                    continue
+                }
+                val items = resp.items
                 if (items.isNotEmpty()) {
                     wordIdSets[word]?.addAll(items.map { it.id })
                     _multiAllComics.addAll(items)
@@ -337,7 +351,10 @@ class SearchViewModel : ViewModel() {
                 // 服务端已进入限流冷却：继续请求必然全失败，且会不断续期冷却时间
                 // （此前无此检查，一次多词搜索最坏 150 个请求，把自己打进全局冷却，
                 //   连累首页/排行榜/详情一起长时间不可用）
-                if (rateLimitCooldownExceeded()) break
+                if (rateLimitCooldownExceeded()) {
+                    rateLimited = true
+                    break
+                }
                 val pendingWords = wordPageCounts.filter { (w, totalPages) ->
                     (wordProgress[w] ?: 0) < totalPages
                 }
@@ -347,17 +364,22 @@ class SearchViewModel : ViewModel() {
                 val pageJobs = pendingWords.map { (w, _) ->
                     async {
                         val nextPage = (wordProgress[w] ?: 0) + 1
-                        val items = semaphore.withPermit {
+                        val resp = semaphore.withPermit {
                             delay(250)
                             com.pika.core.runCatchingCancellable {
                                 searchWithRetry(source, w, nextPage, categories)
-                            }.getOrNull()?.items ?: emptyList()
+                            }.getOrNull()
                         }
-                        w to items
+                        w to resp
                     }
                 }
                 for (job in pageJobs) {
-                    val (w, items) = job.await()
+                    val (w, resp) = job.await()
+                    if (resp == null) {
+                        fetchFailures++
+                        continue
+                    }
+                    val items = resp.items
                     if (items.isNotEmpty()) {
                         _multiAllComics.addAll(items)
                         wordIdSets[w]?.addAll(items.map { it.id })
@@ -375,6 +397,18 @@ class SearchViewModel : ViewModel() {
             // 全部拉完，发布最终结果
             if (words == _activeSearchWords) {
                 publishFinalResult(_confirmedIntersectionIds)
+                // S6：最终交集为空且确有失败/限流时，把原因写进 searchError——
+                // 空态会显示原因与「点击重试」；交集非空时保持静默（失败面无展示出口，
+                // 且已有结果可看，不打扰）。真正零结果的搜索不写错误（fetchFailures==0）。
+                if (_comics.value.isEmpty() && _searchError.value == null) {
+                    _searchError.value = when {
+                        rateLimited && fetchFailures > 0 ->
+                            "触发限流且有 $fetchFailures 次请求失败，多词检索提前停止，结果可能不完整"
+                        rateLimited -> "触发服务端限流，多词检索提前停止，结果可能不完整"
+                        fetchFailures > 0 -> "多词检索有 $fetchFailures 次请求失败，结果可能不完整"
+                        else -> null
+                    }
+                }
             }
         }
     }
@@ -530,7 +564,9 @@ class SearchViewModel : ViewModel() {
                         categories = if (_selectedTag.value == null) emptyList() else listOf(_selectedTag.value!!),
                     )
                     if (_keyword.value != keyword) return@launch
-                    _comics.value = _comics.value + result.items
+                    // 追加前按 ref 去重：服务端分页漂移（高峰期条目插入/删除导致页边界移动）
+                    // 会让同一 id 出现在两页，原样拼接会让 ComicGridView 的 key=ref 重复而闪退
+                    _comics.value = (_comics.value + result.items).distinctBy { it.ref }
                     _totalPages.value = result.pages.coerceAtLeast(1)
                     _currentPage.value = next
                     _endReached.value = next >= result.pages

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -519,6 +520,8 @@ private fun CommentDialog(
 ) {
     var input by remember { mutableStateOf("") }
     AlertDialog(
+        // S14-9b：键盘弹出时抬升对话框，输入框/按钮不被遮挡
+        modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
         title = { Text(if (replyingTo != null) "回复评论" else "写评论") },
         text = {

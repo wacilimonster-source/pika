@@ -62,14 +62,18 @@ fun LoginScreen(
     var rememberPassword by remember { mutableStateOf(com.pika.data.SecureAccountStore.saveEnabled) }
     // 已保存账号（邮箱仅用于展示，非敏感）
     var savedEmail by remember(activeSource) { mutableStateOf(SourceManager.savedAccountEmail()) }
+    // S8：用户已手动输入过任何字段则放弃自动回填——Keystore 解密在后台线程，
+    // 完成时用户可能已开始输入别的账号，无条件覆盖会冲掉用户已输入的内容
+    var userEdited by remember { mutableStateOf(false) }
     LaunchedEffect(activeSource) {
         // 邮箱不涉及敏感信息，直接回填；密码仅在「保存账号密码」开启时回填
         val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             com.pika.data.SecureAccountStore.load(activeSource)
         }
-        if (saved != null) {
-            email = saved.first
-            if (rememberPassword) password = saved.second
+        if (saved != null && !userEdited) {
+            // 双保险：即便未 userEdited，也只填充当前为空的字段，绝不覆盖已有输入
+            if (email.isBlank()) email = saved.first
+            if (rememberPassword && password.isBlank()) password = saved.second
         }
     }
 
@@ -100,7 +104,10 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = {
+                userEdited = true
+                email = it
+            },
             label = { Text("账号邮箱") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -108,7 +115,10 @@ fun LoginScreen(
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = {
+                userEdited = true
+                password = it
+            },
             label = { Text("密码") },
             singleLine = true,
             // 默认掩码：此前缺失该属性，打开登录页即明文显示已保存密码（截图/旁人可见）
