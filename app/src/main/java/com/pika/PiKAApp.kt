@@ -36,6 +36,7 @@ class PiKAApp : Application() {
         com.pika.data.AuthorFavourites.init(this)
         com.pika.data.FollowSettings.init(this)
         com.pika.data.FollowFeedCache.init(this)
+        com.pika.data.RankCache.init(this)
         com.pika.data.UpdatedAtCache.init(this)
         com.pika.data.SearchHistory.init(this)
         com.pika.data.SecureAccountStore.init(this)

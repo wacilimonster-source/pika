@@ -243,6 +243,7 @@ class HomeViewModel : ViewModel() {
                 val list = SourceManager.current().rank(type)
                 if (gen != rankGeneration) return@launch   // 已被更新的选择取代，丢弃
                 _rankComics.value = list
+                runCatching { com.pika.data.RankCache.save(type, list) }
                 rankLoadedAt = System.currentTimeMillis()
                 // 刷新完成（换榜/强刷均适用）：通知 UI 回到顶部，从新版第 1 名开始展示
                 _rankRefreshTick.value++
@@ -251,10 +252,31 @@ class HomeViewModel : ViewModel() {
             } catch (e: Exception) {
                 if (gen != rankGeneration) return@launch
                 if (!force) _rankComics.value = emptyList()
-                _rankError.value = e.message ?: "加载排行榜失败"
+                var msg = e.message ?: "加载排行榜失败"
+                // 服务端故障降级：整页报错改为展示上次成功的缓存榜单，横幅注明新鲜度
+                // 让用户能分辨这不是实时数据（首次使用无缓存时仍是整页错误 + 重试）
+                val cached = if (!force && _rankComics.value.isEmpty()) {
+                    runCatching { com.pika.data.RankCache.load(type) }.getOrNull()
+                } else null
+                if (cached != null) {
+                    _rankComics.value = cached.second
+                    msg += "；当前显示${formatCacheAge(cached.first)}的缓存榜单"
+                }
+                _rankError.value = msg
             } finally {
                 if (gen == rankGeneration) _rankLoading.value = false
             }
+        }
+    }
+
+    /** 缓存榜单的新鲜度描述（错误横幅用），如「3 小时前」 */
+    private fun formatCacheAge(at: Long): String {
+        val age = (System.currentTimeMillis() - at).coerceAtLeast(0L)
+        return when {
+            age < 60_000L -> "刚刚"
+            age < 3_600_000L -> "${age / 60_000L} 分钟前"
+            age < 86_400_000L -> "${age / 3_600_000L} 小时前"
+            else -> "${age / 86_400_000L} 天前"
         }
     }
 

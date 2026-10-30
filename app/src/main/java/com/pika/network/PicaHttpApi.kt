@@ -49,6 +49,16 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         val resp = engine.execute(method, path, query, bodyJson)
         try {
             if (resp.code !in 200..299) {
+                if (resp.code >= 500) {
+                    // 服务端故障（如 2026-10 Redis MISCONF 全量 500）：原始错误体是给
+                    // 服务端运维看的（截断后 JSON 半截话），对用户只是噪音且不可读，
+                    // 转成可读提示；原文进 LogStore 供诊断
+                    com.pika.core.log.LogStore.log(
+                        "PicaHttpApi", "E",
+                        "HTTP ${resp.code} $path: ${resp.bodyString.take(300)}",
+                    )
+                    throw PicaException("哔咔服务端暂时不可用（HTTP ${resp.code}），请稍后重试", httpCode = resp.code)
+                }
                 // S14-5：响应体可能是 CDN 返回的整页 HTML，原文进错误提示/日志既刷屏又无用，
                 // 截断为摘要（保留头部，足够辨认网关错误类型）
                 throw PicaException("${resp.code}: ${resp.bodyString.take(200)}${if (resp.bodyString.length > 200) "…" else ""}", httpCode = resp.code)
