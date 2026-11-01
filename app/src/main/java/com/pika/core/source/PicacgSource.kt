@@ -1,6 +1,7 @@
 package com.pika.core.source
 
 import com.pika.core.log.LogStore
+import com.pika.core.model.AuthorMatcher
 import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicDetail
@@ -26,6 +27,9 @@ import kotlinx.coroutines.sync.withPermit
 /** 批量分页拉取的请求节拍（与搜索批量路径一致的 250ms） */
 private const val PICA_REQUEST_INTERVAL_MS = 250L
 
+/** 作者片段检索：整页被客户端过滤为空时，最多继续顺延的页数（避免用户看到整页空白） */
+private const val AUTHOR_EMPTY_PAGE_LOOKAHEAD = 3
+
 /**
  * 哔咔源：包装 PicaClient，映射为统一模型。
  */
@@ -35,6 +39,14 @@ class PicacgSource : Source {
 
     override val isLoggedIn: Boolean
         get() = !SourcePrefs.current().picaToken.isNullOrEmpty()
+
+    /**
+     * 已确认需要走 `a` 参数兜底的作者查询。
+     *
+     * 仅缓存「关键词搜索整页为空、但 `a` 精确匹配有结果」的片段：换一个作者仍优先走关键词，
+     * 避免一次兜底把整个源的后续查询都降级成精确匹配。上限 64 条，防止无限增长。
+     */
+    private val authorBrowseQueries = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun login(email: String, password: String) {
         val data = PicaClient.safeCall {
@@ -173,6 +185,85 @@ class PicacgSource : Source {
     override suspend fun hotWords(): List<String> {
         val data = PicaClient.safeCall { PicaClient.api.hotSearch() }
         return data.keywords
+    }
+
+    /**
+     * 作者片段检索：关键词搜索 + 客户端「author 字段包含」校验。
+     *
+     * 走搜索接口而不是 `a` 参数，是因为关注流已实测「以作者名为关键词可匹配该作者作品」；
+     * `a` 是否为子串匹配尚未验证。关键词会命中标题/标签，因此必须二次过滤。
+     * 整页过滤为空时顺延下一页（最多 3 页），避免分页出现整页空白。
+     */
+    override suspend fun authorWorks(
+        query: String,
+        page: Int,
+        sort: ComicSort,
+    ): PageResult<ComicSummary> {
+        val keyword = query.trim()
+        if (keyword.isEmpty()) return PageResult(emptyList(), page = page, pages = 1)
+
+        // 该片段已确认关键词路径不可用：直接走 `a` 参数，保证翻页不会从第 2 页起变空
+        if (authorBrowseQueries.contains(keyword)) {
+            return browseAuthorPage(keyword, page, sort)
+        }
+
+        var serverPage = page
+        var lookahead = 0
+        var pages = 1
+        val items = mutableListOf<ComicSummary>()
+        while (true) {
+            val data = PicaClient.safeCall {
+                PicaClient.api.search(
+                    page = serverPage,
+                    body = SearchPayload(
+                        keyword = keyword,
+                        sort = sort.toPicaSort().name.lowercase(),
+                    ),
+                )
+            }
+            pages = data.comics.pages.coerceAtLeast(1)
+            items += data.comics.docs
+                .map { it.toDoc().toSummary() }
+                .filter { AuthorMatcher.matches(it.author, keyword) }
+
+            if (items.isNotEmpty() || serverPage >= pages || lookahead >= AUTHOR_EMPTY_PAGE_LOOKAHEAD) break
+            serverPage++
+            lookahead++
+        }
+        // 搜索无结果时用旧的 `a` 参数兜底：若服务端 `a` 支持子串匹配，可以救回
+        // 「关键词只命中标题、作者字段则为空」这一灰区；失败/仍为空则如实返回空态
+        if (items.isEmpty() && page == 1) {
+            val fallback = com.pika.core.runCatchingCancellable {
+                browseAuthorPage(keyword, page = 1, sort = sort)
+            }.getOrNull()
+            if (fallback != null && fallback.items.isNotEmpty()) {
+                if (authorBrowseQueries.size >= 64) authorBrowseQueries.clear()
+                authorBrowseQueries.add(keyword)
+                return fallback
+            }
+        }
+        return PageResult(
+            items = items.distinctBy { it.id },
+            // 返回实际生效页（可能因空页顺延而后移），UI 页码据此对齐，避免跨页重复
+            page = serverPage,
+            pages = pages,
+        )
+    }
+
+    /** `a` 参数兜底：仍做一次作者字段包含校验，防止服务端把参数当模糊查询而混入无关作品 */
+    private suspend fun browseAuthorPage(
+        keyword: String,
+        page: Int,
+        sort: ComicSort,
+    ): PageResult<ComicSummary> {
+        val result = browse(page = page, category = null, sort = sort, author = keyword, tag = null)
+        return PageResult(
+            items = result.items
+                .filter { AuthorMatcher.matches(it.author, keyword) }
+                .distinctBy { it.id },
+            page = result.page.coerceAtLeast(1),
+            pages = result.pages.coerceAtLeast(1),
+        )
     }
 
     override suspend fun comicDetail(id: String): ComicDetail {

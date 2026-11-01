@@ -190,6 +190,12 @@ private class StampedSource(
         return if (d.source == stampWith) d else d.copy(source = stampWith)
     }
 
+    override suspend fun authorWorks(
+        query: String,
+        page: Int,
+        sort: ComicSort,
+    ): PageResult<ComicSummary> = delegate.authorWorks(query, page, sort).stamp()
+
     override suspend fun favourites(page: Int): PageResult<ComicSummary> =
         delegate.favourites(page).stamp()
 

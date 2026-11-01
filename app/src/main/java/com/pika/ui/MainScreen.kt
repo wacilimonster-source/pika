@@ -72,7 +72,9 @@ private fun restoreRouteFor(entry: androidx.navigation.NavBackStackEntry?): Stri
         pattern.startsWith("category/{") ->
             entry.arguments?.getString("categoryId")?.let { "category/${Uri.encode(it)}" }
         pattern.startsWith("author/{") ->
-            entry.arguments?.getString("author")?.let { "author/${Uri.encode(it)}" }
+            entry.arguments?.getString("author")?.let { author ->
+                authorRoute(author, entry.arguments?.getString("origin"))
+            }
         pattern.startsWith("reader/") ->
             entry.arguments?.getString("ref")?.let { ref ->
                 readerRoute(ref, entry.arguments?.getInt("order") ?: 1)
@@ -90,6 +92,19 @@ private fun restoreRouteFor(entry: androidx.navigation.NavBackStackEntry?): Stri
  * 历史裸 id 仍可用（按哔咔解释），见 ComicRef.parse。
  */
 private fun comicRoute(ref: String) = "comic/${Uri.encode(ref)}"
+
+/**
+ * 作者页路由。[query] 是实际检索的署名片段，[origin] 是完整原署名（用于副标题与回退）。
+ * origin 缺省或与 query 相同时不拼参数，保持旧路由 `author/{author}` 兼容。
+ */
+private fun authorRoute(query: String, origin: String? = null): String {
+    val base = "author/${Uri.encode(query)}"
+    return if (origin.isNullOrBlank() || origin == query) {
+        base
+    } else {
+        "$base?origin=${Uri.encode(origin)}"
+    }
+}
 
 /** 阅读器路由，[ref] 同上 */
 private fun readerRoute(ref: String, order: Int) = "reader/${Uri.encode(ref)}/$order"
@@ -263,7 +278,7 @@ fun MainScreen() {
                 com.pika.ui.author.AuthorFavouritesScreen(
                     onBack = { navController.popBackStack() },
                     onOpenAuthor = { author ->
-                        navController.navigate("author/${Uri.encode(author)}")
+                        navController.navigate(authorRoute(author))
                     },
                 )
             }
@@ -359,8 +374,8 @@ fun MainScreen() {
                     onOpenReader = { id, order ->
                         navController.navigate(readerRoute(id, order))
                     },
-                    onOpenAuthor = { author ->
-                        navController.navigate("author/${Uri.encode(author)}")
+                    onOpenAuthor = { query, origin ->
+                        navController.navigate(authorRoute(query, origin))
                     },
                     onOpenTagSearch = { tag ->
                         navController.navigate("search?keyword=${Uri.encode(tag)}")
@@ -373,17 +388,27 @@ fun MainScreen() {
                 )
             }
             composable(
-                "author/{author}",
+                "author/{author}?origin={origin}",
                 arguments = listOf(
                     navArgument("author") { type = NavType.StringType },
+                    navArgument("origin") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
                 ),
             ) { entry ->
                 val author = entry.arguments?.getString("author") ?: return@composable
+                val origin = entry.arguments?.getString("origin") ?: author
                 AuthorComicsScreen(
                     author = author,
+                    origin = origin,
                     onBack = { navController.popBackStack() },
                     onComicClick = { id ->
                         navController.navigate(comicRoute(id))
+                    },
+                    onKeywordSearch = { keyword ->
+                        navController.navigate("search?keyword=${Uri.encode(keyword)}")
                     },
                 )
             }

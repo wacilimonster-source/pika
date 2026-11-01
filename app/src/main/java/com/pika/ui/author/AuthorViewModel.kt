@@ -63,16 +63,17 @@ class AuthorViewModel : ViewModel() {
 
         loadJob = viewModelScope.launch {
             try {
-                val result = SourceManager.current().browse(
+                val result = SourceManager.current().authorWorks(
+                    query = author,
                     page = page,
-                    category = null,
                     sort = _sort.value,
-                    author = author,
-                    tag = null,
                 )
                 _comics.value = result.items
                 _totalPages.value = result.pages.coerceAtLeast(1)
-                _endReached.value = page >= result.pages
+                // 空页顺延后以实际生效页为准：否则第 1 页展示的是第 2 页内容，
+                // 用户再翻到第 2 页会看到同一批作品
+                _currentPage.value = result.page.coerceAtLeast(1)
+                _endReached.value = result.page >= result.pages
                 applyFilterAndSort()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

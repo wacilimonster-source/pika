@@ -471,12 +471,14 @@ class HomeViewModel : ViewModel() {
                     // 作者作品用全文搜索（关键字=作者名）拉取：浏览接口不带时间字段，
                     // 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。
                     // 走 searchWithRetry：单词/作者来源此前没有任何重试，一次网络抖动就整源消失。
-                    FollowTargetType.AUTHOR ->
-                        searchWithRetry(source, target.name, page, emptyList())
-                            .also { r ->
-                                targetPages[target.key] = page
-                                if (page >= r.pages) targetEnded[target.key] = true
-                            }.items
+                    FollowTargetType.AUTHOR -> {
+                        val r = searchWithRetry(source, target.name, page, emptyList())
+                        targetPages[target.key] = page
+                        if (page >= r.pages) targetEnded[target.key] = true
+                        // 关键词会命中标题/标签；作者关注只保留 author 字段包含该片段的条目，
+                        // 与作者页保持同一语义（片段可能是联合作者里的一段）
+                        r.items.filter { com.pika.core.model.AuthorMatcher.matches(it.author, target.name) }
+                    }
                     FollowTargetType.KEYWORD ->
                         fetchKeywordPage(source, target, page)
                 }

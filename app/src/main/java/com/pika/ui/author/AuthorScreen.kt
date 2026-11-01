@@ -4,9 +4,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -19,16 +23,17 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,18 +41,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pika.core.model.AuthorNameParser
+import com.pika.core.model.AuthorSegment
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.PaginationBar
 
+/**
+ * 作者作品页。
+ *
+ * [author] 是当前实际检索的署名片段，[origin] 是详情页的完整原署名。
+ * 复合署名会在顶部给出片段切换条——选错人不用返回详情重进。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthorComicsScreen(
     author: String,
     onBack: () -> Unit,
     onComicClick: (String) -> Unit = {},
+    origin: String = author,
+    onKeywordSearch: (String) -> Unit = {},
     viewModel: AuthorViewModel = viewModel(),
 ) {
     val comics by viewModel.comics.collectAsState()
@@ -62,6 +77,10 @@ fun AuthorComicsScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val supportedSorts = remember(activeSource) { SourceManager.current().supportedSorts }
 
+    val segments = remember(origin) { AuthorNameParser.parse(origin) }
+    // 当前检索片段：从详情页进来时是选中项；页内切换只改它，不新增返回栈
+    var currentQuery by rememberSaveable(author, origin) { mutableStateOf(author) }
+
     // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
     LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
         viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
@@ -72,7 +91,7 @@ fun AuthorComicsScreen(
     LaunchedEffect(Unit) {
         val restorePage = viewModel.consumeScrollRestorePage()
         if (restorePage == null) {
-            viewModel.loadComics(author, page = 1)
+            viewModel.loadComics(currentQuery, page = 1)
         }
         if (viewModel.savedFirstVisibleIndex > 0) {
             listState.scrollToItem(viewModel.savedFirstVisibleIndex)
@@ -88,14 +107,23 @@ fun AuthorComicsScreen(
 
     // 组合期不读盘：初值 false，LaunchedEffect 中查询
     var favourited by remember { mutableStateOf(false) }
-    LaunchedEffect(author) {
-        favourited = com.pika.data.AuthorFavourites.contains(author)
+    LaunchedEffect(currentQuery) {
+        favourited = com.pika.data.AuthorFavourites.contains(currentQuery)
+    }
+
+    val switchQuery: (String) -> Unit = { query ->
+        val next = query.trim()
+        if (next.isNotEmpty() && next != currentQuery) {
+            currentQuery = next
+            viewModel.loadComics(next, page = 1)
+            listState.requestScrollToItem(0)
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(author, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(currentQuery, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -104,10 +132,10 @@ fun AuthorComicsScreen(
                 actions = {
                     IconButton(onClick = {
                         if (favourited) {
-                            com.pika.data.AuthorFavourites.remove(author)
+                            com.pika.data.AuthorFavourites.remove(currentQuery)
                         } else {
                             com.pika.data.AuthorFavourites.add(
-                                author = author,
+                                author = currentQuery,
                                 coverUrl = comics.firstOrNull()?.coverUrl.orEmpty(),
                             )
                         }
@@ -133,6 +161,39 @@ fun AuthorComicsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            if (segments.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(segments, key = { it.text }) { segment ->
+                        FilterChip(
+                            selected = currentQuery == segment.text,
+                            onClick = { switchQuery(segment.text) },
+                            label = { AuthorSegmentLabel(segment) },
+                        )
+                    }
+                    item(key = "__origin__") {
+                        FilterChip(
+                            selected = currentQuery == origin,
+                            onClick = { switchQuery(origin) },
+                            label = { Text("完整署名") },
+                        )
+                    }
+                }
+                Text(
+                    text = if (currentQuery == origin) {
+                        "该署名包含多位作者，可点击上方片段分别查看"
+                    } else {
+                        "正在浏览署名中包含「$currentQuery」的作品 · 原署名：$origin"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                )
+            }
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -176,11 +237,28 @@ fun AuthorComicsScreen(
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "该作者暂无作品",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = if (currentQuery == origin) {
+                                "该作者暂无作品"
+                            } else {
+                                "没有找到署名包含「$currentQuery」的作品"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (currentQuery != origin) {
+                                OutlinedButton(onClick = { switchQuery(origin) }) {
+                                    Text("查看完整署名")
+                                }
+                            }
+                            OutlinedButton(onClick = { onKeywordSearch(currentQuery) }) {
+                                Text("用关键词搜索")
+                            }
+                        }
+                    }
                 }
             } else {
                 ComicGridView(
@@ -202,6 +280,21 @@ fun AuthorComicsScreen(
                     },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AuthorSegmentLabel(segment: AuthorSegment) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(segment.text)
+        segment.role.label?.let { role ->
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = role,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

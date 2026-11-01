@@ -1,5 +1,6 @@
 package com.pika.core.source
 
+import com.pika.core.model.AuthorMatcher
 import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
@@ -71,6 +72,24 @@ interface Source {
 
     /** 热搜词（可能为空） */
     suspend fun hotWords(): List<String>
+
+    /**
+     * 按作者署名片段检索：返回 author 字段包含 [query] 的作品。
+     *
+     * 默认实现用关键词搜索后做客户端「作者字段包含」校验——关键词搜索会命中标题/标签，
+     * 而作者页的语义是「这个人的作品」，不能把标题里恰好同名的作品混进来。
+     * 源若支持服务端子串匹配（如哔咔 `a` 参数），可覆写以保留服务端分页。
+     */
+    suspend fun authorWorks(
+        query: String,
+        page: Int,
+        sort: ComicSort = ComicSort.DD,
+    ): PageResult<ComicSummary> {
+        val result = search(keyword = query, page = page, sort = sort)
+        return result.copy(
+            items = result.items.filter { AuthorMatcher.matches(it.author, query) },
+        )
+    }
 
     /** 官方标签词表（可能为空，表示源不支持标签筛选） */
     suspend fun tags(): List<String> = emptyList()

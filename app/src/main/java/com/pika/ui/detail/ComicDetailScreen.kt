@@ -65,10 +65,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.pika.core.model.AuthorNameParser
+import com.pika.core.model.AuthorSegment
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
+import com.pika.ui.author.AuthorPickerSheet
 import kotlinx.coroutines.launch
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
@@ -78,7 +81,7 @@ fun ComicDetailScreen(
     ref: String,
     onBack: () -> Unit,
     onOpenReader: (String, Int) -> Unit,
-    onOpenAuthor: (String) -> Unit = {},
+    onOpenAuthor: (String, String?) -> Unit = { _, _ -> },
     onOpenTagSearch: (String) -> Unit = {},
     onComicClick: (String) -> Unit = {},
     viewModel: ComicDetailViewModel = viewModel(),
@@ -104,6 +107,7 @@ fun ComicDetailScreen(
     val favouriteError by viewModel.favouriteError.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
+    var authorPicker by remember { mutableStateOf<AuthorPickerState?>(null) }
     val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
     val downloadedOrders by viewModel.downloadedOrders.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -192,7 +196,13 @@ fun ComicDetailScreen(
             val c = comic
             if (c != null) {
                 item {
-                    ComicHeader(comic = c, onOpenAuthor = onOpenAuthor)
+                    ComicHeader(
+                        comic = c,
+                        onOpenAuthor = onOpenAuthor,
+                        onRequestAuthorPicker = { origin, segments ->
+                            authorPicker = AuthorPickerState(origin, segments)
+                        },
+                    )
                 }
                 item {
                     Column(
@@ -507,6 +517,22 @@ fun ComicDetailScreen(
             },
         )
     }
+
+    authorPicker?.let { picker ->
+        AuthorPickerSheet(
+            origin = picker.origin,
+            segments = picker.segments,
+            onDismiss = { authorPicker = null },
+            onPick = { query ->
+                authorPicker = null
+                onOpenAuthor(query, picker.origin.takeIf { it != query })
+            },
+            onEdit = { query ->
+                authorPicker = null
+                onOpenAuthor(query, picker.origin.takeIf { it != query })
+            },
+        )
+    }
 }
 
 @Composable
@@ -715,8 +741,18 @@ private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
     }
 }
 
+/** 详情页作者选择层状态：原始署名 + 解析出的候选片段 */
+private data class AuthorPickerState(
+    val origin: String,
+    val segments: List<AuthorSegment>,
+)
+
 @Composable
-private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
+private fun ComicHeader(
+    comic: ComicDetail,
+    onOpenAuthor: (String, String?) -> Unit,
+    onRequestAuthorPicker: (String, List<AuthorSegment>) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -745,7 +781,16 @@ private fun ComicHeader(comic: ComicDetail, onOpenAuthor: (String) -> Unit) {
             if (comic.author.isNotBlank()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onOpenAuthor(comic.author) },
+                    modifier = Modifier.clickable {
+                        val segments = AuthorNameParser.segmentsOrSelf(comic.author)
+                        if (segments.size <= 1) {
+                            // 单一署名保持直达：origin 传 null，作者页 origin 回落为 query，
+                            // 避免「作者：张三」这类前缀残留在原署名提示与空态回退里
+                            onOpenAuthor(segments.first().text, null)
+                        } else {
+                            onRequestAuthorPicker(comic.author, segments)
+                        }
+                    },
                 ) {
                     Text(
                         text = comic.author,
