@@ -324,7 +324,7 @@ fun ComicDetailScreen(
                     item {
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
                         Text(
-                            text = "猜你喜欢",
+                            text = "你可能也喜欢",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )

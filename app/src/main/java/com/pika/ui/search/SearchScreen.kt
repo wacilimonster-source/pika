@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,12 +127,30 @@ fun SearchScreen(
     ) {
         // 页面标题（仅 Tab 直达模式；带返回的搜索沿用紧凑头部）
         if (onBack == null) {
-            Text(
-                text = "搜索",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 12.dp),
+            ) {
+                Text(
+                    text = "搜索",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                // 设计稿页面右上 eyebrow（装饰性字距小标，不承载操作）
+                Text(
+                    text = "DISCOVER",
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        fontSize = 10.sp,
+                        letterSpacing = 2.sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         OutlinedTextField(
             value = input,
@@ -183,6 +202,19 @@ fun SearchScreen(
                             Icon(Icons.Filled.Close, contentDescription = "重置")
                         }
                     }
+                    // 设计稿的框内「搜索」提交按钮：与键盘搜索键同一入口
+                    Text(
+                        text = "搜索",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .clickable {
+                                focusManager.clearFocus()
+                                beginSearch(input.trim())
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
                 }
             },
             shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),

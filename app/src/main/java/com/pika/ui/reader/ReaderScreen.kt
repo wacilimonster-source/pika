@@ -727,6 +727,11 @@ fun ReaderScreen(
                     },
                     onOpenChapters = { showChapterSheet = true },
                     onSeek = { seekToPage(it) },
+                    // 面板「本页」入口：复用既有长按菜单（保存/分享当前页），零新增能力
+                    onPageActions = {
+                        pageActionTarget = effectivePageNow()
+                        showPageActionSheet = true
+                    },
                 )
             }
         },
@@ -929,6 +934,26 @@ fun ReaderScreen(
             // 这一薄层，不再带动含列表/翻页器的整个内容作用域重组
             ReaderBrightnessOverlay { brightness }
 
+            // 翻页模式页内页码小标（设计稿右上角）：半透明底保证任意画面上可读；
+            // 面板展开时内容区内边距已含顶栏高度，小标自然下移避让。
+            // 组合期读 pageMirror 只发生在翻页模式（滚动流分支不组合此节点）。
+            if (!scrollMode && pages.isNotEmpty()) {
+                Surface(
+                    color = Color(0x99000000),
+                    contentColor = Color.White,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp),
+                ) {
+                    Text(
+                        text = "${(pageMirror.intValue + 1).coerceAtMost(pages.size)} / ${pages.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+
             // A7 首次点击分区引导：一次性覆盖层，点任意处消失并持久化
             if (pages.isNotEmpty() && !guideShown && !guideDismissed) {
                 ReaderZoneGuideOverlay(
@@ -1104,6 +1129,8 @@ private fun ReaderControlPanel(
     onOpenChapters: () -> Unit,
     /** 拖动进度条跳页（参数为目标页码，0 基） */
     onSeek: (Int) -> Unit,
+    /** 「本页」：打开现有保存/分享菜单 */
+    onPageActions: () -> Unit,
 ) {
     // 拖动中的临时值：拖动时页码标签实时跟随，松手才真正跳页
     var draggingPage by remember { mutableStateOf(false) }
@@ -1214,22 +1241,38 @@ private fun ReaderControlPanel(
                     textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
             }
-            // 工具行：章节列表 | 模式（横滑/滚动流）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PanelToolRow(icon = Icons.AutoMirrored.Filled.MenuBook, label = "章节", tint = panelContent, onClick = onOpenChapters)
-                Spacer(Modifier.weight(1f))
+            // 工具行：章节 | 本页 | 横滑 | 滚动流（设计稿四入口，均分触控区）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                PanelToolRow(
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                    label = "章节",
+                    tint = panelContent,
+                    onClick = onOpenChapters,
+                    modifier = Modifier.weight(1f),
+                )
+                PanelToolRow(
+                    icon = Icons.Filled.SaveAlt,
+                    label = "本页",
+                    tint = panelContent,
+                    onClick = onPageActions,
+                    modifier = Modifier.weight(1f),
+                )
                 PanelToolRow(
                     icon = Icons.Filled.ViewCarousel,
                     label = "横滑",
                     tint = if (!scrollMode) MaterialTheme.colorScheme.primary else panelContent,
                     onClick = { onModeChange(false) },
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(20.dp))
                 PanelToolRow(
                     icon = Icons.Filled.ViewAgenda,
                     label = "滚动流",
                     tint = if (scrollMode) MaterialTheme.colorScheme.primary else panelContent,
                     onClick = { onModeChange(true) },
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -1243,10 +1286,12 @@ private fun PanelToolRow(
     label: String,
     tint: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        horizontalArrangement = Arrangement.Center,
+        modifier = modifier
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 6.dp),

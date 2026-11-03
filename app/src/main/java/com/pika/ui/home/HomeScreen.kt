@@ -1,5 +1,6 @@
 package com.pika.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,10 +10,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -38,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -338,17 +344,19 @@ private fun FollowTab(
         onRefresh = onRefresh,
         modifier = modifier.fillMaxSize(),
     ) {
-        if (comics.isEmpty() && emptyHint != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = emptyHint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-            }
-        } else {
-            Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            // 区头：关注更新 + 副题 + 「有更新」提示（基于真实 updatedAt 基线）
+            FollowSectionHeader(comics = comics, newUntil = newUntil)
+            if (comics.isEmpty() && emptyHint != null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = emptyHint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                }
+            } else {
                 if (error != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -379,6 +387,53 @@ private fun FollowTab(
                     showEndHint = true,
                 )
             }
+        }
+    }
+}
+
+/** 关注流区头：标题 + 副题 + 真实「有更新」提示（updatedAt 基线之后的新条目） */
+@Composable
+private fun FollowSectionHeader(
+    comics: List<com.pika.core.model.ComicSummary>,
+    newUntil: String,
+) {
+    val updatedCount = remember(comics, newUntil) {
+        if (newUntil.isBlank()) {
+            0
+        } else {
+            comics.count { it.updatedAt.isNotBlank() && it.updatedAt > newUntil }
+        }
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "关注更新",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "你关注的故事，接着发生",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (updatedCount > 0) {
+            Text(
+                text = "有更新",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                    )
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
         }
     }
 }
@@ -426,7 +481,7 @@ private fun RankTab(
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
-                    text = "日榜 · 周榜 · 月榜",
+                    text = "在这里，发现你的偏爱",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -540,6 +595,46 @@ private fun RandomTab(
         modifier = modifier.fillMaxSize(),
     ) {
         Column(Modifier.fillMaxSize()) {
+            // 区头：随便看看 + 副题 + 「换一批」显式刷新入口（与下拉刷新同一回调）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "随便看看",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = "偶遇下一本喜欢的故事",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .clickable(enabled = !loading, onClick = onRefresh)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "换一批",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
             // 有旧内容时失败：顶部错误横幅 + 重试（与关注流/排行榜一致）
             if (error != null && comics.isNotEmpty()) {
                 Row(

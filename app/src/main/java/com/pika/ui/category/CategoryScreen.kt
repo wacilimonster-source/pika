@@ -482,8 +482,8 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             style = androidx.compose.ui.text.TextStyle(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
                 // 封面加载失败/浅色封面时白字仍需可读：文字自身带投影
                 shadow = androidx.compose.ui.graphics.Shadow(
                     color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f),

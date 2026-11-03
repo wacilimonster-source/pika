@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
@@ -108,12 +109,30 @@ fun MineScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Text(
-            text = "我的",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(top = 12.dp),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+        ) {
+            Text(
+                text = "我的",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            // 设计稿页面右上 eyebrow（装饰性字距小标，不承载操作）
+            Text(
+                text = "MY COLLECTION",
+                style = androidx.compose.ui.text.TextStyle(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    fontSize = 10.sp,
+                    letterSpacing = 2.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(16.dp))
         // 资料卡：头像 + 昵称 + 等级称号（真实数据），未登录时显示数据源与登录态
         Card(
