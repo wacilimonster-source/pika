@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -16,8 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * 设置页分组容器：组头说明 + 卡片行容器（卡片风格与"我的"页一致）。
- * 组内行之间用 [SettingsRowDivider] 分隔，组间由调用方用 spacedBy 拉开。
+ * 设置页分组容器：组头说明 + 圆角组卡（radius 14 = design-tokens groupRadius，
+ * 底色 surfaceContainer 与页面背景分层）。组内行之间用 [SettingsRowDivider] 分隔，
+ * 组间由调用方用 spacedBy 拉开。
  */
 @Composable
 internal fun SettingsGroup(
@@ -41,7 +44,13 @@ internal fun SettingsGroup(
                 modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
             )
         }
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Column(content = content)
         }
     }

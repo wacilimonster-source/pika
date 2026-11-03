@@ -78,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -945,7 +946,7 @@ fun ReaderScreen(
         val actionPage = pageActionTarget
         ModalBottomSheet(
             onDismissRequest = { showPageActionSheet = false },
-            containerColor = Color(0xFF161616),
+            containerColor = Color(0xFF221930),
         ) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                 Text(
@@ -992,7 +993,7 @@ fun ReaderScreen(
         val sheetChapters = if (chapterDesc) sortedChapters.asReversed() else sortedChapters
         ModalBottomSheet(
             onDismissRequest = { showChapterSheet = false },
-            containerColor = Color(0xFF161616),
+            containerColor = Color(0xFF221930),
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Row(
@@ -1083,7 +1084,8 @@ fun ReaderScreen(
 }
 
 /**
- * 阅读器底部控制面板：亮度 / 进度条拖动跳页 / 模式切换 / 章节列表入口 / 上一话·下一话·页码
+ * 阅读器底部控制面板：上一话/下一话 + 页码进度条拖动跳页 + 亮度 + 模式切换 + 章节列表。
+ * 布局与设计稿对齐（章行在上、进度条居中、工具行在下）；回调与状态语义不变。
  */
 @Composable
 private fun ReaderControlPanel(
@@ -1106,24 +1108,98 @@ private fun ReaderControlPanel(
     // 拖动中的临时值：拖动时页码标签实时跟随，松手才真正跳页
     var draggingPage by remember { mutableStateOf(false) }
     var dragPageValue by remember { mutableFloatStateOf(0f) }
+    val panelContent = Color.White
+    val panelMuted = Color(0xFFB5A8BC)
 
     Surface(
         modifier = modifier,
-        color = Color(0xE6000000),
+        color = Color(0xF01A1420),
+        contentColor = panelContent,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
+            // 章节行：上一话 | 章号 | 下一话（真实章节导航）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .clickable(enabled = hasPrev, onClick = onPrevChapter)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "上一话",
+                        tint = if (hasPrev) panelContent else panelMuted,
+                    )
+                    Text("上一话", color = if (hasPrev) panelContent else panelMuted, style = MaterialTheme.typography.labelLarge)
+                }
+                Text(
+                    text = if (totalPages > 0) "第 ${pageIndex + 1} 页" else "…",
+                    color = panelMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .clickable(enabled = hasNext, onClick = onNextChapter)
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                ) {
+                    Text("下一话", color = if (hasNext) panelContent else panelMuted, style = MaterialTheme.typography.labelLarge)
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "下一话",
+                        tint = if (hasNext) panelContent else panelMuted,
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // 进度条：拖动跳页（页数未知或单页时隐藏）；拖动中页码实时跟随
+            if (totalPages > 1) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (draggingPage) "第 ${dragPageValue.roundToInt() + 1} 页" else "第 ${pageIndex + 1} 页",
+                        color = panelMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(56.dp),
+                    )
+                    Slider(
+                        value = if (draggingPage) dragPageValue else pageIndex.toFloat().coerceIn(0f, (totalPages - 1).toFloat()),
+                        onValueChange = {
+                            draggingPage = true
+                            dragPageValue = it
+                        },
+                        valueRange = 0f..(totalPages - 1).toFloat(),
+                        onValueChangeFinished = {
+                            draggingPage = false
+                            onSeek(dragPageValue.roundToInt())
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "共 $totalPages 页",
+                        color = panelMuted,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(56.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    )
+                }
+            }
+            // 亮度行
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Filled.BrightnessMedium,
                     contentDescription = "亮度",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp),
+                    tint = panelContent,
+                    modifier = Modifier.size(20.dp),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(10.dp))
                 Slider(
                     value = brightness,
                     onValueChange = onBrightnessChange,
@@ -1132,83 +1208,52 @@ private fun ReaderControlPanel(
                 )
                 Text(
                     text = "${(brightness * 100).toInt()}%",
-                    color = Color.White,
+                    color = panelMuted,
                     style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.width(40.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
             }
-            // 进度条：拖动跳页（页数未知或单页时隐藏）
-            if (totalPages > 1) {
-                Slider(
-                    value = if (draggingPage) dragPageValue else pageIndex.toFloat().coerceIn(0f, (totalPages - 1).toFloat()),
-                    onValueChange = {
-                        draggingPage = true
-                        dragPageValue = it
-                    },
-                    valueRange = 0f..(totalPages - 1).toFloat(),
-                    onValueChangeFinished = {
-                        draggingPage = false
-                        onSeek(dragPageValue.roundToInt())
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            // 工具行：章节列表 | 模式（横滑/滚动流）
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onModeChange(false) }) {
-                    Icon(
-                        Icons.Filled.ViewCarousel,
-                        contentDescription = "横滑翻页",
-                        tint = if (scrollMode) Color.Gray else Color.White,
-                    )
-                }
-                Text(
-                    text = if (scrollMode) "滚动流" else "翻页",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                IconButton(onClick = { onModeChange(true) }) {
-                    Icon(
-                        Icons.Filled.ViewAgenda,
-                        contentDescription = "滚动流",
-                        tint = if (scrollMode) Color.White else Color.Gray,
-                    )
-                }
+                PanelToolRow(icon = Icons.AutoMirrored.Filled.MenuBook, label = "章节", tint = panelContent, onClick = onOpenChapters)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onOpenChapters) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = "章节列表",
-                        tint = Color.White,
-                    )
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevChapter, enabled = hasPrev) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = "上一话",
-                        tint = if (hasPrev) Color.White else Color.Gray,
-                    )
-                }
-                Text(
-                    text = if (draggingPage) {
-                        "${dragPageValue.roundToInt() + 1} / $totalPages"
-                    } else {
-                        "${pageIndex + 1} / $totalPages"
-                    },
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                PanelToolRow(
+                    icon = Icons.Filled.ViewCarousel,
+                    label = "横滑",
+                    tint = if (!scrollMode) MaterialTheme.colorScheme.primary else panelContent,
+                    onClick = { onModeChange(false) },
                 )
-                IconButton(onClick = onNextChapter, enabled = hasNext) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "下一话",
-                        tint = if (hasNext) Color.White else Color.Gray,
-                    )
-                }
+                Spacer(Modifier.width(20.dp))
+                PanelToolRow(
+                    icon = Icons.Filled.ViewAgenda,
+                    label = "滚动流",
+                    tint = if (scrollMode) MaterialTheme.colorScheme.primary else panelContent,
+                    onClick = { onModeChange(true) },
+                )
             }
         }
+    }
+}
+
+/** 面板工具行单元：图标 + 文字（点击区 ≥48dp 由 minimumInteractiveComponentSize 保证） */
+@Composable
+private fun PanelToolRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = tint, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -1232,7 +1277,7 @@ private fun ReaderChapterEndCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF141414))
+            .background(Color(0xFF1A1420))
             .padding(horizontal = 32.dp, vertical = 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

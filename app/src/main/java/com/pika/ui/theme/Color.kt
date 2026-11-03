@@ -2,10 +2,90 @@ package com.pika.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// ── 设计令牌（reports/pika-vnext-handoff/design-tokens.json）──────────────────
+// 墨紫底 + 藕粉强调的深浅双方案；具体色值以 tokens 为准，派生角色保持同一色系。
 
-val Purple40 = Color(0xFF7C4DFF)
-val PurpleGrey40 = Color(0xFF625B71)
-val Pink40 = Color(0xFF7D5260)
+// 深色方案核心角色
+val TokenPrimaryDark = Color(0xFFC695B0)
+val TokenOnPrimaryDark = Color(0xFF261D2C)
+val TokenPrimaryContainerDark = Color(0xFF382B3D)
+val TokenOnPrimaryContainerDark = Color(0xFFEED0E2)
+val TokenBackgroundDark = Color(0xFF211A26)
+val TokenOnBackgroundDark = Color(0xFFEDE6EF)
+val TokenSurfaceDark = Color(0xFF281F2E)
+val TokenOnSurfaceDark = Color(0xFFEDE6EF)
+val TokenSurfaceVariantDark = Color(0xFF382B3D)
+val TokenOnSurfaceVariantDark = Color(0xFFAAA0AF)
+val TokenSurfaceContainerDark = Color(0xFF33253A)
+val TokenOutlineDark = Color(0xFF9D829E)
+val TokenOutlineVariantDark = Color(0xFF3B2F41)
+val TokenErrorDark = Color(0xFFFFB4AB)
+val TokenOnErrorDark = Color(0xFF690005)
+val TokenSuccessDark = Color(0xFFA0B4A6)
+
+// 深色方案派生角色（同色系补全，避免残留 Material 默认紫）
+val TokenSecondaryDark = Color(0xFFCDB9CB)
+val TokenOnSecondaryDark = Color(0xFF332A38)
+val TokenSecondaryContainerDark = Color(0xFF46374B)
+val TokenOnSecondaryContainerDark = Color(0xFFEBDAE7)
+val TokenTertiaryDark = Color(0xFFE0B6C1)
+val TokenOnTertiaryDark = Color(0xFF3F222D)
+val TokenTertiaryContainerDark = Color(0xFF583843)
+val TokenOnTertiaryContainerDark = Color(0xFFFCD8E2)
+val TokenErrorContainerDark = Color(0xFF93000A)
+val TokenSurfaceContainerLowestDark = Color(0xFF1B1420)
+val TokenSurfaceContainerLowDark = Color(0xFF241B29)
+val TokenSurfaceContainerHighDark = Color(0xFF3E3045)
+val TokenSurfaceContainerHighestDark = Color(0xFF4A3B50)
+val TokenSurfaceDimDark = Color(0xFF211A26)
+val TokenSurfaceBrightDark = Color(0xFF4A3F50)
+val TokenInverseSurfaceDark = Color(0xFFEDE6EF)
+val TokenInverseOnSurfaceDark = Color(0xFF372E3C)
+val TokenInversePrimaryDark = Color(0xFF99627E)
+
+// 浅色方案核心角色
+val TokenPrimaryLight = Color(0xFF99627E)
+val TokenOnPrimaryLight = Color(0xFFFFFFFF)
+val TokenPrimaryContainerLight = Color(0xFFF1E6ED)
+val TokenOnPrimaryContainerLight = Color(0xFF4A2E43)
+val TokenBackgroundLight = Color(0xFFFCF9FB)
+val TokenOnBackgroundLight = Color(0xFF302733)
+val TokenSurfaceLight = Color(0xFFFFFFFF)
+val TokenOnSurfaceLight = Color(0xFF302733)
+val TokenSurfaceVariantLight = Color(0xFFF1E6ED)
+val TokenOnSurfaceVariantLight = Color(0xFF736271)
+val TokenSurfaceContainerLight = Color(0xFFF4EBF1)
+val TokenOutlineLight = Color(0xFF8A7186)
+val TokenOutlineVariantLight = Color(0xFFE9DFE7)
+val TokenErrorLight = Color(0xFFBA1A1A)
+val TokenOnErrorLight = Color(0xFFFFFFFF)
+val TokenSuccessLight = Color(0xFF527B68)
+
+// 浅色方案派生角色
+val TokenSecondaryLight = Color(0xFF77586C)
+val TokenOnSecondaryLight = Color(0xFFFFFFFF)
+val TokenSecondaryContainerLight = Color(0xFFEFE0EA)
+val TokenOnSecondaryContainerLight = Color(0xFF2D1A28)
+val TokenTertiaryLight = Color(0xFF8C4F63)
+val TokenOnTertiaryLight = Color(0xFFFFFFFF)
+val TokenTertiaryContainerLight = Color(0xFFFFD9E4)
+val TokenOnTertiaryContainerLight = Color(0xFF3A0F1D)
+val TokenErrorContainerLight = Color(0xFFFFDAD6)
+val TokenSurfaceContainerLowestLight = Color(0xFFFFFFFF)
+val TokenSurfaceContainerLowLight = Color(0xFFF7F1F5)
+val TokenSurfaceContainerHighLight = Color(0xFFEEE4EA)
+val TokenSurfaceContainerHighestLight = Color(0xFFE8DCE4)
+val TokenSurfaceDimLight = Color(0xFFE1D6DD)
+val TokenSurfaceBrightLight = Color(0xFFFCF9FB)
+val TokenInverseSurfaceLight = Color(0xFF302733)
+val TokenInverseOnSurfaceLight = Color(0xFFF7EFF4)
+val TokenInversePrimaryLight = Color(0xFFC695B0)
+
+// ── 兼容旧引用 ────────────────────────────────────────────────────────────────
+// 历史代码（若有）引用的模板色名；保留避免编译断裂，不再在主题中使用。
+val Purple80 = TokenPrimaryDark
+val PurpleGrey80 = TokenSecondaryDark
+val Pink80 = TokenTertiaryDark
+val Purple40 = TokenPrimaryLight
+val PurpleGrey40 = TokenSecondaryLight
+val Pink40 = TokenTertiaryLight

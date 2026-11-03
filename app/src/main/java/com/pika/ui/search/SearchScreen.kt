@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -22,8 +25,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -31,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
@@ -116,11 +124,20 @@ fun SearchScreen(
         modifier = Modifier
             .fillMaxSize(),
     ) {
+        // 页面标题（仅 Tab 直达模式；带返回的搜索沿用紧凑头部）
+        if (onBack == null) {
+            Text(
+                text = "搜索",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
+            )
+        }
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
             singleLine = true,
-            placeholder = { Text("搜索漫画，多个关键词用空格分隔") },
+            placeholder = { Text("搜索作品，多个关键词用空格分隔") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = {
                 focusManager.clearFocus()
@@ -131,6 +148,12 @@ fun SearchScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
+                } else {
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             },
             trailingIcon = {
@@ -162,9 +185,16 @@ fun SearchScreen(
                     }
                 }
             },
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp, vertical = 8.dp),
         )
         // 排序切换：VM 回第 1 页后，UI 侧页码指示必须同步归位并回顶——
         // 否则分页条停在旧页码（筛选模式下旧页切片还会短暂显示空列表）
@@ -275,22 +305,22 @@ fun SearchScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "搜索历史",
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     modifier = Modifier.weight(1f),
                                 )
-                                Text(
-                                    text = "清空",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clickable { viewModel.clearHistory() }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
+                                IconButton(onClick = { viewModel.clearHistory() }) {
+                                    Icon(
+                                        Icons.Outlined.DeleteSweep,
+                                        contentDescription = "清空搜索历史",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(top = 8.dp),
+                                modifier = Modifier.padding(top = 4.dp),
                             ) {
                                 history.forEach { h ->
                                     FilterChip(
@@ -307,27 +337,62 @@ fun SearchScreen(
                             }
                         }
                         if (hotWords.isNotEmpty()) {
-                            Text(
-                                text = "热门搜索",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(top = 20.dp),
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "大家在搜",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(top = 20.dp),
+                                )
+                            }
+                            // 服务端热搜词：列表顺序即真实热度次序
+                            Column(modifier = Modifier.padding(top = 4.dp)) {
                                 hotWords.forEachIndexed { index, word ->
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = {
-                                            input = word
-                                            focusManager.clearFocus()
-                                            listState.requestScrollToItem(0)
-                                            beginSearch(word)
-                                        },
-                                        label = { Text(if (index < 3) "${index + 1}  $word" else word, maxLines = 1) },
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                input = word
+                                                focusManager.clearFocus()
+                                                listState.requestScrollToItem(0)
+                                                beginSearch(word)
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                                    ) {
+                                        Text(
+                                            text = "%02d".format(index + 1),
+                                            style = androidx.compose.ui.text.TextStyle(
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                                fontSize = 15.sp,
+                                                lineHeight = 18.sp,
+                                            ),
+                                            color = if (index < 3) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        )
+                                        Spacer(Modifier.width(16.dp))
+                                        Text(
+                                            text = word,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -2,7 +2,6 @@ package com.pika.ui.browse
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +15,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -36,12 +35,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicSummary
+
+/** 卡片圆角（design-tokens layout.cardRadius） */
+internal val CardCoverShape = RoundedCornerShape(10.dp)
 
 /** 漫画网格：每行数量随设置（2/3，默认 2）+ 触底自动加载更多 */
 @Composable
@@ -61,6 +68,8 @@ fun ComicGridView(
     onComicLongClick: ((String) -> Unit)? = null,
     /** 「有更新」判定基线：条目 updatedAt 非空且大于该值时封面左上角显示圆点（关注流用） */
     newUntil: String = "",
+    /** 真实榜单位次展示：仅当列表本身是服务端榜单（顺序即名次）时开启 */
+    showRankNumber: Boolean = false,
 ) {
     val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
     val columns by com.pika.data.GridSettings.columnsFlow.collectAsState()
@@ -68,11 +77,12 @@ fun ComicGridView(
         columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        // 紧凑页边距 16dp；列间距 12dp、行间距 20dp（design-tokens layout）
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        items(comics, key = { it.ref }) { comic ->
+        itemsIndexed(comics, key = { _, comic -> comic.ref }) { index, comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.pika.data.ReaderStatus.of(comic.ref) }
             val isNew = remember(comic.ref, newUntil) {
                 newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
@@ -86,6 +96,7 @@ fun ComicGridView(
                     onClick = { onComicClick(comic.ref) },
                     onLongClick = onComicLongClick?.let { cb -> { cb(comic.ref) } },
                     isNew = isNew,
+                    rankNumber = if (showRankNumber) index + 1 else 0,
                 )
             }
         }
@@ -105,7 +116,7 @@ fun ComicGridView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
@@ -137,6 +148,8 @@ private fun ComicCard(
     onLongClick: (() -> Unit)? = null,
     /** 关注流「有更新」小圆点 */
     isNew: Boolean = false,
+    /** 真实名次（>0 时封面左上角逐行叠加 01/02…）；0 = 不显示 */
+    rankNumber: Int = 0,
 ) {
     Column(
         modifier = Modifier
@@ -147,6 +160,7 @@ private fun ComicCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(3f / 4f)
+                .clip(CardCoverShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             comic.coverUrl?.let { cover ->
@@ -166,56 +180,86 @@ private fun ComicCard(
                     )
                 }
             }
-            // 阅读状态角标：右上角；读完优先显示
+            // 真实榜单名次（仅服务端榜单流开启）：左上角衬线斜体数字，白字加投影保证可读
+            if (rankNumber > 0) {
+                Text(
+                    text = "%02d".format(rankNumber),
+                    style = TextStyle(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 24.sp,
+                        lineHeight = 26.sp,
+                        shadow = androidx.compose.ui.graphics.Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            offset = androidx.compose.ui.geometry.Offset(0f, 2f),
+                            blurRadius = 8f,
+                        ),
+                    ),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 8.dp, top = 4.dp),
+                )
+            }
+            // 关注流「有更新」：右上角小圆点（与名次不同角，不与阅读状态角标重叠）
+            if (isNew) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(9.dp)
+                        .background(MaterialTheme.colorScheme.error, CircleShape),
+                )
+            }
+            // 阅读状态角标：右下角独立分区（上方留给封面人物面部），读完优先显示
             when (readStatus) {
                 com.pika.data.ReadStatus.FINISHED -> ReadBadge(
                     text = "读完",
                     container = MaterialTheme.colorScheme.primary,
                     content = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.align(Alignment.TopEnd),
+                    modifier = Modifier.align(Alignment.BottomEnd),
                 )
                 com.pika.data.ReadStatus.READ -> ReadBadge(
                     text = "已读",
                     container = Color(0x99000000),
                     content = Color.White,
-                    modifier = Modifier.align(Alignment.TopEnd),
+                    modifier = Modifier.align(Alignment.BottomEnd),
                 )
                 null -> {}
             }
-            // 关注流「有更新」：左上角小圆点
-            if (isNew) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .size(9.dp)
-                        .background(MaterialTheme.colorScheme.error, androidx.compose.foundation.shape.CircleShape),
-                )
-            }
         }
+        // 两列标题 14sp/20·600，三列 12sp/18·600，最多两行
         Text(
             text = comic.title,
             style = if (largeTitle) {
-                MaterialTheme.typography.bodyMedium
+                MaterialTheme.typography.titleSmall
             } else {
-                MaterialTheme.typography.bodySmall
+                TextStyle(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
             },
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 8.dp),
         )
         if (comic.author.isNotBlank()) {
             Text(
                 text = comic.author,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 1.dp),
             )
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 1.dp),
+            modifier = Modifier.padding(top = 2.dp),
         ) {
             if (comic.updatedAt.isNotBlank()) {
                 Text(
@@ -232,7 +276,7 @@ private fun ComicCard(
                 Icon(
                     Icons.Filled.Favorite,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                     modifier = Modifier.size(10.dp),
                 )
                 Text(
@@ -247,7 +291,7 @@ private fun ComicCard(
     }
 }
 
-/** 封面右上角阅读状态角标 */
+/** 封面右下角阅读状态角标（10sp 药丸；状态指示，不是操作入口） */
 @Composable
 private fun ReadBadge(
     text: String,
@@ -257,12 +301,17 @@ private fun ReadBadge(
 ) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        style = TextStyle(
+            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+            fontWeight = FontWeight.Medium,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+        ),
         color = content,
         maxLines = 1,
         modifier = modifier
-            .padding(4.dp)
-            .background(container, RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
+            .padding(6.dp)
+            .background(container, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }

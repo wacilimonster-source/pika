@@ -1,10 +1,23 @@
 ﻿package com.pika.ui
 
 import android.net.Uri
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,13 +54,15 @@ import com.pika.ui.settings.SourceManageScreen
 private data class TabItem(
     val route: String,
     val label: String,
+    val iconSelected: androidx.compose.ui.graphics.vector.ImageVector,
+    val iconUnselected: androidx.compose.ui.graphics.vector.ImageVector,
 )
 
 private val tabs = listOf(
-    TabItem("home", "首页"),
-    TabItem("category", "分类"),
-    TabItem("search", "搜索"),
-    TabItem("mine", "我的"),
+    TabItem("home", "首页", Icons.Filled.Home, Icons.Outlined.Home),
+    TabItem("category", "分类", Icons.Filled.GridView, Icons.Outlined.GridView),
+    TabItem("search", "搜索", Icons.Filled.Search, Icons.Outlined.Search),
+    TabItem("mine", "我的", Icons.Filled.Person, Icons.Outlined.Person),
 )
 
 /** 需要整屏展示、不应挂底部标签栏的路由前缀 */
@@ -151,9 +166,13 @@ fun MainScreen() {
 
     Scaffold(
         bottomBar = {
-            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把这 64dp 还给内容区
+            // 阅读页整屏展示：直接移除标签栏，Scaffold 会把它的高度还给内容区。
+            // heightIn(min = 64dp)：总高度随系统手势条 inset 增长，内容不被遮挡
             if (!hideBottomBar) {
-                NavigationBar(modifier = Modifier.height(64.dp)) {
+                NavigationBar(
+                    modifier = Modifier.heightIn(min = 64.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ) {
                     tabs.forEach { tab ->
                         val selected = currentDestination?.hierarchy
                             ?.any { it.route?.substringBefore('?') == tab.route } == true
@@ -168,8 +187,21 @@ fun MainScreen() {
                                     restoreState = true
                                 }
                             },
-                            icon = {},
-                            label = { Text(tab.label, fontSize = 12.sp) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (selected) tab.iconSelected else tab.iconUnselected,
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            label = { Text(tab.label, fontSize = 11.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            ),
                         )
                     }
                 }

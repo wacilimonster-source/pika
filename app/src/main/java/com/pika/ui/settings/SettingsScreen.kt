@@ -18,6 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -92,14 +95,21 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             // ── 数据源 ──────────────────────────────────────────────
             SettingsGroup(header = "数据源") {
                 ListItem(
                     headlineContent = { Text("数据源管理") },
                     supportingContent = { Text("账号登录等源级设置") },
+                    leadingContent = {
+                        Icon(
+                            Icons.Outlined.Storage,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -275,6 +285,13 @@ fun SettingsScreen(
                 ListItem(
                     headlineContent = { Text("调试日志") },
                     supportingContent = { Text("查看应用运行日志") },
+                    leadingContent = {
+                        Icon(
+                            Icons.Outlined.Terminal,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
                     trailingContent = { ChevronIcon() },
                     modifier = Modifier.clickable(onClick = onOpenLog),
                 )
@@ -282,6 +299,13 @@ fun SettingsScreen(
                 ListItem(
                     headlineContent = { Text("关于 PiKA") },
                     supportingContent = { Text("版本 ${UpdateManager.currentVersionName}") },
+                    leadingContent = {
+                        Icon(
+                            Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    },
                     trailingContent = { ChevronIcon() },
                     modifier = Modifier.clickable { showAbout = true },
                 )

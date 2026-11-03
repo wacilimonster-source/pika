@@ -1,20 +1,13 @@
 package com.pika.ui.theme
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 
+/**
+ * 历史包装点（MainActivity 在用）：字阶已完整落在 [typography]（Type.kt），
+ * 不再嵌套 MaterialTheme 覆盖——嵌套 copy 曾是字号字段丢失的风险点。
+ * 保留函数与调用形态，语义 = 直通。
+ */
 @Composable
 fun PiKATextTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        typography = MaterialTheme.typography.copy(
-            titleLarge = TextStyle(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.SemiBold,
-            ),
-        ),
-        content = content,
-    )
+    content()
 }

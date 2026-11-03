@@ -36,8 +36,6 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -47,7 +45,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -59,12 +56,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicCategory
@@ -115,15 +113,23 @@ fun CategoryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("分类") },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
-                    }
-                },
-                windowInsets = WindowInsets(0, 0),
-            )
+            // 页面标题栏：大标题「分类」+ 管理入口（不沿用 TopAppBar，保持大标题层级）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 12.dp, top = 12.dp),
+            ) {
+                Text(
+                    text = "分类",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { showSettings = true }) {
+                    Icon(Icons.Filled.Settings, contentDescription = "分类管理")
+                }
+            }
         },
     ) { innerPadding ->
         if (displayCategories.isEmpty()) {
@@ -160,7 +166,7 @@ fun CategoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -424,47 +430,77 @@ fun CategoryComicsScreen(
     }
 }
 
+/** 分类卡片：封面图底 + 底部渐隐压暗 + 标题叠加（无封面回退 surfaceVariant 底） */
 @Composable
 private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
-    Card(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .height(104.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column {
+        if (!category.coverUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = category.coverUrl,
+                contentDescription = category.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // 底部渐变保证标题在任意封面上可读（不整体压暗封面）
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(80.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!category.coverUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = category.coverUrl,
-                        contentDescription = category.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Text(
-                        text = category.title.take(1),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0f to androidx.compose.ui.graphics.Color.Transparent,
+                            1f to androidx.compose.ui.graphics.Color(0xB3211A26),
+                        ),
+                    ),
+            )
+        } else {
             Text(
-                text = category.title,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                text = category.title.take(1),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                    .fillMaxSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0f to androidx.compose.ui.graphics.Color.Transparent,
+                            1f to MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+                        ),
+                    ),
             )
         }
+        Text(
+            text = category.title,
+            style = androidx.compose.ui.text.TextStyle(
+                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                // 封面加载失败/浅色封面时白字仍需可读：文字自身带投影
+                shadow = androidx.compose.ui.graphics.Shadow(
+                    color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f),
+                    offset = androidx.compose.ui.geometry.Offset(0f, 1.5f),
+                    blurRadius = 6f,
+                ),
+            ),
+            color = if (category.coverUrl.isNullOrBlank()) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                androidx.compose.ui.graphics.Color.White
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(12.dp),
+        )
     }
 }

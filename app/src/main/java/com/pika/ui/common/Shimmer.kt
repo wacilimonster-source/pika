@@ -56,6 +56,7 @@ fun Modifier.shimmerBrush(): Modifier = composed {
 /**
  * 漫画网格骨架屏（A2）：首屏加载时以卡片轮廓 + 微光替代「加载中...」文字，
  * 等待感知更短、弱网不再大片空白。骨架条数固定（约两屏），不可交互。
+ * 节奏与新网格一致：16dp 页边距、12/20 间距、10dp 封面圆角，加载完成不突跳。
  */
 @Composable
 fun ComicGridSkeleton(
@@ -65,34 +66,34 @@ fun ComicGridSkeleton(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         repeat(2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 repeat(columns) {
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         Spacer(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(3f / 4f)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .shimmerBrush(),
                         )
                         Spacer(
                             modifier = Modifier
                                 .fillMaxWidth(0.85f)
-                                .height(14.dp)
+                                .height(13.dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .shimmerBrush(),
                         )
                         Spacer(
                             modifier = Modifier
-                                .fillMaxWidth(0.55f)
-                                .height(11.dp)
+                                .fillMaxWidth(0.5f)
+                                .height(10.dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .shimmerBrush(),
                         )

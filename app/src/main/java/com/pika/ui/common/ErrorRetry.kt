@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material3.Icon
@@ -34,17 +36,21 @@ fun ErrorRetry(
                 Icons.Filled.CloudOff,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(36.dp),
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 32.dp),
             )
-            Spacer(Modifier.height(14.dp))
-            OutlinedButton(onClick = onRetry) { Text("重试") }
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = onRetry,
+                modifier = Modifier.heightIn(min = 48.dp),
+                shape = RoundedCornerShape(10.dp),
+            ) { Text("重试") }
         }
     }
 }

@@ -5,15 +5,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,9 +39,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.common.EighteenPlusBadge
 
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
@@ -161,15 +169,46 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             Column {
+                // 品牌栏：PiKA. 标志 + 应用整体 18+ 定位标识 + 当前源标识（真实数据）
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp),
                 ) {
                     Text(
-                        text = "PiKA · ${activeSource.displayName}",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.weight(1f),
+                        text = "PiKA",
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                            fontSize = 24.sp,
+                            lineHeight = 28.sp,
+                            letterSpacing = (-0.5).sp,
+                        ),
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
+                    Text(
+                        text = ".",
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                            fontSize = 24.sp,
+                            lineHeight = 28.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    EighteenPlusBadge()
+                    Spacer(Modifier.weight(1f))
+                    Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ) {
+                        Text(
+                            text = "· ${activeSource.displayName}",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
                 }
                 // 更新横幅：点横幅主体更新，「稍后再说」本版本内不再自动提示
                 if (updateInfo != null) {
@@ -178,7 +217,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showUpdateDialog = true }
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = 20.dp, vertical = 6.dp),
                     ) {
                         Text(
                             text = "发现新版本 v${updateInfo!!.version}，点击更新",
@@ -196,7 +235,10 @@ fun HomeScreen(
                         )
                     }
                 }
-                PrimaryTabRow(selectedTabIndex = selectedTab) {
+                PrimaryTabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = MaterialTheme.colorScheme.background,
+                ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
@@ -370,16 +412,37 @@ private fun RankTab(
         }
     }
     Column(modifier.fillMaxSize()) {
+        // 榜单区头：标题 + 副题 + 日/周/月分段切换（真实榜单维度，非演示数据）
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
-            rankTypes.forEach { (value, label) ->
-                FilterChip(
-                    selected = rankType == value,
-                    onClick = { onTypeChange(value) },
-                    label = { Text(label) },
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "人气榜单",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
+                Text(
+                    text = "日榜 · 周榜 · 月榜",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            SingleChoiceSegmentedButtonRow {
+                rankTypes.forEachIndexed { index, (value, label) ->
+                    SegmentedButton(
+                        selected = rankType == value,
+                        onClick = { onTypeChange(value) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = rankTypes.size,
+                        ),
+                        label = { Text(label) },
+                    )
+                }
             }
         }
         PullToRefreshBox(
@@ -447,6 +510,8 @@ private fun RankTab(
                             listState = gridState,
                             onLoadMore = {},
                             onComicClick = onComicClick,
+                            // 服务端榜单：列表顺序即真实名次，可展示 01/02… 角标
+                            showRankNumber = true,
                         )
                     }
                 }

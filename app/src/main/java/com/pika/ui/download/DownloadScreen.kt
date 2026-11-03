@@ -200,9 +200,10 @@ fun DownloadScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
             ) {
                 Row(
@@ -488,7 +489,11 @@ private fun ComicGroupCard(
     )
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
             modifier = Modifier
@@ -503,7 +508,7 @@ private fun ComicGroupCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(56.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .clip(RoundedCornerShape(10.dp)),
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {

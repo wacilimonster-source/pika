@@ -1,5 +1,6 @@
 package com.pika.ui.detail
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -220,11 +222,17 @@ fun ComicDetailScreen(
                                     }
                                 },
                                 enabled = chapters.isNotEmpty(),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp),
                             )
                             { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
                             OutlinedButton(
                                 onClick = { viewModel.downloadAll(comicId, comic, chapters) },
                                 enabled = chapters.isNotEmpty(),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                modifier = Modifier.heightIn(min = 48.dp),
                             )
                             {
                                 Icon(
@@ -713,13 +721,18 @@ private fun CommentItem(
 private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
     Card(
         modifier = Modifier.width(96.dp).clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f),
+                    .aspectRatio(3f / 4f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 comic.coverUrl?.let {
                     AsyncImage(
@@ -759,7 +772,13 @@ private fun ComicHeader(
             .padding(16.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(Modifier.width(110.dp).aspectRatio(3f / 4f)) {
+        Box(
+            Modifier
+                .width(110.dp)
+                .aspectRatio(3f / 4f)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
             comic.coverUrl?.let {
                 AsyncImage(
                     model = it,
@@ -773,7 +792,7 @@ private fun ComicHeader(
         Column(Modifier.fillMaxWidth()) {
             Text(
                 text = comic.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

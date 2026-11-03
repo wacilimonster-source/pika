@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -199,7 +200,10 @@ fun LoginScreen(
                 }
             },
             enabled = !loading,
-            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
         ) {
             if (loading) {
                 CircularProgressIndicator(
@@ -215,7 +219,10 @@ fun LoginScreen(
             Button(
                 onClick = onOpenRegister,
                 enabled = !loading,
-                modifier = Modifier.fillMaxWidth(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
             ) {
                 Text("注册哔咔账号")
             }
