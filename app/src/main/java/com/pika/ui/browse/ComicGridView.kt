@@ -73,14 +73,20 @@ fun ComicGridView(
 ) {
     val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
     val columns by com.pika.data.GridSettings.columnsFlow.collectAsState()
+    // 列数自适应间距（美观性优化）：
+    // 2 列封面约占屏宽 41%（360dp 屏约 146dp），比旧版 158dp 更从容；
+    // 3 列收紧页边距与间距，封面约占 30%（约 107dp），比旧版 101dp 更饱满，
+    // 与设计稿两列≈43%、三列≈30% 的比例一致。
+    val horizontalPadding = if (columns == 2) 24.dp else 12.dp
+    val columnGap = if (columns == 2) 20.dp else 8.dp
+    val rowGap = if (columns == 2) 20.dp else 16.dp
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
-        // 紧凑页边距 16dp；列间距 12dp、行间距 20dp（design-tokens layout）
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(columnGap),
+        verticalArrangement = Arrangement.spacedBy(rowGap),
     ) {
         itemsIndexed(comics, key = { _, comic -> comic.ref }) { index, comic ->
             val readStatus = remember(comic.ref, statusVersion) { com.pika.data.ReaderStatus.of(comic.ref) }

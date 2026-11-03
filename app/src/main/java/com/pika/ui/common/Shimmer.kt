@@ -56,21 +56,25 @@ fun Modifier.shimmerBrush(): Modifier = composed {
 /**
  * 漫画网格骨架屏（A2）：首屏加载时以卡片轮廓 + 微光替代「加载中...」文字，
  * 等待感知更短、弱网不再大片空白。骨架条数固定（约两屏），不可交互。
- * 节奏与新网格一致：16dp 页边距、12/20 间距、10dp 封面圆角，加载完成不突跳。
+ * 间距与真实网格的列数自适应规则一致，加载完成不突跳。
  */
 @Composable
 fun ComicGridSkeleton(
     columns: Int = 2,
     modifier: Modifier = Modifier,
 ) {
+    // 与 ComicGridView 的列数自适应间距保持同一套数值
+    val horizontalPadding = if (columns == 2) 24.dp else 12.dp
+    val columnGap = if (columns == 2) 20.dp else 8.dp
+    val rowGap = if (columns == 2) 20.dp else 16.dp
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(horizontal = horizontalPadding, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(rowGap),
     ) {
         repeat(2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(columnGap)) {
                 repeat(columns) {
                     Column(
                         modifier = Modifier.weight(1f),
