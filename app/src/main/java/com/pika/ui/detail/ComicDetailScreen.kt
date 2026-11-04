@@ -1,7 +1,10 @@
 package com.pika.ui.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +28,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Comment
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbUp
@@ -37,6 +42,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -62,7 +69,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,6 +85,7 @@ import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
 import com.pika.ui.author.AuthorPickerSheet
+import com.pika.ui.common.rememberClipboardCopier
 import kotlinx.coroutines.launch
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
@@ -109,11 +121,13 @@ fun ComicDetailScreen(
     val favouriteError by viewModel.favouriteError.collectAsState()
     var descExpanded by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     var authorPicker by remember { mutableStateOf<AuthorPickerState?>(null) }
     val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
     val downloadedOrders by viewModel.downloadedOrders.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val copier = rememberClipboardCopier(snackbarHostState)
     // 章节列表倒序（与阅读器章节抽屉共用同一偏好）
     val chapterDesc by com.pika.data.ReaderPrefs.current().chapterListDescending
         .collectAsState(initial = false)
@@ -184,6 +198,52 @@ fun ComicDetailScreen(
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
+                        if (c.title.isNotBlank() || c.author.isNotBlank()) {
+                            Box {
+                                IconButton(onClick = { showMoreMenu = true }) {
+                                    Icon(
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "更多操作",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                ) {
+                                    if (c.title.isNotBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text("复制作品名") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.ContentCopy,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                copier.copy("作品名", c.title, "已复制作品名")
+                                            },
+                                        )
+                                    }
+                                    if (c.author.isNotBlank()) {
+                                        DropdownMenuItem(
+                                            text = { Text("复制作者名") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Filled.ContentCopy,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            onClick = {
+                                                showMoreMenu = false
+                                                copier.copy("作者名", c.author, "已复制作者名")
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 windowInsets = WindowInsets(0, 0),
@@ -204,6 +264,8 @@ fun ComicDetailScreen(
                         onRequestAuthorPicker = { origin, segments ->
                             authorPicker = AuthorPickerState(origin, segments)
                         },
+                        onCopyTitle = { copier.copy("作品名", c.title, "已复制作品名") },
+                        onCopyAuthor = { copier.copy("作者名", c.author, "已复制作者名") },
                     )
                 }
                 item {
@@ -760,11 +822,14 @@ private data class AuthorPickerState(
     val segments: List<AuthorSegment>,
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ComicHeader(
     comic: ComicDetail,
     onOpenAuthor: (String, String?) -> Unit,
     onRequestAuthorPicker: (String, List<AuthorSegment>) -> Unit,
+    onCopyTitle: () -> Unit,
+    onCopyAuthor: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -795,21 +860,45 @@ private fun ComicHeader(
                 style = MaterialTheme.typography.headlineSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .pointerInput(comic.title) {
+                        detectTapGestures(onLongPress = { onCopyTitle() })
+                    }
+                    .semantics {
+                        customActions = listOf(
+                            CustomAccessibilityAction("复制作品名") {
+                                onCopyTitle()
+                                true
+                            },
+                        )
+                    },
             )
             Spacer(Modifier.height(4.dp))
             if (comic.author.isNotBlank()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        val segments = AuthorNameParser.segmentsOrSelf(comic.author)
-                        if (segments.size <= 1) {
-                            // 单一署名保持直达：origin 传 null，作者页 origin 回落为 query，
-                            // 避免「作者：张三」这类前缀残留在原署名提示与空态回退里
-                            onOpenAuthor(segments.first().text, null)
-                        } else {
-                            onRequestAuthorPicker(comic.author, segments)
-                        }
-                    },
+                    modifier = Modifier
+                        .combinedClickable(
+                            onClick = {
+                                val segments = AuthorNameParser.segmentsOrSelf(comic.author)
+                                if (segments.size <= 1) {
+                                    // 单一署名保持直达：origin 传 null，作者页 origin 回落为 query，
+                                    // 避免「作者：张三」这类前缀残留在原署名提示与空态回退里
+                                    onOpenAuthor(segments.first().text, null)
+                                } else {
+                                    onRequestAuthorPicker(comic.author, segments)
+                                }
+                            },
+                            onLongClick = onCopyAuthor,
+                        )
+                        .semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction("复制作者名") {
+                                    onCopyAuthor()
+                                    true
+                                },
+                            )
+                        },
                 ) {
                     Text(
                         text = comic.author,

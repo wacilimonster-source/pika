@@ -1,5 +1,6 @@
 package com.pika.ui.author
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,6 +27,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -37,6 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -48,6 +56,7 @@ import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.PaginationBar
+import com.pika.ui.common.rememberClipboardCopier
 
 /**
  * 作者作品页。
@@ -80,6 +89,9 @@ fun AuthorComicsScreen(
     val segments = remember(origin) { AuthorNameParser.parse(origin) }
     // 当前检索片段：从详情页进来时是选中项；页内切换只改它，不新增返回栈
     var currentQuery by rememberSaveable(author, origin) { mutableStateOf(author) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val copier = rememberClipboardCopier(snackbarHostState)
+    val copyAuthor: () -> Unit = { copier.copy("作者名", currentQuery, "已复制作者名") }
 
     // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
     LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
@@ -121,15 +133,41 @@ fun AuthorComicsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(currentQuery, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Text(
+                        text = currentQuery,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .pointerInput(currentQuery) {
+                                detectTapGestures(onLongPress = { copyAuthor() })
+                            }
+                            .semantics {
+                                customActions = listOf(
+                                    CustomAccessibilityAction("复制作者名") {
+                                        copyAuthor()
+                                        true
+                                    },
+                                )
+                            },
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
+                    IconButton(onClick = copyAuthor) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = "复制作者名",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     IconButton(onClick = {
                         if (favourited) {
                             com.pika.data.AuthorFavourites.remove(currentQuery)
