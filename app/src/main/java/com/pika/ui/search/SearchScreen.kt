@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.filterByRead
+import com.pika.ui.common.PikaFilterChip
 
 /** 搜索页：输入框（含返回/重置/标签筛选）+ 排序筛选 + 结果网格 + 底部页码分页 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -239,45 +239,27 @@ fun SearchScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
-                FilterChip(
-                    selected = currentSort == ComicSort.DD,
-                    onClick = { onSortChange(ComicSort.DD) },
-                    label = { Text("新到旧") },
+            // 排序筛选（枚举顺序即展示顺序：新到旧 / 旧到新 / 最多喜欢 / 最多观看）
+            items(ComicSort.entries, key = { it.name }) { sort ->
+                PikaFilterChip(
+                    selected = currentSort == sort,
+                    onClick = { onSortChange(sort) },
+                    text = sort.label,
                 )
             }
-            item {
-                FilterChip(
-                    selected = currentSort == ComicSort.DA,
-                    onClick = { onSortChange(ComicSort.DA) },
-                    label = { Text("旧到新") },
-                )
-            }
-            item {
-                FilterChip(
-                    selected = currentSort == ComicSort.LD,
-                    onClick = { onSortChange(ComicSort.LD) },
-                    label = { Text("最多喜欢") },
-                )
-            }
-            item {
-                FilterChip(
-                    selected = currentSort == ComicSort.VD,
-                    onClick = { onSortChange(ComicSort.VD) },
-                    label = { Text("最多观看") },
-                )
-            }
-            com.pika.ui.browse.readFilterOptions.forEach { (f, label) ->
+
+            // 阅读状态筛选
+            com.pika.ui.browse.readFilterOptions.forEach { (filter, label) ->
                 item {
-                    FilterChip(
-                        selected = readFilter == f,
+                    PikaFilterChip(
+                        selected = readFilter == filter,
                         onClick = {
-                            readFilterName = f.name
+                            readFilterName = filter.name
                             viewModel.resetFilterPage()
                             filterPage = 1
                             listState.requestScrollToItem(0)
                         },
-                        label = { Text(label) },
+                        text = label,
                     )
                 }
             }
@@ -355,7 +337,7 @@ fun SearchScreen(
                                 modifier = Modifier.padding(top = 4.dp),
                             ) {
                                 history.forEach { h ->
-                                    FilterChip(
+                                    PikaFilterChip(
                                         selected = false,
                                         onClick = {
                                             input = h
@@ -562,24 +544,24 @@ fun SearchScreen(
                             .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState()),
                     ) {
-                        FilterChip(
+                        PikaFilterChip(
                             selected = selectedTag == null,
                             onClick = {
                                 showTagSheet = false
                                 filterPage = 1
                                 viewModel.selectTag(null)
                             },
-                            label = { Text("全部") },
+                            text = "全部",
                         )
                         visibleTags.forEach { tag ->
-                            FilterChip(
+                            PikaFilterChip(
                                 selected = selectedTag == tag,
                                 onClick = {
                                     showTagSheet = false
                                     filterPage = 1
                                     viewModel.selectTag(tag)
                                 },
-                                label = { Text(tag) },
+                                text = tag,
                             )
                         }
                     }

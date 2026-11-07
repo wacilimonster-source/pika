@@ -21,9 +21,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -56,6 +56,7 @@ import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.PaginationBar
+import com.pika.ui.common.PikaFilterChip
 import com.pika.ui.common.rememberClipboardCopier
 
 /**
@@ -205,17 +206,17 @@ fun AuthorComicsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(segments, key = { it.text }) { segment ->
-                        FilterChip(
+                        PikaFilterChip(
                             selected = currentQuery == segment.text,
                             onClick = { switchQuery(segment.text) },
                             label = { AuthorSegmentLabel(segment) },
                         )
                     }
                     item(key = "__origin__") {
-                        FilterChip(
+                        PikaFilterChip(
                             selected = currentQuery == origin,
                             onClick = { switchQuery(origin) },
-                            label = { Text("完整署名") },
+                            text = "完整署名",
                         )
                     }
                 }
@@ -237,10 +238,10 @@ fun AuthorComicsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(supportedSorts, key = { it.name }) { s ->
-                    FilterChip(
+                    PikaFilterChip(
                         selected = sort == s,
                         onClick = { viewModel.setSort(s) },
-                        label = { Text(s.label) },
+                        text = s.label,
                     )
                 }
             }
@@ -249,10 +250,10 @@ fun AuthorComicsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(ComicStatus.entries.toList(), key = { it.name }) { st ->
-                    FilterChip(
+                    PikaFilterChip(
                         selected = status == st,
                         onClick = { viewModel.setStatus(st) },
-                        label = { Text(st.label) },
+                        text = st.label,
                     )
                 }
             }
@@ -331,7 +332,7 @@ private fun AuthorSegmentLabel(segment: AuthorSegment) {
             Text(
                 text = role,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalContentColor.current.copy(alpha = 0.75f),
             )
         }
     }

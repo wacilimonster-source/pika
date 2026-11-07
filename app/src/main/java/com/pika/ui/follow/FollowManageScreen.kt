@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
 import com.pika.data.FollowItem
 import com.pika.data.FollowSettings
+import com.pika.ui.common.PikaFilterChip
 import kotlinx.coroutines.launch
 
 /** 关注管理：添加/删除关键词关注（支持组合关键词 + 可选标签，且关系） */
@@ -324,13 +324,13 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
                             .verticalScroll(rememberScrollState()),
                     ) {
                         visibleTags.forEach { tag ->
-                            FilterChip(
+                            PikaFilterChip(
                                 selected = selectedTag == tag,
                                 onClick = {
                                     selectedTag = tag
                                     showTagSheet = false
                                 },
-                                label = { Text(tag) },
+                                text = tag,
                             )
                         }
                     }

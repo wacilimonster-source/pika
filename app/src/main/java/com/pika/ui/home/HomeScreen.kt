@@ -16,14 +16,10 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -50,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.source.SourceManager
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.common.EighteenPlusBadge
+import com.pika.ui.common.PikaSegmentedControl
 
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
@@ -486,19 +483,12 @@ private fun RankTab(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            SingleChoiceSegmentedButtonRow {
-                rankTypes.forEachIndexed { index, (value, label) ->
-                    SegmentedButton(
-                        selected = rankType == value,
-                        onClick = { onTypeChange(value) },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = rankTypes.size,
-                        ),
-                        label = { Text(label) },
-                    )
-                }
-            }
+            PikaSegmentedControl(
+                items = rankTypes,
+                selected = rankTypes.firstOrNull { it.first == rankType } ?: rankTypes.first(),
+                onSelect = { onTypeChange(it.first) },
+                label = { it.second },
+            )
         }
         PullToRefreshBox(
             isRefreshing = loading,

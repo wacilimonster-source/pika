@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -72,6 +71,7 @@ import com.pika.core.source.SourceManager
 import com.pika.ui.browse.BrowseViewModel
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.filterByRead
+import com.pika.ui.common.PikaFilterChip
 
 /**
  * 分类 Tab：以网格展示当前源的全部分类。
@@ -282,23 +282,23 @@ fun CategoryComicsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(supportedSorts, key = { it.name }) { s ->
-                    FilterChip(
+                    PikaFilterChip(
                         selected = sort == s,
                         onClick = { viewModel.setSort(s) },
-                        label = { Text(s.label) },
+                        text = s.label,
                     )
                 }
-                com.pika.ui.browse.readFilterOptions.forEach { (f, label) ->
+                com.pika.ui.browse.readFilterOptions.forEach { (filter, label) ->
                     item {
-                        FilterChip(
-                            selected = readFilter == f,
+                        PikaFilterChip(
+                            selected = readFilter == filter,
                             onClick = {
-                                readFilterName = f.name
+                                readFilterName = filter.name
                                 viewModel.resetFilterPage()
                                 filterPage = 1
                                 listState.requestScrollToItem(0)
                             },
-                            label = { Text(label) },
+                            text = label,
                         )
                     }
                 }

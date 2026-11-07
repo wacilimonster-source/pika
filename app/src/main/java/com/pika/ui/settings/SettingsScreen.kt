@@ -30,9 +30,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +49,7 @@ import com.pika.core.source.SourceManager
 import com.pika.core.update.UpdateManager
 import com.pika.data.GridSettings
 import com.pika.data.ReaderPrefs
+import com.pika.ui.common.PikaSegmentedControl
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -134,22 +132,16 @@ fun SettingsScreen(
                             Text("2 个封面更大，3 个一屏浏览更多；切换后即时生效")
                         },
                     )
-                    SingleChoiceSegmentedButtonRow(
+                    PikaSegmentedControl(
+                        items = listOf(2, 3),
+                        selected = gridColumns,
+                        onSelect = { GridSettings.setColumns(it) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    ) {
-                        SegmentedButton(
-                            selected = gridColumns == 2,
-                            onClick = { GridSettings.setColumns(2) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        ) { Text("2 个") }
-                        SegmentedButton(
-                            selected = gridColumns == 3,
-                            onClick = { GridSettings.setColumns(3) },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        ) { Text("3 个") }
-                    }
+                        equalWidth = true,
+                        label = { "$it 个" },
+                    )
                 }
             }
 
@@ -162,28 +154,19 @@ fun SettingsScreen(
                             Text("滚动流适合条漫，横滑翻页适合页漫；阅读页内可随时切换")
                         },
                     )
-                    SingleChoiceSegmentedButtonRow(
+                    PikaSegmentedControl(
+                        items = listOf(0, 1),
+                        selected = readerMode,
+                        onSelect = {
+                            readerMode = it
+                            ReaderPrefs.current().readerMode = it
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    ) {
-                        SegmentedButton(
-                            selected = readerMode == 0,
-                            onClick = {
-                                readerMode = 0
-                                ReaderPrefs.current().readerMode = 0
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        ) { Text("滚动流") }
-                        SegmentedButton(
-                            selected = readerMode == 1,
-                            onClick = {
-                                readerMode = 1
-                                ReaderPrefs.current().readerMode = 1
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        ) { Text("横滑翻页") }
-                    }
+                        equalWidth = true,
+                        label = { if (it == 0) "滚动流" else "横滑翻页" },
+                    )
                 }
                 SettingsRowDivider()
                 ListItem(

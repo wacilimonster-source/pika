@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
+import com.pika.ui.common.PikaFilterChip
 import kotlinx.coroutines.launch
 
 /**
@@ -161,20 +161,20 @@ fun RegisterScreen(
             )
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
+                PikaFilterChip(
                     selected = gender == "m",
                     onClick = { gender = "m" },
-                    label = { Text("男") },
+                    text = "男",
                 )
-                FilterChip(
+                PikaFilterChip(
                     selected = gender == "f",
                     onClick = { gender = "f" },
-                    label = { Text("女") },
+                    text = "女",
                 )
-                FilterChip(
+                PikaFilterChip(
                     selected = gender == "bot",
                     onClick = { gender = "bot" },
-                    label = { Text("机器人") },
+                    text = "机器人",
                 )
             }
             Spacer(Modifier.height(16.dp))
