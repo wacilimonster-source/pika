@@ -63,6 +63,7 @@
 - **取安装包路径必须用 `downloadAndVerify` 的返回值**，不要自己拼 `cacheDir/filesDir` 路径（曾因此导致首页横幅更新「点安装无反应」）。
 - **发版已改为 GitHub Actions（2026-11 起）**：`.github/workflows/release.yml`，push `vX.Y.Z` tag 触发（也支持 `workflow_dispatch`）。流程：读 `app/build.gradle.kts` 的 versionName/versionCode → 用 Secrets 里的同一把 keystore 签名 → 强制校验证书 SHA-1 `e72843708a92958b7ae82c230ddef2c3bf53aa7b` → 创建 GitHub Release（资产 `pika-vX.Y.Z.apk`）→ 自动更新 `update.json`（`apkUrl` 指 release 资产）并 push main。
 - CI Secrets：`PIKA_KEYSTORE_BASE64`、`PIKA_KS_PW`、`PIKA_KEY_ALIAS`、`PIKA_KEY_PW`（2026-11-12 已设置；keystore 为 `~/.android/debug.keystore`，与 v1.12.1 及更早版本同签名）。
+- CI 坑（2026-11-12 实测）：不要用 `android-actions/setup-android@v3`——它内部执行 `sdkmanager tools`，新版 cmdline-tools 已移除该包会直接失败；用 runner 预装 SDK + `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager`。Windows checkout 会丢 `gradlew` 可执行位，工作流统一用 `bash ./gradlew`。
 - 发版只需：①改 `app/build.gradle.kts` 版本号 → ②新增 `release-notes/vX.Y.Z.md` → ③提交并 push main → ④`git tag vX.Y.Z && git push origin vX.Y.Z` → ⑤等 Actions 完成后核验（release 资产 sha256 = update.json sha256，签名 SHA-1 不变）。
 - 旧的本地手工发版（`gbuild.sh assembleRelease` + 根目录 APK + 手写 update.json）仅作为 CI 故障时的应急手段；`release.sh` 已过时，别直接跑。
 - **更新通道端到端自检**（强烈建议每次发版做）：在设备上用 `curl` 下远端 `apkUrl`，比对设备侧 `sha256sum` 与远端 `update.json` 的 `sha256` 是否一致。命令：`adb shell "curl -sL -o /data/local/tmp/x.apk '<apkUrl>'"` 然后 `adb shell sha256sum ...`。注意 host 侧 curl 可能被限速到不可用，不代表发版有问题。
