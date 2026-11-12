@@ -61,7 +61,10 @@
 ## 发布/更新机制
 - 发版时在 `update.json` 补 `sha256` 字段（APK 的 SHA-256，下载时 LogStore 会打印实际值可核对），`downloadAndVerify` 即自动启用强校验；APK 落在 `filesDir`（file_paths.xml 已含 files-path）。
 - **取安装包路径必须用 `downloadAndVerify` 的返回值**，不要自己拼 `cacheDir/filesDir` 路径（曾因此导致首页横幅更新「点安装无反应」）。
-- 发版步骤（已固化为人工 4 步，`release.sh` 在 HEAD 但工作树缺失、且其 commit 消息是 v1.5.47 写死的，别直接跑）：①改 `app/build.gradle.kts` 版本号 → ②`bash gbuild.sh assembleRelease` → ③`cp` 产物到根目录 `pika-v{VER}.apk` 并用 **python** 写全 `update.json` 四字段（`sha256`/`version`/`apkUrl`/`notes`，注意 `python3` 在本机是坏存根）→ ④提交 `A pika-vX.apk` + `M update.json` 并 push。
+- **发版已改为 GitHub Actions（2026-11 起）**：`.github/workflows/release.yml`，push `vX.Y.Z` tag 触发（也支持 `workflow_dispatch`）。流程：读 `app/build.gradle.kts` 的 versionName/versionCode → 用 Secrets 里的同一把 keystore 签名 → 强制校验证书 SHA-1 `e72843708a92958b7ae82c230ddef2c3bf53aa7b` → 创建 GitHub Release（资产 `pika-vX.Y.Z.apk`）→ 自动更新 `update.json`（`apkUrl` 指 release 资产）并 push main。
+- CI Secrets：`PIKA_KEYSTORE_BASE64`、`PIKA_KS_PW`、`PIKA_KEY_ALIAS`、`PIKA_KEY_PW`（2026-11-12 已设置；keystore 为 `~/.android/debug.keystore`，与 v1.12.1 及更早版本同签名）。
+- 发版只需：①改 `app/build.gradle.kts` 版本号 → ②新增 `release-notes/vX.Y.Z.md` → ③提交并 push main → ④`git tag vX.Y.Z && git push origin vX.Y.Z` → ⑤等 Actions 完成后核验（release 资产 sha256 = update.json sha256，签名 SHA-1 不变）。
+- 旧的本地手工发版（`gbuild.sh assembleRelease` + 根目录 APK + 手写 update.json）仅作为 CI 故障时的应急手段；`release.sh` 已过时，别直接跑。
 - **更新通道端到端自检**（强烈建议每次发版做）：在设备上用 `curl` 下远端 `apkUrl`，比对设备侧 `sha256sum` 与远端 `update.json` 的 `sha256` 是否一致。命令：`adb shell "curl -sL -o /data/local/tmp/x.apk '<apkUrl>'"` 然后 `adb shell sha256sum ...`。注意 host 侧 curl 可能被限速到不可用，不代表发版有问题。
 - push 后核对：`git ls-remote origin main` 指向新 commit；远端 `update.json` 用 `curl -H "Accept: application/vnd.github.raw" https://api.github.com/repos/wacilimonster-source/pika/contents/update.json` 读取（`raw.githubusercontent.com` 直连可能被重置）。
 

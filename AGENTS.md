@@ -27,9 +27,14 @@ bash gbuild.sh compileReleaseKotlin
 # 单元测试（纯 JVM，无 Android 依赖）
 bash gbuild.sh testReleaseUnitTest
 
-# 打 release APK（发版才需要）
+# 打 release APK（本地排查用；正式发版走 GitHub Actions）
 bash gbuild.sh assembleRelease
 ```
+
+**正式发版（2026-11 起）**：改 `app/build.gradle.kts` 版本号 + 新增 `release-notes/vX.Y.Z.md`
+→ 提交并 push main → push tag `vX.Y.Z`。`.github/workflows/release.yml` 会用仓库 Secrets
+里的同一把 keystore 构建，强制校验证书 SHA-1 `e7284370…aa7b`，创建 GitHub Release，
+并自动更新 `update.json`。不要手工上传 APK 或手写 `update.json`。
 
 硬规则：
 
