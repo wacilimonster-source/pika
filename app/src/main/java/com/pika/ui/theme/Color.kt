@@ -80,12 +80,3 @@ val TokenSurfaceBrightLight = Color(0xFFFCF9FB)
 val TokenInverseSurfaceLight = Color(0xFF302733)
 val TokenInverseOnSurfaceLight = Color(0xFFF7EFF4)
 val TokenInversePrimaryLight = Color(0xFFC695B0)
-
-// ── 兼容旧引用 ────────────────────────────────────────────────────────────────
-// 历史代码（若有）引用的模板色名；保留避免编译断裂，不再在主题中使用。
-val Purple80 = TokenPrimaryDark
-val PurpleGrey80 = TokenSecondaryDark
-val Pink80 = TokenTertiaryDark
-val Purple40 = TokenPrimaryLight
-val PurpleGrey40 = TokenSecondaryLight
-val Pink40 = TokenTertiaryLight

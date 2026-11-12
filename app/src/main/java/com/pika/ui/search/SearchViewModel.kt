@@ -6,15 +6,21 @@ import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.PageResult
 import com.pika.core.model.sortedByComicSort
+import com.pika.core.runCatchingCancellable
 import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
+import com.pika.core.source.searchWithRetry
+import com.pika.data.SearchHistory
+import com.pika.network.PicaClient
+import com.pika.ui.browse.SERVICE_PAGE_SIZE
+import com.pika.ui.browse.pageCount
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -87,8 +93,8 @@ class SearchViewModel : ViewModel() {
     /** 单页请求失败重试次数 */
     private val pageRetryCount = 2
 
-    /** 多词搜索时每页展示数量 */
-    private val pageSize = 20
+    /** 多词搜索时每页展示数量（与服务端分页同一口径） */
+    private val pageSize = SERVICE_PAGE_SIZE
 
     // ---- 多词渐进式加载的临时状态（在一次多词搜索期间使用） ----
     private var _multiAllComics: MutableList<ComicSummary> = mutableListOf()
@@ -122,14 +128,14 @@ class SearchViewModel : ViewModel() {
     /** 加载搜索历史（进入页面时调用一次） */
     fun loadHistory() {
         viewModelScope.launch {
-            _history.value = com.pika.data.SearchHistory.historyAsync()
+            _history.value = SearchHistory.historyAsync()
         }
     }
 
     /** 清空搜索历史 */
     fun clearHistory() {
         viewModelScope.launch {
-            com.pika.data.SearchHistory.clear()
+            SearchHistory.clear()
             _history.value = emptyList()
         }
     }
@@ -137,7 +143,7 @@ class SearchViewModel : ViewModel() {
     /** 记录搜索历史（新搜索时置顶去重） */
     private fun recordHistory(keyword: String) {
         viewModelScope.launch {
-            _history.value = com.pika.data.SearchHistory.record(keyword)
+            _history.value = SearchHistory.record(keyword)
         }
     }
 
@@ -300,8 +306,8 @@ class SearchViewModel : ViewModel() {
             val wordPageCountDefs = words.map { word ->
                 async {
                     delay(250)
-                    val first = com.pika.core.runCatchingCancellable {
-                        searchWithRetry(source, word, startPage, categories)
+                    val first = runCatchingCancellable {
+                        source.searchWithRetry(word, startPage, _sort.value, categories, pageRetryCount + 1)
                     }.getOrNull()
                     // 探测失败不计数：pages 回退 1 后阶段 2 会重拉该词第 1 页，可自愈
                     word to (first?.pages ?: 1).coerceIn(1, 50)
@@ -323,19 +329,20 @@ class SearchViewModel : ViewModel() {
                 val page = (wordProgress[word] ?: 0) + 1
                 val resp = semaphore.withPermit {
                     delay(250)
-                    com.pika.core.runCatchingCancellable {
-                        searchWithRetry(source, word, page, categories)
+                    runCatchingCancellable {
+                        source.searchWithRetry(word, page, _sort.value, categories, pageRetryCount + 1)
                     }.getOrNull()
                 }
                 if (resp == null) {
                     fetchFailures++
                     continue
                 }
-                val items = resp.items
-                if (items.isNotEmpty()) {
-                    wordIdSets[word]?.addAll(items.map { it.id })
-                    _multiAllComics.addAll(items)
-                    wordProgress[word] = page
+                // 请求成功即消费该页：即使 items 为空也必须推进游标。
+                // 否则阶段 2 会永远认为这一页没拉过，对同一页无限重试（直到限流才被动停止）。
+                wordProgress[word] = page
+                if (resp.items.isNotEmpty()) {
+                    wordIdSets[word]?.addAll(resp.items.map { it.id })
+                    _multiAllComics.addAll(resp.items)
                 }
             }
             val intersection = computeIntersection(wordIdSets, words)
@@ -345,9 +352,7 @@ class SearchViewModel : ViewModel() {
             }
 
             // 阶段 2：继续拉取剩余页，逐步扩展交集（无超时上限，持续拉取直到所有词都拉完）
-            var madeProgress = true
-            while (madeProgress) {
-                madeProgress = false
+            while (true) {
                 // 服务端已进入限流冷却：继续请求必然全失败，且会不断续期冷却时间
                 // （此前无此检查，一次多词搜索最坏 150 个请求，把自己打进全局冷却，
                 //   连累首页/排行榜/详情一起长时间不可用）
@@ -360,32 +365,37 @@ class SearchViewModel : ViewModel() {
                 }
                 if (pendingWords.isEmpty()) break
 
-                madeProgress = true
                 val pageJobs = pendingWords.map { (w, _) ->
                     async {
                         val nextPage = (wordProgress[w] ?: 0) + 1
                         val resp = semaphore.withPermit {
                             delay(250)
-                            com.pika.core.runCatchingCancellable {
-                                searchWithRetry(source, w, nextPage, categories)
+                            runCatchingCancellable {
+                                source.searchWithRetry(w, nextPage, _sort.value, categories, pageRetryCount + 1)
                             }.getOrNull()
                         }
                         w to resp
                     }
                 }
+                var anyPageSucceeded = false
                 for (job in pageJobs) {
                     val (w, resp) = job.await()
                     if (resp == null) {
                         fetchFailures++
                         continue
                     }
-                    val items = resp.items
-                    if (items.isNotEmpty()) {
-                        _multiAllComics.addAll(items)
-                        wordIdSets[w]?.addAll(items.map { it.id })
-                        wordProgress[w] = (wordProgress[w] ?: 0) + 1
+                    anyPageSucceeded = true
+                    // 成功即推进游标（空页同样算已消费），否则同一页会被无限重拉：
+                    // 阶段 2 的循环条件只看「游标 < 总页数」，不推进就是死循环请求。
+                    wordProgress[w] = (wordProgress[w] ?: 0) + 1
+                    if (resp.items.isNotEmpty()) {
+                        _multiAllComics.addAll(resp.items)
+                        wordIdSets[w]?.addAll(resp.items.map { it.id })
                     }
                 }
+                // 本轮所有请求都失败：继续循环只会对同样的页重试到天荒地老，
+                // 直接收口为「部分失败」并让下方错误提示说明原因。
+                if (!anyPageSucceeded) break
 
                 val newIntersection = computeIntersection(wordIdSets, words)
                 if (newIntersection != _confirmedIntersectionIds && words == _activeSearchWords) {
@@ -462,7 +472,7 @@ class SearchViewModel : ViewModel() {
         }
         val display = buildDisplay()
         if (display.isEmpty()) return
-        val newTotal = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        val newTotal = pageCount(intersection.size, pageSize)
         // 内容与页数都没变就不发布：后台每轮交集扩展都会走到这里，
         // 无谓的全量发布只会触发列表重组（E4 性能项）
         if (display == _comics.value && newTotal == _totalPages.value) return
@@ -480,7 +490,7 @@ class SearchViewModel : ViewModel() {
      * 避免停留在无内容的深页（分页条按集数重算后可能只剩 1 页，夹空页会无路可回）。 */
     private fun publishFinalResult(intersection: Set<String>) {
         _confirmedIntersectionIds = intersection
-        _totalPages.value = ((intersection.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        _totalPages.value = pageCount(intersection.size, pageSize)
         val page = _currentPage.value.coerceAtMost(_totalPages.value)
         _currentPage.value = page
         _comics.value = buildDisplayForPage(page)
@@ -590,26 +600,5 @@ class SearchViewModel : ViewModel() {
 
     /** 服务端限流冷却中（>0 表示仍在冷却）。批量拉取循环应在每次取数前检查并中断 */
     private fun rateLimitCooldownExceeded(): Boolean =
-        com.pika.network.PicaClient.rateLimitRemaining() > 0
-
-    /** 单页搜索，失败自动重试 */
-    private suspend fun searchWithRetry(
-        source: Source,
-        word: String,
-        page: Int,
-        categories: List<String> = emptyList(),
-    ): PageResult<ComicSummary> {
-        var last: Exception? = null
-        repeat(pageRetryCount + 1) { attempt ->
-            try {
-                return source.search(word, page, _sort.value, categories = categories)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e // 取消不放行会继续重试发请求（与 HomeViewModel.searchWithRetry 对齐）
-            } catch (e: Exception) {
-                last = e
-                if (attempt < pageRetryCount) delay(500)
-            }
-        }
-        throw last ?: RuntimeException("search failed")
-    }
+        PicaClient.rateLimitRemaining() > 0
 }

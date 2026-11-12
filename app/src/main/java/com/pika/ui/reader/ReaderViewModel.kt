@@ -1,23 +1,29 @@
 package com.pika.ui.reader
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.Coil
 import coil.request.ImageRequest
+import com.pika.core.download.DownloadManager
+import com.pika.core.log.LogStore
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicPage
-import com.pika.core.source.SourceManager
 import com.pika.core.runCatchingCancellable
+import com.pika.core.source.ComicRef
+import com.pika.core.source.SourceManager
+import com.pika.data.ReadStatus
 import com.pika.data.ReaderPrefs
+import com.pika.data.ReaderStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -45,12 +51,12 @@ class ReaderViewModel : ViewModel() {
     fun observeDownloaded() {
         if (downloadedJob != null) return
         downloadedJob = viewModelScope.launch(Dispatchers.IO) {
-            combine(_chapters, com.pika.core.download.DownloadManager.tasks) { chs, _ -> chs }
+            combine(_chapters, DownloadManager.tasks) { chs, _ -> chs }
                 .collectLatest { chs ->
                     val id = comicId
                     _downloadedOrders.value = chs.asSequence()
                         .map { it.order }
-                        .filter { com.pika.core.download.DownloadManager.isDownloaded(id, it) }
+                        .filter { DownloadManager.isDownloaded(id, it) }
                         .toSet()
                 }
         }
@@ -96,7 +102,7 @@ class ReaderViewModel : ViewModel() {
         if (loadedKey == "$ref:$order" && _pages.value.isNotEmpty()) return
         loadJob?.cancel()
         loadedKey = "$ref:$order"
-        val (src, id) = com.pika.core.source.ComicRef.parse(ref)
+        val (src, id) = ComicRef.parse(ref)
         this.ref = ref
         this.comicId = id
         this.currentOrder = order
@@ -127,8 +133,8 @@ class ReaderViewModel : ViewModel() {
                     // 离线优先：仅当下载器判定「完整下载」才读本地（isDownloaded 按任务
                     // 状态 + 页数校验，.part 半成品不计入）。此前自建 file 枚举把
                     // 下载中的章当成本地完整章：残页序 + 破图，且不随下载完成刷新
-                    val local = if (com.pika.core.download.DownloadManager.isDownloaded(comicId, order)) {
-                        com.pika.core.download.DownloadManager.chapterDir(comicId, order)
+                    val local = if (DownloadManager.isDownloaded(comicId, order)) {
+                        DownloadManager.chapterDir(comicId, order)
                             .listFiles()
                             ?.filter {
                                 it.name.startsWith("page_") &&
@@ -141,7 +147,7 @@ class ReaderViewModel : ViewModel() {
                     }
                     if (!local.isNullOrEmpty()) {
                         _pages.value = local.mapIndexed { i, f ->
-                            com.pika.core.model.ComicPage(i, f.toURI().toString())
+                            ComicPage(i, f.toURI().toString())
                         }
                     } else {
                         _pages.value = pageSource.chapterPages(comicId, order)
@@ -180,8 +186,8 @@ class ReaderViewModel : ViewModel() {
             } catch (e: Exception) {
                 // 加载失败必须清空页面：切章失败若残留上一章内容，会顶着新章标题展示，
                 // 且当前页码会被防抖保存成新章的阅读进度（进度污染）
-                android.util.Log.e("ReaderLoad", "整章加载失败: ${e.javaClass.simpleName}: ${e.message} ref=$ref order=$order")
-                com.pika.core.log.LogStore.log(
+                Log.e("ReaderLoad", "整章加载失败: ${e.javaClass.simpleName}: ${e.message} ref=$ref order=$order")
+                LogStore.log(
                     "ReaderLoad", "E",
                     "整章加载失败(${e.javaClass.simpleName}: ${e.message}) ref=$ref order=$order — 界面上的「重试」即此处",
                 )
@@ -230,7 +236,7 @@ class ReaderViewModel : ViewModel() {
      */
     fun retryChapters() {
         if (ref.isBlank() || comicId.isBlank()) return
-        val source = SourceManager.sourceOf(com.pika.core.source.ComicRef.parse(ref).first)
+        val source = SourceManager.sourceOf(ComicRef.parse(ref).first)
         val orderNow = currentOrder
         viewModelScope.launch(Dispatchers.IO) {
             val list = runCatchingCancellable { source.chapters(comicId) }.getOrDefault(emptyList())
@@ -261,11 +267,11 @@ class ReaderViewModel : ViewModel() {
         val chaptersNow = _chapters.value
         if (final) {
             ReaderPrefs.current().ioScope.launch {
-                runCatching {
+                runCatchingCancellable {
                     ReaderPrefs.current().saveProgress(refNow, orderNow, safePage)
                     ReaderPrefs.current().markChapterRead(refNow, orderNow)
                 }
-                com.pika.data.ReaderStatus.markRead(refNow)
+                ReaderStatus.markRead(refNow)
             }
             return
         }
@@ -278,13 +284,13 @@ class ReaderViewModel : ViewModel() {
                 ReaderPrefs.current().markChapterRead(refNow, orderNow)
             }
             // 打开过阅读器即已读（内存状态只升不降）
-            com.pika.data.ReaderStatus.markRead(refNow)
+            ReaderStatus.markRead(refNow)
             // 读到最后一章最后一页 → 已读完（持久化 + 内存标记，重复到达不重复写盘）
             val lastOrder = chaptersNow.maxOfOrNull { it.order } ?: return@launch
             if (orderNow == lastOrder && safePage >= pagesSize - 1) {
-                if (com.pika.data.ReaderStatus.of(refNow) != com.pika.data.ReadStatus.FINISHED) {
+                if (ReaderStatus.of(refNow) != ReadStatus.FINISHED) {
                     runCatchingCancellable { ReaderPrefs.current().saveFinished(refNow) }
-                    com.pika.data.ReaderStatus.markFinished(refNow)
+                    ReaderStatus.markFinished(refNow)
                 }
             }
         }
@@ -363,23 +369,11 @@ class ReaderViewModel : ViewModel() {
                     .data(url)
                     // 宽高双封顶，必须与展示请求完全一致（同 memoryCacheKey 共用缓存条目；
                     // 尺寸不一致会让预取解码结果以错误尺寸进入缓存）
-                    .size(coil.size.Size(width = 2160, height = cap))
+                    .size(coil.size.Size(width = MAX_DECODE_WIDTH_PX, height = cap))
                     .memoryCacheKey(url)
                     .diskCacheKey(url)
                     .build()
             )
-        }
-    }
-
-    /** 与 WebtoonSplitPage 保持一致的解码高度上限（按设备内存分级） */
-    private fun maxDecodeHeightPx(context: Context): Int {
-        val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
-            as? android.app.ActivityManager
-        val memClass = am?.memoryClass ?: 192
-        return when {
-            memClass >= 256 -> 8192
-            memClass >= 128 -> 6144
-            else -> 4096
         }
     }
 

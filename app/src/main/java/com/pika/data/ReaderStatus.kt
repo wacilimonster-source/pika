@@ -1,6 +1,7 @@
 package com.pika.data
 
 import android.content.Context
+import com.pika.core.runCatchingCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +27,7 @@ object ReaderStatus {
 
     /** App 启动时调用：一次性加载全部进度/读完标记（含历史数据）。挂起函数，在 IO 线程 await 即可 */
     suspend fun loadAll(context: Context) {
-        runCatching {
+        runCatchingCancellable {
             map.clear()
             map.putAll(ReaderPrefs.current().loadAllStatuses())
             _version.value++

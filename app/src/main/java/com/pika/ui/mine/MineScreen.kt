@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -49,12 +50,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
+import com.pika.core.update.UpdateState
+import com.pika.ui.common.ErrorRetry
 import kotlinx.coroutines.launch
 
 @Composable
@@ -74,7 +80,7 @@ fun MineScreen(
     val unauthorizedTick by SourceManager.unauthorizedTick.collectAsState()
     val loggedIn = SourceManager.current().isLoggedIn
     // 更新红点：有新版本且未被「稍后再说」/关闭时，设置入口带红点（D5）
-    val updateAvailable by com.pika.core.update.UpdateState.updateInfo.collectAsState()
+    val updateAvailable by UpdateState.updateInfo.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     var deleteSavedCredentials by remember { mutableStateOf(false) }
     var user by remember { mutableStateOf<ComicUser?>(null) }
@@ -124,9 +130,9 @@ fun MineScreen(
             // 设计稿页面右上 eyebrow（装饰性字距小标，不承载操作）
             Text(
                 text = "MY COLLECTION",
-                style = androidx.compose.ui.text.TextStyle(
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                style = TextStyle(
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 10.sp,
                     letterSpacing = 2.sp,
                 ),
@@ -154,7 +160,7 @@ fun MineScreen(
                 }
                 loggedIn && user == null && profileError != null -> {
                     // 加载失败给出可读提示 + 重试（此前只显示一行错误文字，只能退出重进）
-                    com.pika.ui.common.ErrorRetry(
+                    ErrorRetry(
                         message = "资料加载失败：$profileError",
                         onRetry = { profileRetryTick++ },
                         modifier = Modifier
@@ -260,7 +266,7 @@ fun MineScreen(
     }
 
     if (showLogoutDialog) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("退出登录") },
             text = {

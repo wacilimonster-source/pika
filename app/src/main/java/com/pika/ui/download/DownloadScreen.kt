@@ -1,8 +1,11 @@
 package com.pika.ui.download
 
-import androidx.compose.foundation.clickable
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,20 +54,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import kotlinx.coroutines.launch
 import com.pika.core.download.DlStatus
-import com.pika.core.download.DownloadManager
 import com.pika.core.download.DownloadExporter
+import com.pika.core.download.DownloadManager
 import com.pika.core.download.TaskRuntime
+import com.pika.core.source.ComicRef
+import com.pika.data.DownloadPrefs
+import com.pika.util.isNetworkMetered
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * 下载管理页：总存储占用 / 实时速度 / 每任务进度 / 失败重试 / 删除。
@@ -84,10 +92,10 @@ fun DownloadScreen(
     // 单章删除确认（A14：与整本一致加确认；删除=文件即删，以确认代替撤销）
     var pendingDeleteSingle by remember { mutableStateOf<Pair<String, String>?>(null) }
     // 仅 Wi-Fi 下载：流量网络 + 有排队任务时给出可见提示
-    val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
-        .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val wifiOnly by DownloadPrefs.wifiOnlyFlow
+        .collectAsState(initial = DownloadPrefs.wifiOnly)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     // 导出（P3 #3）：点导出 → SAF CreateDocument 选位置 → 下载器流式写 zip。
     // pendingExport = 待导出 (comicId, 标题)；partialExportConfirm = 部分完成时先确认
@@ -124,12 +132,12 @@ fun DownloadScreen(
                 DownloadExporter.consume()
                 if (result == SnackbarResult.ActionPerformed && s.uri != null) {
                     runCatching {
-                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        val send = Intent(Intent.ACTION_SEND).apply {
                             type = "application/zip"
-                            putExtra(android.content.Intent.EXTRA_STREAM, s.uri)
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            putExtra(Intent.EXTRA_STREAM, s.uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
-                        context.startActivity(android.content.Intent.createChooser(send, "分享导出文件"))
+                        context.startActivity(Intent.createChooser(send, "分享导出文件"))
                     }
                 }
             }
@@ -201,7 +209,7 @@ fun DownloadScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
@@ -350,7 +358,7 @@ fun DownloadScreen(
                             onChapterClick = { order ->
                                 if (comicTasks.any { t -> t.isFinished && t.task.order == order }) {
                                     onComicClick(
-                                        com.pika.core.source.ComicRef.ofName(
+                                        ComicRef.ofName(
                                             comicTasks.firstOrNull()?.task?.source, comicId,
                                         ),
                                         order,
@@ -458,13 +466,6 @@ private fun suggestedZipName(comicTitle: String): String =
         .take(50)
         .let { if (it.isBlank()) "PiKA导出" else it } + ".zip"
 
-/** 当前网络是否按流量计费 */
-private fun isNetworkMetered(context: android.content.Context): Boolean {
-    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
-        as? android.net.ConnectivityManager ?: return true
-    return cm.isActiveNetworkMetered
-}
-
 @Composable
 private fun ComicGroupCard(
     comicId: String,
@@ -482,9 +483,9 @@ private fun ComicGroupCard(
     val done = tasks.count { it.isFinished }
     val downloading = tasks.count { it.status == DlStatus.DOWNLOADING || it.status == DlStatus.PENDING }
     val bytes = tasks.sumOf { it.totalBytes }
-    val animatedGroupProgress by androidx.compose.animation.core.animateFloatAsState(
+    val animatedGroupProgress by animateFloatAsState(
         targetValue = if (tasks.isEmpty()) 0f else done.toFloat() / tasks.size,
-        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = 300),
         label = "groupProgress",
     )
     Card(
@@ -583,9 +584,9 @@ private fun DownloadTaskRow(
 ) {
     val task = runtime.task
     // A10 进度平滑：页级粒度的跳变经 300ms 补间抚平（速度文案由采样器驱动，本身平滑）
-    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+    val animatedProgress by animateFloatAsState(
         targetValue = runtime.progress / 100f,
-        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        animationSpec = tween(durationMillis = 300),
         label = "dlProgress",
     )
     Row(

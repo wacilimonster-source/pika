@@ -1,5 +1,8 @@
 package com.pika.ui.reader
 
+import android.app.ActivityManager
+import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,11 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.pika.core.log.LogStore
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -102,8 +107,8 @@ fun WebtoonSplitPage(
         if (state is AsyncImagePainter.State.Error) {
             val t = state.result.throwable
             val msg = "渲染层失败(第${pageIndex + 1}页): ${t.javaClass.simpleName}: ${t.message} <- $imageUrl"
-            android.util.Log.e("PainterErr", msg)
-            com.pika.core.log.LogStore.log("PainterErr", "E", msg)
+            Log.e("PainterErr", msg)
+            LogStore.log("PainterErr", "E", msg)
         }
     }
 
@@ -176,7 +181,7 @@ private fun PageImage(
     state: AsyncImagePainter.State,
     pageIndex: Int,
     contentScale: ContentScale,
-    fullHeightDp: androidx.compose.ui.unit.Dp,
+    fullHeightDp: Dp,
     onRetry: () -> Unit,
     offsetY: Int = 0,
 ) {
@@ -245,9 +250,9 @@ internal const val MAX_DECODE_WIDTH_PX = 2160
  * internal：ReaderScreen 的 PagerPage（横滑翻页模式）与预加载共用同一上限，
  * 保证预取缓存键与展示请求解码尺寸一致。
  */
-internal fun maxDecodeHeightPx(context: android.content.Context): Int {
-    val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
-        as? android.app.ActivityManager
+internal fun maxDecodeHeightPx(context: Context): Int {
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE)
+        as? ActivityManager
     val memClass = am?.memoryClass ?: 192
     return when {
         memClass >= 256 -> MAX_DECODE_HEIGHT_PX

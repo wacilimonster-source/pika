@@ -2,19 +2,27 @@ package com.pika.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pika.core.model.AuthorMatcher
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
+import com.pika.core.model.PageResult
 import com.pika.core.model.sortedByComicSort
+import com.pika.core.runCatchingCancellable
 import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
+import com.pika.core.source.searchWithRetry
 import com.pika.data.AuthorFavourites
+import com.pika.data.FollowFeedCache
 import com.pika.data.FollowSettings
+import com.pika.data.RankCache
+import com.pika.data.UpdatedAtCache
+import com.pika.network.PicaClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -92,7 +100,7 @@ class HomeViewModel : ViewModel() {
     fun markFeedSeen() {
         val max = _followFeed.value.maxOfOrNull { it.updatedAt } ?: ""
         if (max.isNotBlank()) {
-            com.pika.data.FollowSettings.markFeedSeen(max)
+            FollowSettings.markFeedSeen(max)
             _feedSeenMarker.value = max
         }
     }
@@ -207,12 +215,12 @@ class HomeViewModel : ViewModel() {
 
     init {
         // 冷启动：先展示上次成功刷新的缓存，后台静默刷新替换
-        _followFeed.value = com.pika.data.FollowFeedCache.load()
+        _followFeed.value = FollowFeedCache.load()
             .map { fillUpdatedAt(it) }
-        _feedSeenMarker.value = com.pika.data.FollowSettings.feedSeenMaxUpdatedAt()
+        _feedSeenMarker.value = FollowSettings.feedSeenMaxUpdatedAt()
         // 浏览详情页拉到更新时间后（缓存 version 递增），回填关注流中还没有时间的条目
         viewModelScope.launch {
-            com.pika.data.UpdatedAtCache.version.collect {
+            UpdatedAtCache.version.collect {
                 val current = _followFeed.value
                 val refilled = current.map { fillUpdatedAt(it) }
                 if (refilled != current) _followFeed.value = refilled
@@ -243,7 +251,7 @@ class HomeViewModel : ViewModel() {
                 val list = SourceManager.current().rank(type)
                 if (gen != rankGeneration) return@launch   // 已被更新的选择取代，丢弃
                 _rankComics.value = list
-                runCatching { com.pika.data.RankCache.save(type, list) }
+                runCatching { RankCache.save(type, list) }
                 rankLoadedAt = System.currentTimeMillis()
                 // 刷新完成（换榜/强刷均适用）：通知 UI 回到顶部，从新版第 1 名开始展示
                 _rankRefreshTick.value++
@@ -256,7 +264,7 @@ class HomeViewModel : ViewModel() {
                 // 服务端故障降级：整页报错改为展示上次成功的缓存榜单，横幅注明新鲜度
                 // 让用户能分辨这不是实时数据（首次使用无缓存时仍是整页错误 + 重试）
                 val cached = if (!force && _rankComics.value.isEmpty()) {
-                    runCatching { com.pika.data.RankCache.load(type) }.getOrNull()
+                    runCatching { RankCache.load(type) }.getOrNull()
                 } else null
                 if (cached != null) {
                     _rankComics.value = cached.second
@@ -307,7 +315,7 @@ class HomeViewModel : ViewModel() {
             _followEndReached.value = true
             _followEmptyHint.value = "还没有关注内容，去「我的 → 关注管理」添加作者或关键词关注"
             _followError.value = null
-            com.pika.data.FollowFeedCache.clear()  // 清空关注时同步清缓存，避免回退显示旧数据
+            FollowFeedCache.clear()  // 清空关注时同步清缓存，避免回退显示旧数据
             return
         }
         _followEmptyHint.value = null
@@ -337,7 +345,7 @@ class HomeViewModel : ViewModel() {
                     // 成功刷新后持久化缓存（冷启动秒显）；只存前 120 条控制体积，
                     // 内存 feed 不截断——完整深度交给触底加载（D9）
                     runCatching {
-                        com.pika.data.FollowFeedCache.save(_followFeed.value.take(120))
+                        FollowFeedCache.save(_followFeed.value.take(120))
                     }
                 }
                 // 是否到底由各来源游标判定：全部来源到末页才到底（此前无条件 take(120) 硬截断）
@@ -456,7 +464,7 @@ class HomeViewModel : ViewModel() {
         var started = 0
         for (target in pending) {
             // 服务端已处于限流冷却：继续请求必然全部失败，还会不断续期冷却时间，直接停止本轮
-            val cooldown = com.pika.network.PicaClient.rateLimitRemaining()
+            val cooldown = PicaClient.rateLimitRemaining()
             if (cooldown > 0) {
                 rateLimitSeconds = (cooldown + 999) / 1000
                 break
@@ -472,12 +480,12 @@ class HomeViewModel : ViewModel() {
                     // 搜索接口按更新时间返回（实测作者名可完全匹配该作者全部作品）。
                     // 走 searchWithRetry：单词/作者来源此前没有任何重试，一次网络抖动就整源消失。
                     FollowTargetType.AUTHOR -> {
-                        val r = searchWithRetry(source, target.name, page, emptyList())
+                        val r = source.searchWithRetry(target.name, page)
                         targetPages[target.key] = page
                         if (page >= r.pages) targetEnded[target.key] = true
                         // 关键词会命中标题/标签；作者关注只保留 author 字段包含该片段的条目，
                         // 与作者页保持同一语义（片段可能是联合作者里的一段）
-                        r.items.filter { com.pika.core.model.AuthorMatcher.matches(it.author, target.name) }
+                        r.items.filter { AuthorMatcher.matches(it.author, target.name) }
                     }
                     FollowTargetType.KEYWORD ->
                         fetchKeywordPage(source, target, page)
@@ -520,7 +528,7 @@ class HomeViewModel : ViewModel() {
         }
         // 单词且无标签：直接取第 1 页（关注流语义：各来源最新作品）
         if (words.size <= 1 && target.tag == null) {
-            val result = searchWithRetry(source, target.name, startPage, emptyList())
+            val result = source.searchWithRetry(target.name, startPage)
             targetPages[target.key] = startPage
             if (startPage >= result.pages) targetEnded[target.key] = true
             return result.items
@@ -538,8 +546,8 @@ class HomeViewModel : ViewModel() {
                 async {
                     semaphore.withPermit {
                         kotlinx.coroutines.delay(250)
-                        val first = com.pika.core.runCatchingCancellable {
-                            searchWithRetry(source, word, 1, categories)
+                        val first = runCatchingCancellable {
+                            source.searchWithRetry(word, 1, categories = categories)
                         }.getOrNull()
                         word to (first?.pages ?: 1).coerceIn(1, 50)
                     }
@@ -553,11 +561,11 @@ class HomeViewModel : ViewModel() {
                         (1..pages).mapNotNull { p ->
                             // 服务端已限流冷却：继续请求必然全失败并不断续期冷却，
                             // 拖垮首页/搜索/排行榜（此前缺此检查）。
-                            if (com.pika.network.PicaClient.rateLimitRemaining() > 0) return@mapNotNull null
+                            if (PicaClient.rateLimitRemaining() > 0) return@mapNotNull null
                             semaphore.withPermit {
                                 kotlinx.coroutines.delay(250)
-                                com.pika.core.runCatchingCancellable {
-                                    searchWithRetry(source, word, p, categories)
+                                runCatchingCancellable {
+                                    source.searchWithRetry(word, p, categories = categories)
                                 }.getOrNull()?.items
                             }
                         }.flatten()
@@ -576,27 +584,6 @@ class HomeViewModel : ViewModel() {
             .sortedByComicSort(ComicSort.DD)
     }
 
-    /** 单词/多词搜索，失败自动重试 */
-    private suspend fun searchWithRetry(
-        source: Source,
-        word: String,
-        page: Int,
-        categories: List<String> = emptyList(),
-    ): com.pika.core.model.PageResult<ComicSummary> {
-        var last: Exception? = null
-        repeat(3) { attempt ->
-            try {
-                return source.search(word, page, ComicSort.DD, categories = categories)
-            } catch (e: Exception) {
-                // 取消必须立刻放行：新一次刷新接管时旧重试不能再继续烧请求
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                last = e
-                if (attempt < 2) kotlinx.coroutines.delay(500)
-            }
-        }
-        throw last ?: RuntimeException("search failed")
-    }
-
     /** 合并新拉取的漫画：按 id 去重、按更新时间（ISO 前缀字典序）由近至远排序 */
     private fun mergeIntoFeed(newItems: List<ComicSummary>, append: Boolean = false) {
         val base = if (append) _followFeed.value else emptyList()
@@ -613,9 +600,9 @@ class HomeViewModel : ViewModel() {
     /** 条目自带更新时间就顺手记录进缓存；没有则用已记录的（详情页拉到过的）回填展示 */
     private fun fillUpdatedAt(item: ComicSummary): ComicSummary {
         if (item.updatedAt.isNotBlank()) {
-            com.pika.data.UpdatedAtCache.put(item.ref, item.updatedAt)
+            UpdatedAtCache.put(item.ref, item.updatedAt)
             return item
         }
-        return com.pika.data.UpdatedAtCache.of(item.ref)?.let { item.copy(updatedAt = it) } ?: item
+        return UpdatedAtCache.of(item.ref)?.let { item.copy(updatedAt = it) } ?: item
     }
 }

@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,8 +33,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -40,13 +40,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
+import com.pika.core.update.UpdateState
+import com.pika.data.GridSettings
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.common.ComicGridSkeleton
 import com.pika.ui.common.EighteenPlusBadge
 import com.pika.ui.common.PikaSegmentedControl
+import com.pika.ui.update.UpdateDialog
 
 private val rankTypes = listOf("H24" to "日榜", "D7" to "周榜", "D30" to "月榜")
 
@@ -77,7 +87,7 @@ fun HomeScreen(
     val rankLoading by viewModel.rankLoading.collectAsState()
     val rankError by viewModel.rankError.collectAsState()
     val rankRefreshTick by viewModel.rankRefreshTick.collectAsState()
-    val updateInfo by com.pika.core.update.UpdateState.updateInfo.collectAsState()
+    val updateInfo by UpdateState.updateInfo.collectAsState()
     val followRefreshTick by viewModel.refreshTick.collectAsState()
     val randomComics by viewModel.randomComics.collectAsState()
     val randomLoading by viewModel.randomLoading.collectAsState()
@@ -86,7 +96,7 @@ fun HomeScreen(
     var showUpdateDialog by remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(1) }
     // 骨架屏列数跟随用户网格设置（2/3 列），与真实网格一致避免加载完成瞬间跳变
-    val gridColumns by com.pika.data.GridSettings.columnsFlow.collectAsState()
+    val gridColumns by GridSettings.columnsFlow.collectAsState()
 
     val followGridState = rememberLazyGridState()
     val rankGridState = rememberLazyGridState()
@@ -134,7 +144,7 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        com.pika.core.update.UpdateState.checkOnce()
+        UpdateState.checkOnce()
         viewModel.ensureFollowTargets()
         // 冷启动错峰：两条链同帧开跑会一起顶到哔咔约 2 次/秒的限流线。
         // 首屏默认落在排行榜（selectedTab=1），它是**唯一可见内容**，必须立即开跑；
@@ -146,7 +156,7 @@ fun HomeScreen(
         viewModel.initialRefresh()
     }
 
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshOnResume()
     }
 
@@ -160,11 +170,11 @@ fun HomeScreen(
     }
 
     if (updateInfo != null && showUpdateDialog) {
-        com.pika.ui.update.UpdateDialog(
+        UpdateDialog(
             info = updateInfo!!,
             onDismiss = {
                 showUpdateDialog = false
-                com.pika.core.update.UpdateState.dismiss()
+                UpdateState.dismiss()
             },
         )
     }
@@ -179,9 +189,9 @@ fun HomeScreen(
                 ) {
                     Text(
                         text = "PiKA",
-                        style = androidx.compose.ui.text.TextStyle(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                        style = TextStyle(
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 24.sp,
                             lineHeight = 28.sp,
                             letterSpacing = (-0.5).sp,
@@ -190,9 +200,9 @@ fun HomeScreen(
                     )
                     Text(
                         text = ".",
-                        style = androidx.compose.ui.text.TextStyle(
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                        style = TextStyle(
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.ExtraBold,
                             fontSize = 24.sp,
                             lineHeight = 28.sp,
                         ),
@@ -202,7 +212,7 @@ fun HomeScreen(
                     EighteenPlusBadge()
                     Spacer(Modifier.weight(1f))
                     Surface(
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     ) {
@@ -233,7 +243,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
-                                .clickable { com.pika.core.update.UpdateState.snooze() }
+                                .clickable { UpdateState.snooze() }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
@@ -308,7 +318,7 @@ fun HomeScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FollowTab(
-    comics: List<com.pika.core.model.ComicSummary>,
+    comics: List<ComicSummary>,
     loading: Boolean,
     /** 触底加载中（区别于下拉刷新：只驱动网格尾部转圈） */
     loadingMore: Boolean = false,
@@ -321,7 +331,7 @@ private fun FollowTab(
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier,
 ) {
     // 刷新完成后回到顶部，从最新内容开始展示。
@@ -391,7 +401,7 @@ private fun FollowTab(
 /** 关注流区头：标题 + 副题 + 真实「有更新」提示（updatedAt 基线之后的新条目） */
 @Composable
 private fun FollowSectionHeader(
-    comics: List<com.pika.core.model.ComicSummary>,
+    comics: List<ComicSummary>,
     newUntil: String,
 ) {
     val updatedCount = remember(comics, newUntil) {
@@ -427,7 +437,7 @@ private fun FollowSectionHeader(
                 modifier = Modifier
                     .background(
                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                        androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                        RoundedCornerShape(6.dp),
                     )
                     .padding(horizontal = 8.dp, vertical = 3.dp),
             )
@@ -439,7 +449,7 @@ private fun FollowSectionHeader(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RankTab(
-    rankComics: List<com.pika.core.model.ComicSummary>,
+    rankComics: List<ComicSummary>,
     rankType: String,
     loading: Boolean,
     error: String?,
@@ -449,7 +459,7 @@ private fun RankTab(
     onTypeChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier,
 ) {
     // 刷新完成（换榜 / TTL 静默刷新 / 下拉刷新）后回到顶部，从新版第 1 名开始展示。
@@ -533,7 +543,7 @@ private fun RankTab(
                     }
                     rankComics.isEmpty() && loading -> {
                         // A2 骨架屏：首屏以卡片轮廓微光替代文字转圈，等待感知更短
-                        com.pika.ui.common.ComicGridSkeleton(
+                        ComicGridSkeleton(
                             columns = skeletonColumns,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -569,14 +579,14 @@ private fun RankTab(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RandomTab(
-    comics: List<com.pika.core.model.ComicSummary>,
+    comics: List<ComicSummary>,
     loading: Boolean,
     error: String?,
     /** 骨架屏列数（跟随用户网格设置） */
     skeletonColumns: Int = 2,
     onRefresh: () -> Unit,
     onComicClick: (String) -> Unit,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(
@@ -607,7 +617,7 @@ private fun RandomTab(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable(enabled = !loading, onClick = onRefresh)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 ) {
@@ -646,7 +656,7 @@ private fun RandomTab(
             }
             if (comics.isEmpty() && loading) {
                 // A2 骨架屏：随机推荐首刷时不再空白
-                com.pika.ui.common.ComicGridSkeleton(
+                ComicGridSkeleton(
                     columns = skeletonColumns,
                     modifier = Modifier.weight(1f),
                 )

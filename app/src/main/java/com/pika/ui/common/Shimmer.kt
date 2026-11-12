@@ -63,18 +63,16 @@ fun ComicGridSkeleton(
     columns: Int = 2,
     modifier: Modifier = Modifier,
 ) {
-    // 与 ComicGridView 的列数自适应间距保持同一套数值
-    val horizontalPadding = if (columns == 2) 24.dp else 12.dp
-    val columnGap = if (columns == 2) 20.dp else 8.dp
-    val rowGap = if (columns == 2) 20.dp else 16.dp
+    // 与 ComicGridView 共用同一份列数自适应间距
+    val metrics = comicGridMetrics(columns)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = horizontalPadding, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(rowGap),
+            .padding(horizontal = metrics.horizontalPadding, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(metrics.rowGap),
     ) {
         repeat(2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(columnGap)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(metrics.columnGap)) {
                 repeat(columns) {
                     Column(
                         modifier = Modifier.weight(1f),

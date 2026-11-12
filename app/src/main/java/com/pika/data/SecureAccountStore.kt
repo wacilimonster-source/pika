@@ -1,6 +1,9 @@
 package com.pika.data
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import com.pika.core.source.SourceType
@@ -26,7 +29,7 @@ object SecureAccountStore {
     private const val GCM_TAG_BITS = 128
     private const val KEY_SAVE_ENABLED = "save_enabled"
 
-    private var prefs: android.content.SharedPreferences? = null
+    private var prefs: SharedPreferences? = null
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -107,14 +110,14 @@ object SecureAccountStore {
         (ks.getKey(keyAlias(type), null) as? SecretKey)?.let { return it }
         val gen = KeyGenerator.getInstance("AES", KEYSTORE_PROVIDER)
         gen.init(
-            android.security.keystore.KeyGenParameterSpec.Builder(
+            KeyGenParameterSpec.Builder(
                 keyAlias(type),
-                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or
-                    android.security.keystore.KeyProperties.PURPOSE_DECRYPT,
+                KeyProperties.PURPOSE_ENCRYPT or
+                    KeyProperties.PURPOSE_DECRYPT,
             )
                 .setKeySize(256)
-                .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .build(),
         )
         return gen.generateKey()

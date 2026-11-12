@@ -3,11 +3,11 @@ package com.pika.image
 import coil.intercept.Interceptor
 import coil.request.ImageRequest
 import coil.request.ImageResult
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ensureActive
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.coroutines.coroutineContext
 
 /**
  * 在途请求合流：相同「缓存键 + 解码尺寸」的并发请求只放行首个，其余等待并共享同一结果。

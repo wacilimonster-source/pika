@@ -1,9 +1,8 @@
 package com.pika.network
 
 import android.util.Log
-import okhttp3.OkHttpClient
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
+import com.pika.core.log.LogStore
+import com.pika.image.RetryInterceptor
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
@@ -11,6 +10,9 @@ import java.security.Security
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
+import okhttp3.OkHttpClient
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider
 
 /**
  * 用 BouncyCastle 的纯 Java TLS 栈替换 Android 默认的 Conscrypt(BoringSSL)。
@@ -65,7 +67,7 @@ object BcTls {
             val msg = "${e.javaClass.simpleName}: ${e.message}"
             lastError = msg
             Log.e("BcTls", "BouncyCastle TLS 安装失败: $msg")
-            com.pika.core.log.LogStore.log("BcTls", "E", "BouncyCastle TLS 安装失败: $msg")
+            LogStore.log("BcTls", "E", "BouncyCastle TLS 安装失败: $msg")
         }
     }
 
@@ -95,7 +97,7 @@ object BcTls {
         if (warnedFallback) return
         warnedFallback = true
         Log.w("BcTls", "BC TLS 不可用，回退平台默认（可能被 1023 拦截）")
-        com.pika.core.log.LogStore.log("BcTls", "W", "BC TLS 不可用，回退平台默认（可能被 Cloudflare 拦截）")
+        LogStore.log("BcTls", "W", "BC TLS 不可用，回退平台默认（可能被 Cloudflare 拦截）")
     }
 
     /** 供 PicaHttpEngine 等每请求路径复用同一份"只告警一次"逻辑 */
@@ -115,7 +117,7 @@ object BcTls {
                     maxRequestsPerHost = 8
                 },
             )
-            .addInterceptor(com.pika.image.RetryInterceptor())
+            .addInterceptor(RetryInterceptor())
             .build()
     }
 

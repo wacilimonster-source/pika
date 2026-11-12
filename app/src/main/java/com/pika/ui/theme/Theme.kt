@@ -1,10 +1,13 @@
 package com.pika.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -110,7 +113,7 @@ fun PiKATheme(
         success = if (darkTheme) TokenSuccessDark else TokenSuccessLight,
     )
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalPiKAExtraColors provides extras) {
+    CompositionLocalProvider(LocalPiKAExtraColors provides extras) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = typography,
@@ -121,10 +124,10 @@ fun PiKATheme(
 }
 
 /** 形状体系：按钮/筛选 chip 10、分组卡 14、弹层 24（design-tokens layout） */
-private val PiKAShapes = androidx.compose.material3.Shapes(
-    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-    small = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+private val PiKAShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )

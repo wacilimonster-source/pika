@@ -1,6 +1,11 @@
 ﻿package com.pika.ui
 
 import android.net.Uri
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,10 +29,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -36,15 +45,25 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.pika.NavDeeplink
 import com.pika.core.source.SourceManager
 import com.pika.data.ReaderPrefs
 import com.pika.ui.author.AuthorComicsScreen
+import com.pika.ui.author.AuthorFavouritesScreen
 import com.pika.ui.category.CategoryComicsScreen
 import com.pika.ui.category.CategoryScreen
+import com.pika.ui.comments.MyCommentsScreen
 import com.pika.ui.detail.ComicDetailScreen
+import com.pika.ui.download.DownloadScreen
+import com.pika.ui.favourite.FavouriteScreen
+import com.pika.ui.follow.FollowManageScreen
+import com.pika.ui.history.RecentReadsScreen
 import com.pika.ui.home.HomeScreen
+import com.pika.ui.login.ForgotPasswordScreen
 import com.pika.ui.login.LoginScreen
+import com.pika.ui.login.RegisterScreen
 import com.pika.ui.mine.MineScreen
+import com.pika.ui.profile.ProfileScreen
 import com.pika.ui.reader.ReaderScreen
 import com.pika.ui.search.SearchScreen
 import com.pika.ui.settings.LogScreen
@@ -54,8 +73,8 @@ import com.pika.ui.settings.SourceManageScreen
 private data class TabItem(
     val route: String,
     val label: String,
-    val iconSelected: androidx.compose.ui.graphics.vector.ImageVector,
-    val iconUnselected: androidx.compose.ui.graphics.vector.ImageVector,
+    val iconSelected: ImageVector,
+    val iconUnselected: ImageVector,
 )
 
 private val tabs = listOf(
@@ -77,7 +96,7 @@ private val nonRestorableRoutes = setOf("login", "register", "forgot-password")
  * 此前 popUpTo(0) 清栈后用户正在看的列表/详情全部丢失。
  * 无法安全重建参数的路由返回 null（回首页兜底）。
  */
-private fun restoreRouteFor(entry: androidx.navigation.NavBackStackEntry?): String? {
+private fun restoreRouteFor(entry: NavBackStackEntry?): String? {
     val pattern = entry?.destination?.route ?: return null
     val base = pattern.substringBefore('?')
     if (base in nonRestorableRoutes) return null
@@ -139,15 +158,15 @@ fun MainScreen() {
         fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
 
     // 登录失效前的现场路由：登录成功后回跳（null = 回首页）
-    var pendingReturnRoute by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf<String?>(null)
+    var pendingReturnRoute by remember {
+        mutableStateOf<String?>(null)
     }
 
     // 通知直达路由（A11）：组合期读取订阅状态，冷启动/温启动（onNewIntent）写入即触发
-    val pendingNavRoute = com.pika.NavDeeplink.pendingRoute
+    val pendingNavRoute = NavDeeplink.pendingRoute
     LaunchedEffect(pendingNavRoute) {
         if (pendingNavRoute != null && pendingNavRoute.startsWith("comic/")) {
-            com.pika.NavDeeplink.pendingRoute = null
+            NavDeeplink.pendingRoute = null
             navController.navigate(pendingNavRoute)
         }
     }
@@ -215,20 +234,20 @@ fun MainScreen() {
             // A4 页面转场：水平 1/12 位移 + 淡入淡出，建立导航方向感（此前硬切）；
             // 返回方向镜像。阅读器路由单独覆盖为纯 fade（见下方 composable）
             enterTransition = {
-                androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { it / 12 } +
-                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))
+                slideInHorizontally(animationSpec = tween(220)) { it / 12 } +
+                    fadeIn(tween(220))
             },
             exitTransition = {
-                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { -it / 12 } +
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220))
+                slideOutHorizontally(animationSpec = tween(220)) { -it / 12 } +
+                    fadeOut(tween(220))
             },
             popEnterTransition = {
-                androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { -it / 12 } +
-                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))
+                slideInHorizontally(animationSpec = tween(220)) { -it / 12 } +
+                    fadeIn(tween(220))
             },
             popExitTransition = {
-                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(220)) { it / 12 } +
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220))
+                slideOutHorizontally(animationSpec = tween(220)) { it / 12 } +
+                    fadeOut(tween(220))
             },
         ) {
             composable("home") {
@@ -280,12 +299,12 @@ fun MainScreen() {
                 )
             }
             composable("profile") {
-                com.pika.ui.profile.ProfileScreen(
+                ProfileScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
             composable("recent-reads") {
-                com.pika.ui.history.RecentReadsScreen(
+                RecentReadsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenComic = { id ->
                         navController.navigate(comicRoute(id))
@@ -293,7 +312,7 @@ fun MainScreen() {
                 )
             }
             composable("downloads") {
-                com.pika.ui.download.DownloadScreen(
+                DownloadScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id, order ->
                         navController.navigate(readerRoute(id, order))
@@ -301,13 +320,13 @@ fun MainScreen() {
                 )
             }
             composable("favourites") {
-                com.pika.ui.favourite.FavouriteScreen(
+                FavouriteScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
             }
             composable("author-favourites") {
-                com.pika.ui.author.AuthorFavouritesScreen(
+                AuthorFavouritesScreen(
                     onBack = { navController.popBackStack() },
                     onOpenAuthor = { author ->
                         navController.navigate(authorRoute(author))
@@ -315,13 +334,13 @@ fun MainScreen() {
                 )
             }
             composable("follow-manage") {
-                com.pika.ui.follow.FollowManageScreen(
+                FollowManageScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
             // 我的评论（BUG-04：屏幕与接口早已就绪，此前无路由无入口，属不可达死功能）
             composable("my-comments") {
-                com.pika.ui.comments.MyCommentsScreen(
+                MyCommentsScreen(
                     onBack = { navController.popBackStack() },
                     onComicClick = { id -> navController.navigate(comicRoute(id)) },
                 )
@@ -344,12 +363,12 @@ fun MainScreen() {
                 )
             }
             composable("forgot-password") {
-                com.pika.ui.login.ForgotPasswordScreen(
+                ForgotPasswordScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
             composable("register") {
-                com.pika.ui.login.RegisterScreen(
+                RegisterScreen(
                     onBack = { navController.popBackStack() },
                     onLoggedIn = {
                         navController.navigate("home") {
@@ -451,10 +470,10 @@ fun MainScreen() {
                     navArgument("order") { type = NavType.IntType },
                 ),
                 // 阅读器进出用纯 fade：整屏大图做水平位移易晃眼
-                enterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) },
-                exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
-                popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) },
-                popExitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) },
+                enterTransition = { fadeIn(tween(200)) },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(200)) },
             ) { entry ->
                 val ref = entry.arguments?.getString("ref") ?: return@composable
                 val order = entry.arguments?.getInt("order") ?: 1

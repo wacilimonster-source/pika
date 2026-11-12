@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Visibility
@@ -35,13 +36,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.pika.core.model.ComicCategory
+import com.pika.data.CategorySettings
 import kotlin.math.roundToInt
 
 @Composable
 fun CategoryReorderDialog(
     categories: List<ComicCategory>,
-    currentSettings: com.pika.data.CategorySettings.Settings,
-    onSettingsChange: (com.pika.data.CategorySettings.Settings) -> Unit,
+    currentSettings: CategorySettings.Settings,
+    onSettingsChange: (CategorySettings.Settings) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val items = remember(categories, currentSettings) {
@@ -63,7 +65,7 @@ fun CategoryReorderDialog(
     var hoverIndex by remember { mutableStateOf<Int?>(null) }
     // S14-8：真实行高查询——48dp 假设与实际行高（内边距/字体缩放）有偏差，
     // 快速拖动时按估算换位会错位累积；优先用被拖项的实测高度，测量不到再回退
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val listState = rememberLazyListState()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -192,7 +194,7 @@ fun CategoryReorderDialog(
         confirmButton = {
             TextButton(onClick = {
                 onSettingsChange(
-                    com.pika.data.CategorySettings.Settings(
+                    CategorySettings.Settings(
                         order = order.map { it.first },
                         hidden = hidden,
                     )

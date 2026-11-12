@@ -1,5 +1,14 @@
 # PiKA 项目长期记忆
 
+## 工程守则（2026-11 清理，优先级最高）
+- **动手前必读根目录 [`AGENTS.md`](../../AGENTS.md)**：分层、构建/验证门槛、代码硬规则、已知技术债。
+- **事故复盘与「哪些验证曾经不缜密」见 [`docs/ENGINEERING-LESSONS.md`](../../docs/ENGINEERING-LESSONS.md)**。修 bug 时先搜这份文档，避免重复踩坑。
+- 提交前必须跑：`bash gbuild.sh compileReleaseKotlin`、`bash gbuild.sh testReleaseUnitTest`、`python tools/code-health.py --check`。
+- 同一语义只允许一份实现：筛选/排序用 `applyStatusAndSort`，分页用 `SERVICE_PAGE_SIZE`/`pageSlice`，网格间距用 `comicGridMetrics`，解码上限用 `MAX_DECODE_WIDTH_PX`/`maxDecodeHeightPx`，搜索重试用 `Source.searchWithRetry`，分页 fan-out 用 `fetchPagesInOrder`。
+- 协程内包裹挂起调用时禁止裸 `runCatching`（吞取消），用 `runCatchingCancellable`；纯 CPU/同步操作不受此限。
+- 分页循环必须「成功（含空页）即推进游标；本轮全失败即 break」。
+- 构建成功不等于可运行；启动/Compose/主题/网络/下载改动必须按 AGENTS.md 的验证矩阵实测。
+
 ## 构建与工程化约定
 - 构建用仓库内 `gbuild.sh`（非沙箱执行）；验证编译用 `bash gbuild.sh compileReleaseKotlin`。**打 APK 用 `bash gbuild.sh assembleRelease`（不带 -x）**：`checkReleaseBuilds=false` 下 `lintVitalAnalyzeRelease` 任务不注册，`-x` 会报 "Task not found"（Gradle 8.11 行为，compileKotlin 同理）。
 - **⚠️ Bash 工具在本机沙箱不可用**（2026-09-12 实测）：Git Bash 的 shim 在第 3 行执行 `dirname` 失败 → PATH 未建立 → `grep`/`ls`/`head` 全部 command not found；且 `wsl.exe` 在安全策略黑名单中（`gbuild.sh` 会因此被拦）。**替代方案：用 PowerShell 调 `.\gradlew.bat`**：

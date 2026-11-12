@@ -1,11 +1,13 @@
 package com.pika
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.pika.ui.MainScreen
 import com.pika.ui.theme.PiKATextTheme
@@ -21,7 +23,7 @@ import java.util.Locale
  * 写入会触发重组并被消费；普通变量只被一次性的 LaunchedEffect(Unit) 读走（复测发现）。
  */
 object NavDeeplink {
-    var pendingRoute: String? by androidx.compose.runtime.mutableStateOf<String?>(null)
+    var pendingRoute: String? by mutableStateOf<String?>(null)
 }
 
 class MainActivity : ComponentActivity() {
@@ -40,12 +42,12 @@ class MainActivity : ComponentActivity() {
     }
 
     // 下载完成通知点击直达详情（A11）：singleTask 下 activity 已在时走这里
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         consumeRouteIntent(intent)
     }
 
-    private fun consumeRouteIntent(intent: android.content.Intent?) {
+    private fun consumeRouteIntent(intent: Intent?) {
         val route = intent?.getStringExtra("open_route")?.takeIf { it.isNotBlank() } ?: return
         NavDeeplink.pendingRoute = route
     }

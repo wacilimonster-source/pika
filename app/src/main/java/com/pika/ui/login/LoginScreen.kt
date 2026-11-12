@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pika.core.source.SourceManager
+import com.pika.core.source.SourceType
+import com.pika.data.SecureAccountStore
 import kotlinx.coroutines.launch
 
 /**
@@ -60,7 +63,7 @@ fun LoginScreen(
     // 密码默认掩码显示，可点眼睛临时查看
     var passwordVisible by remember { mutableStateOf(false) }
     // 是否保存账号密码（全局偏好，默认沿用既有行为 = 保存）
-    var rememberPassword by remember { mutableStateOf(com.pika.data.SecureAccountStore.saveEnabled) }
+    var rememberPassword by remember { mutableStateOf(SecureAccountStore.saveEnabled) }
     // 已保存账号（邮箱仅用于展示，非敏感）
     var savedEmail by remember(activeSource) { mutableStateOf(SourceManager.savedAccountEmail()) }
     // S8：用户已手动输入过任何字段则放弃自动回填——Keystore 解密在后台线程，
@@ -69,7 +72,7 @@ fun LoginScreen(
     LaunchedEffect(activeSource) {
         // 邮箱不涉及敏感信息，直接回填；密码仅在「保存账号密码」开启时回填
         val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.pika.data.SecureAccountStore.load(activeSource)
+            SecureAccountStore.load(activeSource)
         }
         if (saved != null && !userEdited) {
             // 双保险：即便未 userEdited，也只填充当前为空的字段，绝不覆盖已有输入
@@ -142,10 +145,10 @@ fun LoginScreen(
         // 用户会以为开关坏了（小屏上复选框本身只有 ~20dp 命中区）。
         val toggleSave: (Boolean) -> Unit = { checked ->
             rememberPassword = checked
-            com.pika.data.SecureAccountStore.saveEnabled = checked
+            SecureAccountStore.saveEnabled = checked
             if (!checked) {
                 // 关闭即清除已保存凭据，避免“以为没存”却仍留在磁盘/Keystore
-                com.pika.data.SecureAccountStore.clear(activeSource)
+                SecureAccountStore.clear(activeSource)
                 savedEmail = null
             } else {
                 savedEmail = SourceManager.savedAccountEmail()
@@ -200,7 +203,7 @@ fun LoginScreen(
                 }
             },
             enabled = !loading,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
@@ -214,12 +217,12 @@ fun LoginScreen(
                 Text("登录")
             }
         }
-        if (activeSource == com.pika.core.source.SourceType.PICACG) {
+        if (activeSource == SourceType.PICACG) {
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onOpenRegister,
                 enabled = !loading,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp),

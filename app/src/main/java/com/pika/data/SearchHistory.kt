@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pika.core.runCatchingCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +36,7 @@ object SearchHistory {
     }.getOrDefault(emptyList())
 
     /** 协程上下文中的推荐入口：挂起读盘，不阻塞调用线程 */
-    suspend fun historyAsync(): List<String> = runCatching {
+    suspend fun historyAsync(): List<String> = runCatchingCancellable {
         val raw = appContext.searchDataStore.data.first()[stringPreferencesKey(KEY)]
         if (raw.isNullOrBlank()) {
             emptyList()
@@ -49,14 +50,14 @@ object SearchHistory {
         val kw = keyword.trim()
         if (kw.isBlank()) return historyAsync()
         val updated = (listOf(kw) + historyAsync().filterNot { it.equals(kw, ignoreCase = true) }).take(MAX)
-        runCatching {
+        runCatchingCancellable {
             appContext.searchDataStore.edit { it[stringPreferencesKey(KEY)] = json.encodeToString(updated) }
         }
         return updated
     }
 
     suspend fun clear() {
-        runCatching {
+        runCatchingCancellable {
             appContext.searchDataStore.edit { it.remove(stringPreferencesKey(KEY)) }
         }
     }

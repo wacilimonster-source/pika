@@ -112,6 +112,24 @@ enum class ComicStatus(val label: String) {
     ONGOING("连载中"),
 }
 
+/** 按连载状态过滤（客户端筛选；源不提供状态时由调用方跳过） */
+fun List<ComicSummary>.filterByStatus(status: ComicStatus): List<ComicSummary> = when (status) {
+    ComicStatus.ALL -> this
+    ComicStatus.FINISHED -> filter { it.finished }
+    ComicStatus.ONGOING -> filter { !it.finished }
+}
+
+/**
+ * 列表页统一的「状态筛选 + 本地重排」。
+ *
+ * 分类页与作者页曾各自复制一份相同的 when 分支，新增排序方式时漏改一处就会出现
+ * 「同一切换在不同页面表现不一致」。所有客户端筛选/排序一律走这里。
+ */
+fun List<ComicSummary>.applyStatusAndSort(
+    status: ComicStatus,
+    sort: ComicSort,
+): List<ComicSummary> = filterByStatus(status).sortedByComicSort(sort)
+
 /** 用户（评论者 / 本人资料） */
 data class ComicUser(
     val id: String = "",

@@ -1,13 +1,32 @@
 package com.pika
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import coil.Coil
 import coil.ImageLoader
-import com.pika.data.CategorySettings
-import com.pika.data.GridSettings
-import com.pika.data.ReaderPrefs
-import com.pika.data.SourcePrefs
+import com.pika.core.download.DownloadManager
+import com.pika.core.log.AppSessionState
+import com.pika.core.log.CrashReporter
+import com.pika.core.log.LogStore
+import com.pika.core.log.MainThreadWatchdog
 import com.pika.core.source.SourceManager
+import com.pika.core.update.UpdateState
+import com.pika.data.AuthorFavourites
+import com.pika.data.CategorySettings
+import com.pika.data.FollowFeedCache
+import com.pika.data.FollowSettings
+import com.pika.data.GridSettings
+import com.pika.data.JmRemovalMigration
+import com.pika.data.RankCache
+import com.pika.data.ReaderPrefs
+import com.pika.data.ReaderStatus
+import com.pika.data.SearchHistory
+import com.pika.data.SecureAccountStore
+import com.pika.data.SourcePrefs
+import com.pika.data.UpdatedAtCache
+import com.pika.image.CoalescingInterceptor
+import com.pika.image.CoilRetryInterceptor
+import com.pika.image.ErrorLoggingInterceptor
 import com.pika.network.BcTls
 import com.pika.network.PicaClient
 import kotlinx.coroutines.CoroutineScope
@@ -22,26 +41,26 @@ class PiKAApp : Application() {
         super.onCreate()
         // 崩溃/异常退出取证最先安装（ANR、系统杀进程都不走 Java 异常，取证通道见 CrashReporter）；
         // 看门狗记录主线程阻塞栈并落前台心跳
-        com.pika.core.log.CrashReporter.install(this)
-        com.pika.core.log.MainThreadWatchdog.start(this)
-        com.pika.core.log.AppSessionState.register(this)
+        CrashReporter.install(this)
+        MainThreadWatchdog.start(this)
+        AppSessionState.register(this)
         // 禁漫源下线一次性迁移：必须最先执行（先于一切缓存预热，见 JmRemovalMigration）
-        com.pika.data.JmRemovalMigration.run(this)
+        JmRemovalMigration.run(this)
         SourcePrefs.init(this)
         ReaderPrefs.init(this)
         GridSettings.init(this)
         // 已读/读完状态全量预热可能较慢，放到后台，UI 用状态位等待
-        appScope.launch { com.pika.data.ReaderStatus.loadAll(this@PiKAApp) }
+        appScope.launch { ReaderStatus.loadAll(this@PiKAApp) }
         CategorySettings.init(this)
-        com.pika.data.AuthorFavourites.init(this)
-        com.pika.data.FollowSettings.init(this)
-        com.pika.data.FollowFeedCache.init(this)
-        com.pika.data.RankCache.init(this)
-        com.pika.data.UpdatedAtCache.init(this)
-        com.pika.data.SearchHistory.init(this)
-        com.pika.data.SecureAccountStore.init(this)
-        com.pika.core.update.UpdateState.init(this)
-        com.pika.core.download.DownloadManager.init(this)
+        AuthorFavourites.init(this)
+        FollowSettings.init(this)
+        FollowFeedCache.init(this)
+        RankCache.init(this)
+        UpdatedAtCache.init(this)
+        SearchHistory.init(this)
+        SecureAccountStore.init(this)
+        UpdateState.init(this)
+        DownloadManager.init(this)
         SourceManager.init()
         // 安装 BouncyCastle TLS（绕过 Cloudflare 对 BoringSSL 的指纹拦截）
         BcTls.install()
@@ -57,13 +76,13 @@ class PiKAApp : Application() {
                 // 网格同封面等场景，见 CoalescingInterceptor 类注释）
                 .components {
                     // 错误取证放最外（记录最终结果，含 HTTP 层不可见的体流中断/解码失败）
-                    add(com.pika.image.ErrorLoggingInterceptor())
+                    add(ErrorLoggingInterceptor())
                     // 管线级自动重试：覆盖体流中断/解码失败（RetryInterceptor 只见响应头，
                     // 此类失败对 HTTP 层不可见——弱网「手点必好」的根因，见类注释）
-                    add(com.pika.image.CoilRetryInterceptor())
+                    add(CoilRetryInterceptor())
                     // 在途请求合流：同 URL 同尺寸的并发请求只下载/解码一次（长图多切片、
                     // 网格同封面等场景，见 CoalescingInterceptor 类注释）
-                    add(com.pika.image.CoalescingInterceptor())
+                    add(CoalescingInterceptor())
                 }
                 // 全局图片淡入（A1）：所有 Coil 请求统一 ~150ms crossfade，
                 // 网格/详情/下载卡的封面不再生硬闪现；封面底色占位由各卡片的
@@ -83,12 +102,12 @@ class PiKAApp : Application() {
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             runCatching {
                 val cache = Coil.imageLoader(this).memoryCache
                 val beforeMb = (cache?.size ?: 0) / (1024 * 1024)
                 cache?.clear()
-                com.pika.core.log.LogStore.log(
+                LogStore.log(
                     "Memory", "W",
                     "系统内存紧张(level=$level)，已清空图片内存缓存(原约${beforeMb}MB)以降低被杀风险",
                 )

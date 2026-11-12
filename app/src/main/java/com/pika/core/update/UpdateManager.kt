@@ -5,24 +5,24 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.pika.BuildConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.CacheControl
-import com.pika.network.BcTls
 import com.pika.core.log.LogStore
+import com.pika.network.BcTls
+import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.File
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import okhttp3.CacheControl
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * 应用更新：从 GitHub 仓库的 update.json 检查版本，下载 APK 并安装。

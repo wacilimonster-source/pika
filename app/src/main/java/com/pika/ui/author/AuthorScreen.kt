@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.AuthorNameParser
@@ -54,6 +55,7 @@ import com.pika.core.model.AuthorSegment
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
+import com.pika.data.AuthorFavourites
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.PaginationBar
 import com.pika.ui.common.PikaFilterChip
@@ -95,7 +97,7 @@ fun AuthorComicsScreen(
     val copyAuthor: () -> Unit = { copier.copy("作者名", currentQuery, "已复制作者名") }
 
     // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
-    LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
         viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
     }
     // 恢复滚动状态（导航返回后首次 recompose 时执行）：
@@ -121,7 +123,7 @@ fun AuthorComicsScreen(
     // 组合期不读盘：初值 false，LaunchedEffect 中查询
     var favourited by remember { mutableStateOf(false) }
     LaunchedEffect(currentQuery) {
-        favourited = com.pika.data.AuthorFavourites.contains(currentQuery)
+        favourited = AuthorFavourites.contains(currentQuery)
     }
 
     val switchQuery: (String) -> Unit = { query ->
@@ -171,9 +173,9 @@ fun AuthorComicsScreen(
                     }
                     IconButton(onClick = {
                         if (favourited) {
-                            com.pika.data.AuthorFavourites.remove(currentQuery)
+                            AuthorFavourites.remove(currentQuery)
                         } else {
-                            com.pika.data.AuthorFavourites.add(
+                            AuthorFavourites.add(
                                 author = currentQuery,
                                 coverUrl = comics.firstOrNull()?.coverUrl.orEmpty(),
                             )

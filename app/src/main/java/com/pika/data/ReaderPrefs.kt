@@ -7,6 +7,9 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.pika.core.runCatchingCancellable
+import com.pika.core.source.ComicRef
+import com.pika.core.source.SourceType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -45,7 +48,7 @@ data class RecentRead(
     val source: String = "",
 ) {
     /** 作品标识：点击进入阅读器时必须带上源 */
-    val ref: String get() = com.pika.core.source.ComicRef.ofName(source, comicId)
+    val ref: String get() = ComicRef.ofName(source, comicId)
 }
 
 /**
@@ -112,7 +115,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     /** 协程上下文中的推荐入口：挂起读盘，不阻塞调用线程 */
     suspend fun lastProgressAsync(ref: String): Progress? {
         progressCache[ref]?.let { return it }
-        val raw = runCatching { readProgressRaw(ref) }.getOrNull() ?: return null
+        val raw = runCatchingCancellable { readProgressRaw(ref) }.getOrNull() ?: return null
         return parseProgress(raw)?.also { progressCache[ref] = it }
     }
 
@@ -125,8 +128,8 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     private suspend fun readProgressRaw(ref: String): String? {
         val prefs = appContext.readerDataStore.data.first()
         prefs[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + ref)]?.let { return it }
-        val (src, id) = com.pika.core.source.ComicRef.parse(ref)
-        if (src != com.pika.core.source.SourceType.PICACG || id == ref) return null
+        val (src, id) = ComicRef.parse(ref)
+        if (src != SourceType.PICACG || id == ref) return null
         return prefs[stringPreferencesKey(ReaderKeys.PROGRESS_PREFIX + id)]
     }
 
@@ -157,7 +160,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
      *
      * 返回键为规范化的作品标识；带前缀之前的历史键（裸 id）按哔咔解释。
      */
-    suspend fun loadAllStatuses(): Map<String, ReadStatus> = runCatching {
+    suspend fun loadAllStatuses(): Map<String, ReadStatus> = runCatchingCancellable {
         val prefs = appContext.readerDataStore.data.first()
         val result = mutableMapOf<String, ReadStatus>()
         // 先处理 progress_，再处理 finished_：后者无条件覆盖，与迭代顺序无关
@@ -176,8 +179,8 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
     /** `PICACG_xxx` 原样保留，历史的裸 id 键补上哔咔前缀 */
     private fun canonicalRef(stored: String): String {
-        val (src, id) = com.pika.core.source.ComicRef.parse(stored)
-        return com.pika.core.source.ComicRef.of(src, id)
+        val (src, id) = ComicRef.parse(stored)
+        return ComicRef.of(src, id)
     }
 
     // ── 热点值内存缓存：避免 getter/setter 在主线程 runBlocking 读盘 ──────
@@ -288,7 +291,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
 
     suspend fun readChaptersAsync(ref: String): Set<Int> {
         chapterReadCache[ref]?.let { return it }
-        val raw = runCatching {
+        val raw = runCatchingCancellable {
             appContext.readerDataStore.data.first()[stringPreferencesKey(ReaderKeys.CHAPTERS_READ_PREFIX + ref)]
         }.getOrNull()
         val set = raw?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
@@ -302,7 +305,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         if (order in current) return
         val updated = current + order
         chapterReadCache[ref] = updated
-        runCatching {
+        runCatchingCancellable {
             appContext.readerDataStore.edit {
                 it[stringPreferencesKey(ReaderKeys.CHAPTERS_READ_PREFIX + ref)] = updated.joinToString(",")
             }
@@ -331,7 +334,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
     /** 协程上下文中的推荐入口：挂起读盘，不阻塞调用线程（冷启动首次读取涉及文件 IO） */
     suspend fun recentReadsAsync(): List<RecentRead> {
         cachedRecentReads?.let { return it }
-        val list = runCatching {
+        val list = runCatchingCancellable {
             val raw = appContext.readerDataStore.data.first()
                 .get(stringPreferencesKey(ReaderKeys.RECENT_READS))
             if (raw.isNullOrBlank()) emptyList()
@@ -350,7 +353,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
         order: Int,
         pageIndex: Int,
     ) {
-        val (src, id) = com.pika.core.source.ComicRef.parse(ref)
+        val (src, id) = ComicRef.parse(ref)
         appContext.readerDataStore.edit { prefs ->
             val key = stringPreferencesKey(ReaderKeys.RECENT_READS)
             val current = prefs[key]?.let {
@@ -358,7 +361,7 @@ class ReaderPrefs private constructor(private val appContext: Context) {
             } ?: emptyList()
             val entry = RecentRead(id, title, coverUrl, author, order, pageIndex, System.currentTimeMillis(), src.name)
             // 去重按完整标识：另一源的同 id 作品必须各留一条
-            val updated = (listOf(entry) + current.filterNot { it.ref == com.pika.core.source.ComicRef.of(src, id) })
+            val updated = (listOf(entry) + current.filterNot { it.ref == ComicRef.of(src, id) })
                 .take(RECENT_READS_MAX)
             prefs[key] = json.encodeToString(updated)
             cachedRecentReads = updated

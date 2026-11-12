@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -39,12 +44,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.pika.core.runCatchingCancellable
 import com.pika.core.source.SourceManager
+import com.pika.data.FollowFeedCache
 import com.pika.data.FollowItem
 import com.pika.data.FollowSettings
 import com.pika.ui.common.PikaFilterChip
@@ -60,8 +68,8 @@ fun FollowManageScreen(
     var items by remember { mutableStateOf<List<FollowItem>>(emptyList()) }
     var showKeywordDialog by remember { mutableStateOf(false) }
     // A14 撤销：删除关键词后 Snackbar 内可一键恢复
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     fun reload() {
         items = FollowSettings.items()
@@ -70,7 +78,7 @@ fun FollowManageScreen(
     LaunchedEffect(Unit) { reload() }
 
     Scaffold(
-        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("关注管理") },
@@ -87,7 +95,7 @@ fun FollowManageScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             item {
                 SectionLabel(
@@ -108,17 +116,17 @@ fun FollowManageScreen(
                     onDelete = {
                         // A14：删除后 5 秒内可撤销（误删关注词不至于要重新手打）
                         FollowSettings.removeItem(item)
-                        com.pika.data.FollowFeedCache.clear()
+                        FollowFeedCache.clear()
                         reload()
                         scope.launch {
                             val result = snackbarHostState.showSnackbar(
                                 message = "已移除关注",
                                 actionLabel = "撤销",
-                                duration = androidx.compose.material3.SnackbarDuration.Long,
+                                duration = SnackbarDuration.Long,
                             )
-                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            if (result == SnackbarResult.ActionPerformed) {
                                 FollowSettings.addItem(item.keywords, item.tag)
-                                com.pika.data.FollowFeedCache.clear()
+                                FollowFeedCache.clear()
                                 reload()
                             }
                         }
@@ -133,7 +141,7 @@ fun FollowManageScreen(
             onDismiss = { showKeywordDialog = false },
             onAdd = { keywords, tag ->
                 FollowSettings.addItem(keywords, tag)
-                com.pika.data.FollowFeedCache.clear()
+                FollowFeedCache.clear()
                 showKeywordDialog = false
                 reload()
             },
@@ -154,7 +162,7 @@ private fun SectionLabel(title: String, actionLabel: String, onAction: () -> Uni
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
-        OutlinedButton(onClick = onAction, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
+        OutlinedButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 2.dp))
             Text(actionLabel)
         }
@@ -206,7 +214,7 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
 
     LaunchedEffect(Unit) {
         // 对话框关闭时取消加载：不能把取消当成"词表为空"
-        tagList = com.pika.core.runCatchingCancellable { SourceManager.current().tags() }
+        tagList = runCatchingCancellable { SourceManager.current().tags() }
             .getOrDefault(emptyList())
     }
 
@@ -243,7 +251,7 @@ private fun KeywordAddDialog(onDismiss: () -> Unit, onAdd: (List<String>, String
                     ) {
                         OutlinedButton(
                             onClick = { showTagSheet = true },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         ) {
                             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 2.dp))
                             Text(selectedTag ?: "选择标签（可选）")

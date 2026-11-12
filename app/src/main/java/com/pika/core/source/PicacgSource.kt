@@ -4,25 +4,46 @@ import com.pika.core.log.LogStore
 import com.pika.core.model.AuthorMatcher
 import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicChapter
+import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicPage
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
+import com.pika.core.model.ComicUser
+import com.pika.core.model.MyComicComment
 import com.pika.core.model.PageResult
+import com.pika.core.pica.ComicRankType
+import com.pika.core.pica.ComicSortType
+import com.pika.core.runCatchingCancellable
+import com.pika.data.SecureAccountStore
 import com.pika.data.SourcePrefs
+import com.pika.network.CategoriesResponse
 import com.pika.network.Category
+import com.pika.network.Chapter
 import com.pika.network.Comic
+import com.pika.network.Comment
+import com.pika.network.Creator
 import com.pika.network.Doc
+import com.pika.network.FetchChapterImagesResponse
+import com.pika.network.ForgotPasswordPayload
+import com.pika.network.LoginPayload
+import com.pika.network.PersonalComment
 import com.pika.network.PicaClient
+import com.pika.network.PicaException
+import com.pika.network.RecommendComic
+import com.pika.network.RegisterPayload
 import com.pika.network.SearchPayload
+import com.pika.network.SendCommentPayload
+import com.pika.network.UpdateAvatarPayload
+import com.pika.network.UpdatePasswordPayload
+import com.pika.network.UpdateProfilePayload
+import com.pika.network.UpdateTitlePayload
+import com.pika.network.User
 import com.pika.network.comicsQuery
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import com.pika.network.favouriteQuery
+import com.pika.network.rankQuery
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 
 /** 批量分页拉取的请求节拍（与搜索批量路径一致的 250ms） */
 private const val PICA_REQUEST_INTERVAL_MS = 250L
@@ -50,7 +71,7 @@ class PicacgSource : Source {
 
     override suspend fun login(email: String, password: String) {
         val data = PicaClient.safeCall {
-            PicaClient.api.login(com.pika.network.LoginPayload(email = email, password = password))
+            PicaClient.api.login(LoginPayload(email = email, password = password))
         }
         // 显式登录成功即恢复 401 静默重登能力（清除用户登出时置的标志，见 SourceManager.S2）
         SourceManager.onLoginSuccess()
@@ -59,7 +80,7 @@ class PicacgSource : Source {
         categoriesMutex.withLock { categoriesCache = null; categoriesAt = 0L }
         // 保存账号凭据，供登出后会话失效时静默重登/一键填充
         // （是否落盘由用户偏好控制，见 SecureAccountStore.saveEnabled）
-        com.pika.data.SecureAccountStore.save(SourceType.PICACG, email.trim(), password)
+        SecureAccountStore.save(SourceType.PICACG, email.trim(), password)
     }
 
     override suspend fun register(email: String, password: String, name: String, gender: String) {
@@ -71,7 +92,7 @@ class PicacgSource : Source {
         val birthday = "%04d-%02d-%02d".format(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH))
         PicaClient.safeCall {
             PicaClient.api.register(
-                com.pika.network.RegisterPayload(
+                RegisterPayload(
                     email = email,
                     password = password,
                     name = name,
@@ -91,11 +112,11 @@ class PicacgSource : Source {
     }
 
     // 分类接口结果内存缓存（几乎不变的数据，categories/tags 两个入口共享）
-    private var categoriesCache: com.pika.network.CategoriesResponse? = null
+    private var categoriesCache: CategoriesResponse? = null
     private var categoriesAt: Long = 0L
     private val categoriesMutex = kotlinx.coroutines.sync.Mutex()
 
-    private suspend fun cachedCategories(): com.pika.network.CategoriesResponse =
+    private suspend fun cachedCategories(): CategoriesResponse =
         categoriesMutex.withLock {
             val now = System.currentTimeMillis()
             val cache = categoriesCache
@@ -233,7 +254,7 @@ class PicacgSource : Source {
         // 搜索无结果时用旧的 `a` 参数兜底：若服务端 `a` 支持子串匹配，可以救回
         // 「关键词只命中标题、作者字段则为空」这一灰区；失败/仍为空则如实返回空态
         if (items.isEmpty() && page == 1) {
-            val fallback = com.pika.core.runCatchingCancellable {
+            val fallback = runCatchingCancellable {
                 browseAuthorPage(keyword, page = 1, sort = sort)
             }.getOrNull()
             if (fallback != null && fallback.items.isNotEmpty()) {
@@ -272,45 +293,19 @@ class PicacgSource : Source {
     }
 
     /**
-     * 章节列表：首页拿到总页数后并发拉取剩余页（Semaphore 限 3 路，避免触发限流）。
-     * 并发失败的页退回串行重试（safeCall 自带切域名重试），保证不丢章。
-     *
-     * 并发度 3 是原实现已实测的取值，**不改**；这里只补两处缺失的保护：
-     * 每次取数前检查服务端限流冷却（冷却中继续打只会不断续期全局冷却），
-     * 以及 250ms 请求节拍（与搜索批量路径相同的间隔，避免 3 路同时冲出突发流量）。
+     * 章节列表：首页拿到总页数后，剩余页交给 [fetchPagesInOrder]（并发 3 路、
+     * 冷却检查、250ms 节拍、失败页串行补拉）。并发度 3 是原实现已实测的取值，**不改**。
      */
-    override suspend fun chapters(id: String): List<ComicChapter> = coroutineScope {
+    override suspend fun chapters(id: String): List<ComicChapter> {
         val first = PicaClient.safeCall { PicaClient.api.chapters(id, page = 1) }
-        val docs = mutableListOf<com.pika.network.Chapter>()
-        docs += first.eps.docs
-        val totalPages = first.eps.pages
-        if (totalPages > 1) {
-            val sem = Semaphore(3)
-            val byPage = (2..totalPages).map { p ->
-                async {
-                    sem.withPermit {
-                        if (picaCooldownActive()) return@withPermit p to null
-                        delay(PICA_REQUEST_INTERVAL_MS)
-                        // runCatchingCancellable：被取消时不能当成"该页失败"继续往下拉
-                        p to com.pika.core.runCatchingCancellable {
-                            PicaClient.safeCall { PicaClient.api.chapters(id, p) }
-                        }.getOrNull()?.eps?.docs
-                    }
-                }
-            }.awaitAll()
-            for ((p, docsP) in byPage.sortedBy { it.first }) {
-                if (docsP != null) docs += docsP
-            }
-            // 并发失败的页退回串行重试（冷却中等待补拉：静默 break 会丢章，
-            // 违背本方法"保证不丢章"的契约；safeCall 失败会抛异常显式报错）
-            val okPages = byPage.filter { it.second != null }.map { it.first }.toSet()
-            for (p in (2..totalPages).filter { it !in okPages }) {
-                awaitCooldown()
-                docs += PicaClient.safeCall { PicaClient.api.chapters(id, p) }.eps.docs
-            }
-        }
-        docs.mapIndexed { index, c ->
-            com.pika.core.model.ComicChapter(
+        val restDocs = fetchPagesInOrder(
+            totalPages = first.eps.pages,
+            isCoolingDown = ::picaCooldownActive,
+            awaitCooldown = ::awaitCooldown,
+        ) { p -> PicaClient.safeCall { PicaClient.api.chapters(id, p) }.eps.docs }
+        val docs = first.eps.docs + restDocs.flatten()
+        return docs.mapIndexed { index, c ->
+            ComicChapter(
                 id = c.uid.ifBlank { c.id },
                 title = c.title,
                 order = c.order.takeIf { it > 0 } ?: (index + 1),
@@ -331,59 +326,47 @@ class PicacgSource : Source {
     }
 
     /**
-     * 章节图片：同章节列表，按页号并发拉取后按页序拼接，保证图片顺序不变。
-     * 保护措施与 [chapters] 一致：冷却检查 + 请求节拍（并发度沿用原实现的 3）。
+     * 章节图片：与 [chapters] 共用 [fetchPagesInOrder] 的并发/冷却/补拉策略，
+     * 按页号还原顺序后拼接，保证图片 index 连续且顺序不变。
      */
-    override suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> = coroutineScope {
+    override suspend fun chapterPages(comicId: String, order: Int): List<ComicPage> {
         val first = PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, page = 1) }
         val totalPages = first.pages.pages
-        // 按页号缓存，拼接时严格按页序，保证 index 连续且顺序正确
-        val byPage = HashMap<Int, com.pika.network.FetchChapterImagesResponse>()
-        byPage[1] = first
-        if (totalPages > 1) {
-            val sem = Semaphore(3)
-            (2..totalPages).map { p ->
-                async {
-                    sem.withPermit {
-                        if (picaCooldownActive()) return@withPermit p to null
-                        delay(PICA_REQUEST_INTERVAL_MS)
-                        p to com.pika.core.runCatchingCancellable {
-                            PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) }
-                        }.getOrNull()
-                    }
-                }
-            }.awaitAll().forEach { (p, resp) -> if (resp != null) byPage[p] = resp }
-            // 并发失败的页退回串行重试（冷却中等待补拉，绝不静默放弃）
-            for (p in (2..totalPages).filter { !byPage.containsKey(it) }) {
-                awaitCooldown()
-                byPage[p] = PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) }
-            }
+        val rest = fetchPagesInOrder(
+            totalPages = totalPages,
+            isCoolingDown = ::picaCooldownActive,
+            awaitCooldown = ::awaitCooldown,
+        ) { p -> PicaClient.safeCall { PicaClient.api.chapterImages(comicId, order, p) } }
+        // 按页号还原顺序：首页 + 第 2 页起的并发结果
+        val byPage = buildMap {
+            put(1, first)
+            rest.forEachIndexed { i, response -> put(i + 2, response) }
         }
         val out = mutableListOf<ComicPage>()
         for (p in 1..totalPages) {
             // 拼装前缺页即显式失败：绝不返回截断列表（消费方会把缺页当成真实页数固化）
-            val data = byPage[p] ?: throw com.pika.network.PicaException("章节第 $p 页拉取失败")
+            val data = byPage[p] ?: throw PicaException("章节第 $p 页拉取失败")
             data.pages.docs.forEach { doc ->
                 doc.media?.let { m ->
                     out += ComicPage(index = out.size, imageUrl = m.directUrl)
                 }
             }
         }
-        out
+        return out
     }
 
     override suspend fun favourite(comicId: String, add: Boolean): Boolean {
         val resp = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
         LogStore.log("PicacgSource", "D", "favourite response: action=\"${resp.action}\"")
         val now = parseFavouriteAction(resp.action)
-            ?: throw com.pika.network.PicaException("收藏结果无法识别（action=\"${resp.action}\"）")
+            ?: throw PicaException("收藏结果无法识别（action=\"${resp.action}\"）")
         if (now == add) return now
         // 端点为切换型：本地与服务端失步时（他端已收藏/取消），一次切换会切到与 add 相反的状态。
         // 再切一次纠正，保证返回值恒等于调用方请求的 add。
         val corrected = PicaClient.safeCall { PicaClient.api.favorite(comicId) }
         LogStore.log("PicacgSource", "D", "favourite corrected: action=\"${corrected.action}\"")
         return parseFavouriteAction(corrected.action)
-            ?: throw com.pika.network.PicaException("收藏结果无法识别（action=\"${corrected.action}\"）")
+            ?: throw PicaException("收藏结果无法识别（action=\"${corrected.action}\"）")
     }
 
     /**
@@ -407,7 +390,7 @@ class PicacgSource : Source {
     override suspend fun favourites(page: Int): PageResult<ComicSummary> {
         val data = PicaClient.safeCall {
             PicaClient.api.favourites(
-                com.pika.network.favouriteQuery(page, com.pika.core.pica.ComicSortType.DD),
+                favouriteQuery(page, ComicSortType.DD),
             )
         }
         return PageResult(
@@ -420,11 +403,11 @@ class PicacgSource : Source {
     override suspend fun rank(type: String): List<ComicSummary> {
         val data = PicaClient.safeCall {
             PicaClient.api.leaderboard(
-                com.pika.network.rankQuery(
+                rankQuery(
                     when (type) {
-                        "H24" -> com.pika.core.pica.ComicRankType.H24
-                        "D7" -> com.pika.core.pica.ComicRankType.D7
-                        else -> com.pika.core.pica.ComicRankType.D30
+                        "H24" -> ComicRankType.H24
+                        "D7" -> ComicRankType.D7
+                        else -> ComicRankType.D30
                     }
                 )
             )
@@ -442,16 +425,16 @@ class PicacgSource : Source {
         return data.comics.map { it.toSummary() }
     }
 
-    override suspend fun profile(): com.pika.core.model.ComicUser {
+    override suspend fun profile(): ComicUser {
         val data = PicaClient.safeCall { PicaClient.api.profile() }
         // user 字段缺失（服务端返回结构抖动）时给出可读错误，而不是崩溃
-        val user = data.user ?: throw com.pika.network.PicaException("获取用户信息失败：响应缺少 user 字段")
+        val user = data.user ?: throw PicaException("获取用户信息失败：响应缺少 user 字段")
         return user.toComicUser()
     }
 
     // ---------- 评论 ----------
 
-    override suspend fun comments(comicId: String, page: Int): PageResult<com.pika.core.model.ComicComment> {
+    override suspend fun comments(comicId: String, page: Int): PageResult<ComicComment> {
         val data = PicaClient.safeCall { PicaClient.api.comments(comicId, page) }
         return PageResult(
             items = data.comments.docs.map { it.toComicComment() },
@@ -466,7 +449,7 @@ class PicacgSource : Source {
         PicaClient.safeCallUnit {
             PicaClient.api.sendComment(
                 comicId,
-                com.pika.network.SendCommentPayload(content = content),
+                SendCommentPayload(content = content),
             )
         }
     }
@@ -475,7 +458,7 @@ class PicacgSource : Source {
         PicaClient.safeCallUnit {
             PicaClient.api.replyComment(
                 commentId,
-                com.pika.network.SendCommentPayload(content = content),
+                SendCommentPayload(content = content),
             )
         }
     }
@@ -483,7 +466,7 @@ class PicacgSource : Source {
     override suspend fun commentChildren(
         commentId: String,
         page: Int,
-    ): PageResult<com.pika.core.model.ComicComment> {
+    ): PageResult<ComicComment> {
         val data = PicaClient.safeCall { PicaClient.api.commentChildren(commentId, page) }
         return PageResult(
             items = data.comments.docs.map { it.toComicComment() },
@@ -492,7 +475,7 @@ class PicacgSource : Source {
         )
     }
 
-    override suspend fun myComments(page: Int): PageResult<com.pika.core.model.MyComicComment> {
+    override suspend fun myComments(page: Int): PageResult<MyComicComment> {
         val data = PicaClient.safeCall { PicaClient.api.myComments(page) }
         return PageResult(
             items = data.comments.docs.map { it.toMyComicComment() },
@@ -513,7 +496,7 @@ class PicacgSource : Source {
     override suspend fun forgotPassword(email: String) {
         PicaClient.safeCallUnit {
             PicaClient.api.forgotPassword(
-                com.pika.network.ForgotPasswordPayload(email = email),
+                ForgotPasswordPayload(email = email),
             )
         }
     }
@@ -521,7 +504,7 @@ class PicacgSource : Source {
     override suspend fun updateSlogan(slogan: String) {
         PicaClient.safeCallUnit {
             PicaClient.api.updateProfile(
-                com.pika.network.UpdateProfilePayload(slogan = slogan),
+                UpdateProfilePayload(slogan = slogan),
             )
         }
     }
@@ -529,7 +512,7 @@ class PicacgSource : Source {
     override suspend fun updatePassword(oldPassword: String, newPassword: String) {
         PicaClient.safeCallUnit {
             PicaClient.api.updatePassword(
-                com.pika.network.UpdatePasswordPayload(
+                UpdatePasswordPayload(
                     oldPassword = oldPassword,
                     newPassword = newPassword,
                 ),
@@ -547,27 +530,27 @@ class PicacgSource : Source {
                 else -> "image/jpeg"
             }
             PicaClient.api.updateAvatar(
-                com.pika.network.UpdateAvatarPayload(avatar = "data:$mime;base64,$base64"),
+                UpdateAvatarPayload(avatar = "data:$mime;base64,$base64"),
             )
         }
     }
 
     override suspend fun updateTitle(title: String) {
         val me = profile()
-        if (me.id.isBlank()) throw com.pika.network.PicaException("获取用户信息失败")
+        if (me.id.isBlank()) throw PicaException("获取用户信息失败")
         PicaClient.safeCallUnit {
-            PicaClient.api.updateTitle(me.id, com.pika.network.UpdateTitlePayload(title = title))
+            PicaClient.api.updateTitle(me.id, UpdateTitlePayload(title = title))
         }
     }
 }
 
 // ---------- 映射 ----------
 
-private fun ComicSort.toPicaSort(): com.pika.core.pica.ComicSortType = when (this) {
-    ComicSort.DD -> com.pika.core.pica.ComicSortType.DD
-    ComicSort.DA -> com.pika.core.pica.ComicSortType.DA
-    ComicSort.LD -> com.pika.core.pica.ComicSortType.LD
-    ComicSort.VD -> com.pika.core.pica.ComicSortType.VD
+private fun ComicSort.toPicaSort(): ComicSortType = when (this) {
+    ComicSort.DD -> ComicSortType.DD
+    ComicSort.DA -> ComicSortType.DA
+    ComicSort.LD -> ComicSortType.LD
+    ComicSort.VD -> ComicSortType.VD
 }
 
 private fun Category.toComicCategory() = ComicCategory(
@@ -609,7 +592,7 @@ private fun Comic.toDetail() = ComicDetail(
 
 // ---------- 评论/用户映射 ----------
 
-private fun com.pika.network.RecommendComic.toSummary() = ComicSummary(
+private fun RecommendComic.toSummary() = ComicSummary(
     id = id,
     title = title,
     author = author,
@@ -618,7 +601,7 @@ private fun com.pika.network.RecommendComic.toSummary() = ComicSummary(
     totalLikes = likesCount.toLong(),
 )
 
-private fun com.pika.network.Creator.toComicUser() = com.pika.core.model.ComicUser(
+private fun Creator.toComicUser() = ComicUser(
     id = id,
     name = name,
     avatarUrl = avatar?.directUrl,
@@ -628,7 +611,7 @@ private fun com.pika.network.Creator.toComicUser() = com.pika.core.model.ComicUs
     slogan = slogan ?: "",
 )
 
-private fun com.pika.network.User.toComicUser() = com.pika.core.model.ComicUser(
+private fun User.toComicUser() = ComicUser(
     id = id,
     name = name,
     avatarUrl = avatar?.directUrl,
@@ -643,7 +626,7 @@ private fun com.pika.network.User.toComicUser() = com.pika.core.model.ComicUser(
     createdAt = createdAt,
 )
 
-private fun com.pika.network.Comment.toComicComment() = com.pika.core.model.ComicComment(
+private fun Comment.toComicComment() = ComicComment(
     id = uid,
     content = content,
     user = user?.toComicUser(),
@@ -654,7 +637,7 @@ private fun com.pika.network.Comment.toComicComment() = com.pika.core.model.Comi
     isTop = isTop,
 )
 
-private fun com.pika.network.PersonalComment.toMyComicComment() = com.pika.core.model.MyComicComment(
+private fun PersonalComment.toMyComicComment() = MyComicComment(
     id = uid,
     content = content,
     comicId = comic?.id ?: "",

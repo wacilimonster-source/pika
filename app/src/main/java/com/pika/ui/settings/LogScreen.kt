@@ -1,5 +1,8 @@
 package com.pika.ui.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,13 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pika.core.log.CrashReporter
+import com.pika.core.log.LogEntry
 import com.pika.core.log.LogStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -153,7 +155,7 @@ fun LogScreen(onBack: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 80.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                 )
             } else {
                 val timeFmt = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()) }
@@ -215,7 +217,7 @@ fun LogScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun LogRow(entry: com.pika.core.log.LogEntry, timeFmt: SimpleDateFormat) {
+private fun LogRow(entry: LogEntry, timeFmt: SimpleDateFormat) {
     val levelColor = when (entry.level) {
         "E" -> MaterialTheme.colorScheme.error
         "W" -> MaterialTheme.colorScheme.tertiary

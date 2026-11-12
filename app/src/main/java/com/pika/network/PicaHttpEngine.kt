@@ -1,18 +1,19 @@
 package com.pika.network
 
 import android.util.Log
+import com.pika.core.log.LogStore
 import com.pika.core.pica.defaultPicaHeaders
 import com.pika.core.pica.picaNonce
 import com.pika.core.pica.picaSignature
 import com.pika.core.pica.picaTimestamp
 import com.pika.data.SourcePrefs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 
 /**
  * 用 HttpsURLConnection 替代 OkHttp 发起哔咔 API 请求。
@@ -129,7 +130,7 @@ class PicaHttpEngine(
         run {
             val finalUrl = conn.url?.toString()
             if (finalUrl != null && finalUrl != urlBuilder.toString()) {
-                com.pika.core.log.LogStore.log(
+                LogStore.log(
                     "PicaHttpEngine", "W",
                     "redirected: $urlBuilder -> $finalUrl (可能掩盖 401/会话失效)",
                 )

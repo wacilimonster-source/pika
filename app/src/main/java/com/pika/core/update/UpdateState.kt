@@ -1,6 +1,7 @@
 package com.pika.core.update
 
 import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.pika.core.runCatchingCancellable
 
 /**
  * 全局更新状态：App 启动时自动检查一次（update.json），
@@ -19,10 +21,10 @@ object UpdateState {
 
     private const val PREFS = "pika_update_state"
     private const val KEY_SNOOZED = "snoozed_version"
-    @Volatile private var prefs: android.content.SharedPreferences? = null
+    @Volatile private var prefs: SharedPreferences? = null
 
-    fun init(context: android.content.Context) {
-        prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+    fun init(context: Context) {
+        prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
 
     private val _updateInfo = MutableStateFlow<UpdateManager.UpdateInfo?>(null)
@@ -38,7 +40,7 @@ object UpdateState {
     fun checkOnce() {
         scope.launch {
             if (_updateInfo.value != null) return@launch
-            val result = runCatching { UpdateManager.checkResult() }.getOrNull() ?: return@launch
+            val result = runCatchingCancellable { UpdateManager.checkResult() }.getOrNull() ?: return@launch
             when (result) {
                 is UpdateManager.CheckResult.Available -> {
                     // 用户对该版本选择过「稍后再说」则不再自动展示（手动检查更新不受影响）
@@ -61,7 +63,7 @@ object UpdateState {
     /** 手动检查（无论结果都更新状态，并透传失败原因） */
     fun checkManual() {
         scope.launch {
-            when (val result = runCatching { UpdateManager.checkResult() }.getOrNull()) {
+            when (val result = runCatchingCancellable { UpdateManager.checkResult() }.getOrNull()) {
                 is UpdateManager.CheckResult.Available -> {
                     _updateInfo.value = result.info
                     _lastError.value = null

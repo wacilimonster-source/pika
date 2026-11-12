@@ -1,6 +1,7 @@
 package com.pika.data
 
 import android.content.Context
+import android.content.SharedPreferences
 
 /**
  * 条漫长图切片数缓存（磁盘持久化，按章稀疏存储，只记 >1 屏的页）。
@@ -18,9 +19,9 @@ object WebtoonSliceCache {
     private const val MAX_CHAPTERS = 512
 
     private val map = java.util.concurrent.ConcurrentHashMap<String, Map<Int, Int>>()
-    @Volatile private var prefs: android.content.SharedPreferences? = null
+    @Volatile private var prefs: SharedPreferences? = null
 
-    private fun sp(context: Context): android.content.SharedPreferences =
+    private fun sp(context: Context): SharedPreferences =
         prefs ?: context.applicationContext
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .also { prefs = it }

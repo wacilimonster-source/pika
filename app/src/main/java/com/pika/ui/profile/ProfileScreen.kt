@@ -1,6 +1,9 @@
 package com.pika.ui.profile
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -45,14 +48,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
+import com.pika.data.SecureAccountStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 
 /**
  * 个人资料页：头像 / 昵称 / 等级 / 简介；支持修改简介、称号、头像、密码。
@@ -73,8 +79,8 @@ fun ProfileScreen(
     var showPasswordDialog by remember { mutableStateOf(false) }
     var showAvatarDialog by remember { mutableStateOf(false) }
 
-    var avatarBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    var avatarBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val context = LocalContext.current
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -93,7 +99,7 @@ fun ProfileScreen(
                         error = null
                         try {
                             SourceManager.current().updateAvatar(
-                                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP),
+                                Base64.encodeToString(bytes, Base64.NO_WRAP),
                             )
                             avatarBitmap = withContext(Dispatchers.IO) {
                                 // 采样解码：5MB 的 JPEG 全尺寸解出可达数十 MB，
@@ -292,9 +298,9 @@ fun ProfileScreen(
                         // 同步更新本地保存的凭据：否则登录页回填旧密码、token 过期
                         // 静默重登必失败并被清号（体感"改密后到处掉登录"）
                         val type = SourceManager.activeSource.value
-                        val savedEmail = com.pika.data.SecureAccountStore.savedEmail(type)
+                        val savedEmail = SecureAccountStore.savedEmail(type)
                         if (savedEmail != null) {
-                            com.pika.data.SecureAccountStore.save(type, savedEmail, new)
+                            SecureAccountStore.save(type, savedEmail, new)
                         }
                         error = "密码修改成功"
                         messageIsError = false
@@ -411,7 +417,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { old = it },
                     label = { Text("旧密码") },
                     singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -419,7 +425,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { new = it },
                     label = { Text("新密码（至少 8 位）") },
                     singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -427,7 +433,7 @@ private fun ChangePasswordDialog(
                     onValueChange = { confirm = it },
                     label = { Text("确认新密码") },
                     singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let {
@@ -459,15 +465,15 @@ private fun ChangePasswordDialog(
  * 按目标最大边长采样解码头像，避免 5MB 大图全尺寸解码（可达数十 MB 位图）导致 OOM。
  * 只做 bounds 采样，不做二次精确缩放（头像展示尺寸足够）。
  */
-private fun decodeAvatarSampled(bytes: ByteArray, maxDimPx: Int): android.graphics.Bitmap? {
-    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+private fun decodeAvatarSampled(bytes: ByteArray, maxDimPx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
     var sample = 1
     val longest = maxOf(bounds.outWidth, bounds.outHeight)
     while (longest / (sample * 2) >= maxDimPx) sample *= 2
-    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
     return runCatching {
-        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
     }.getOrNull()
 }

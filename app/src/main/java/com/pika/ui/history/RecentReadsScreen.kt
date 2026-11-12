@@ -25,6 +25,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -59,14 +63,14 @@ fun RecentReadsScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // A14 撤销：删除/清空前快照，Snackbar「撤销」整表恢复（保留原时间戳）
-    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         recentReads = ReaderPrefs.current().recentReadsAsync()
     }
 
     Scaffold(
-        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("阅读历史") },
@@ -126,9 +130,9 @@ fun RecentReadsScreen(
                         val result = snackbarHostState.showSnackbar(
                             message = "已删除记录",
                             actionLabel = "撤销",
-                            duration = androidx.compose.material3.SnackbarDuration.Long,
+                            duration = SnackbarDuration.Long,
                         )
-                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                        if (result == SnackbarResult.ActionPerformed) {
                             recentReads = snapshot
                             ReaderPrefs.current().restoreRecentReads(snapshot)
                         }
@@ -156,9 +160,9 @@ fun RecentReadsScreen(
                         val result = snackbarHostState.showSnackbar(
                             message = "已清空阅读历史",
                             actionLabel = "撤销",
-                            duration = androidx.compose.material3.SnackbarDuration.Long,
+                            duration = SnackbarDuration.Long,
                         )
-                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                        if (result == SnackbarResult.ActionPerformed) {
                             recentReads = snapshot
                             ReaderPrefs.current().restoreRecentReads(snapshot)
                         }

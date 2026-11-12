@@ -1,10 +1,35 @@
 package com.pika.core.download
 
+import android.Manifest
+import android.R
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkRequest
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import com.pika.MainActivity
 import com.pika.core.log.LogStore
+import com.pika.core.source.ComicRef
 import com.pika.core.source.SourceManager
+import com.pika.core.source.SourceType
+import com.pika.data.DownloadPrefs
+import com.pika.data.JmRemovalMigration
 import com.pika.network.BcTls
+import com.pika.util.isNetworkMetered
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,11 +45,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.ConcurrentHashMap
+import com.pika.core.runCatchingCancellable
 
 /** 下载任务状态。CANCELED 曾是死枚举（无任何写入点）已移除——
  *  @Serializable 枚举：历史 manifest 从未写入过该值（persist 一直过滤），删除安全 */
@@ -109,7 +130,7 @@ object DownloadManager {
 
     fun init(context: Context) {
         appContext = context.applicationContext
-        com.pika.data.DownloadPrefs.init(appContext)
+        DownloadPrefs.init(appContext)
         // 目录遍历可能较慢，放到后台协程，避免阻塞冷启动主线程
         scope.launch { restoreTasks() }
         startSpeedSampler()
@@ -124,11 +145,11 @@ object DownloadManager {
     private fun registerNetworkCallback() {
         try {
             val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
-                as? android.net.ConnectivityManager ?: return
+                as? ConnectivityManager ?: return
             cm.registerNetworkCallback(
-                android.net.NetworkRequest.Builder().build(),
-                object : android.net.ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: android.net.Network) {
+                NetworkRequest.Builder().build(),
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
                         pump()
                     }
                 },
@@ -139,11 +160,7 @@ object DownloadManager {
     }
 
     /** 当前网络是否按流量计费（仅 Wi-Fi 下载门控用；无网络时视为计费） */
-    private fun isMetered(): Boolean {
-        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager ?: return true
-        return cm.isActiveNetworkMetered
-    }
+    private fun isMetered(): Boolean = isNetworkMetered(appContext)
 
     // ── 路径 ──────────────────────────────────────────────────────────────
     fun rootDir(): File = File(appContext.getExternalFilesDir(null), "downloads")
@@ -326,7 +343,7 @@ object DownloadManager {
             mutex.withLock {
                 // 仅 Wi-Fi 下载：流量网络下任务保持排队不启动，
                 // 网络恢复回调（registerNetworkCallback）或下次 pump 会自动续跑
-                val allowStart = !com.pika.data.DownloadPrefs.wifiOnly || !isMetered()
+                val allowStart = !DownloadPrefs.wifiOnly || !isMetered()
                 val running = _tasks.value.count { it.status == DlStatus.DOWNLOADING }
                 val slots = (CONCURRENCY - running).coerceAtLeast(0)
                 if (slots > 0 && allowStart) {
@@ -364,8 +381,8 @@ object DownloadManager {
                 try {
                     // 用任务入队时固化的数据源，而不是"此刻的活动源"：
                     // 下载中切换数据源不应改变进行中/待重试任务的来源
-                    val sourceType = com.pika.core.source.SourceType.entries
-                        .firstOrNull { it.name == t.source } ?: com.pika.core.source.SourceType.PICACG
+                    val sourceType = SourceType.entries
+                        .firstOrNull { it.name == t.source } ?: SourceType.PICACG
                     val source = SourceManager.sourceOf(sourceType)
                     val pages = source.chapterPages(t.comicId, t.order)
                     // 真实页数在运行时才可知（整本批量入队时为 0），拉取后回填
@@ -445,40 +462,40 @@ object DownloadManager {
     /** 整本下载完成系统通知（设置可关；通知未授权时静默跳过）。
      *  A11：封面大图 + 点击直达该漫画详情（路由 extra 由 MainActivity 转给导航）。 */
     private suspend fun notifyComplete(task: DownloadTask) {
-        if (!com.pika.data.DownloadPrefs.notifyEnabled) return
+        if (!DownloadPrefs.notifyEnabled) return
         try {
             val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
-                as? android.app.NotificationManager ?: return
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                as? NotificationManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 manager.createNotificationChannel(
-                    android.app.NotificationChannel(
+                    NotificationChannel(
                         NOTIFY_CHANNEL_ID,
                         "下载",
-                        android.app.NotificationManager.IMPORTANCE_DEFAULT,
+                        NotificationManager.IMPORTANCE_DEFAULT,
                     ),
                 )
             }
-            if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                androidx.core.content.ContextCompat.checkSelfPermission(
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(
                     appContext,
-                    android.Manifest.permission.POST_NOTIFICATIONS,
-                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) != PackageManager.PERMISSION_GRANTED
             ) {
                 return
             }
-            val route = "comic/" + com.pika.core.source.ComicRef.ofName(task.source, task.comicId)
-            val intent = android.content.Intent(appContext, com.pika.MainActivity::class.java).apply {
+            val route = "comic/" + ComicRef.ofName(task.source, task.comicId)
+            val intent = Intent(appContext, MainActivity::class.java).apply {
                 putExtra("open_route", route)
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            val pending = android.app.PendingIntent.getActivity(
+            val pending = PendingIntent.getActivity(
                 appContext,
                 route.hashCode(),
                 intent,
-                android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             // 封面大图：尽力而为（取不到不影响通知本身）
-            val largeIcon: android.graphics.Bitmap? = runCatching {
+            val largeIcon: Bitmap? = runCatchingCancellable {
                 val request = coil.request.ImageRequest.Builder(appContext)
                     .data(task.coverUrl.takeIf { it.isNotBlank() })
                     .allowHardware(false)
@@ -486,8 +503,8 @@ object DownloadManager {
                     .build()
                 coil.Coil.imageLoader(appContext).execute(request).drawable?.toBitmap()
             }.getOrNull()
-            val builder = androidx.core.app.NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            val builder = NotificationCompat.Builder(appContext, NOTIFY_CHANNEL_ID)
+                .setSmallIcon(R.drawable.stat_sys_download_done)
                 .setContentTitle("下载完成")
                 .setContentText("《${task.comicTitle}》全部章节已下载完成")
                 .setAutoCancel(true)
@@ -618,14 +635,14 @@ object DownloadManager {
         runCatching {
             val saved: List<DownloadTask> =
                 json.decodeFromString(ListSerializer(DownloadTask.serializer()), f.readText())
-            val jm = saved.filter { it.source == com.pika.data.JmRemovalMigration.LEGACY_JM }
+            val jm = saved.filter { it.source == JmRemovalMigration.LEGACY_JM }
             if (jm.isEmpty()) return
             jm.forEach { t -> File(dir, t.comicId).deleteRecursively() }
             val tmp = File(dir, "manifest.json.tmp")
             tmp.writeText(
                 json.encodeToString(
                     ListSerializer(DownloadTask.serializer()),
-                    saved.filterNot { it.source == com.pika.data.JmRemovalMigration.LEGACY_JM },
+                    saved.filterNot { it.source == JmRemovalMigration.LEGACY_JM },
                 ),
             )
             if (!tmp.renameTo(f)) {

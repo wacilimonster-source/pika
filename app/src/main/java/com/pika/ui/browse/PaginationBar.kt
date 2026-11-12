@@ -207,7 +207,7 @@ fun PaginationBar(
 }
 
 /** 生成页码窗口：当前页前后各 1 页 + 首尾页，间隔>1 处插入省略号(null) */
-private fun pageWindow(current: Int, total: Int): List<Int?> {
+internal fun pageWindow(current: Int, total: Int): List<Int?> {
     if (total <= 7) return (1..total).toList()
     val pages = listOf(1, current - 1, current, current + 1, total)
         .filter { it in 1..total }

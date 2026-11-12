@@ -1,6 +1,8 @@
 package com.pika.network
 
+import com.pika.core.log.LogStore
 import com.pika.core.source.SourceManager
+import com.pika.core.source.SourceType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
@@ -17,7 +19,7 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
         baseUrl = baseUrl,
         tokenProvider = { SourceManager.picaToken() },
         // 明确告知"这个 401 来自哔咔源"，避免上层按全局活动源误判（切源窗口会串源）
-        onUnauthorized = { SourceManager.onUnauthorized(com.pika.core.source.SourceType.PICACG) },
+        onUnauthorized = { SourceManager.onUnauthorized(SourceType.PICACG) },
     )
 
     private val json = Json {
@@ -53,7 +55,7 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
                     // 服务端故障（如 2026-10 Redis MISCONF 全量 500）：原始错误体是给
                     // 服务端运维看的（截断后 JSON 半截话），对用户只是噪音且不可读，
                     // 转成可读提示；原文进 LogStore 供诊断
-                    com.pika.core.log.LogStore.log(
+                    LogStore.log(
                         "PicaHttpApi", "E",
                         "HTTP ${resp.code} $path: ${resp.bodyString.take(300)}",
                     )

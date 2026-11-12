@@ -3,13 +3,13 @@ package com.pika.image
 import android.util.Log
 import com.pika.core.log.CrashReporter
 import com.pika.core.log.LogStore
-import okhttp3.Call
-import okhttp3.Interceptor
-import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.Semaphore
 import kotlin.random.Random
+import okhttp3.Call
+import okhttp3.Interceptor
+import okhttp3.Response
 
 /**
  * 图片加载的瞬时失败自动重试（OkHttp 应用层）。

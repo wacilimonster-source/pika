@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.model.ComicSummary
+import com.pika.core.model.applyStatusAndSort
 import com.pika.core.source.SourceManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -116,19 +117,7 @@ class AuthorViewModel : ViewModel() {
     }
 
     private fun applyFilterAndSort() {
-        val filtered = _comics.value.filter {
-            when (_status.value) {
-                ComicStatus.ALL -> true
-                ComicStatus.FINISHED -> it.finished
-                ComicStatus.ONGOING -> !it.finished
-            }
-        }
-        _comics.value = when (_sort.value) {
-            ComicSort.DD -> filtered.sortedByDescending { it.updatedAt }
-            ComicSort.DA -> filtered.sortedBy { it.updatedAt }
-            ComicSort.LD -> filtered.sortedByDescending { it.totalLikes }
-            ComicSort.VD -> filtered.sortedByDescending { it.totalViews }
-        }
+        _comics.value = _comics.value.applyStatusAndSort(_status.value, _sort.value)
     }
 
     fun saveScrollState(firstVisibleIndex: Int, currentPage: Int) {

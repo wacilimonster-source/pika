@@ -2,6 +2,7 @@ package com.pika.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.pika.core.source.ComicRef
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,7 +68,7 @@ object UpdatedAtCache {
     }
 
     fun of(ref: String): String? = synchronized(map) {
-        map[ref] ?: map[com.pika.core.source.ComicRef.id(ref)]   // 历史条目按裸 id 存，回落一次
+        map[ref] ?: map[ComicRef.id(ref)]   // 历史条目按裸 id 存，回落一次
     }
 
     /** 拉到更新时间就记录（同值重复记录不触发 version，避免列表无谓刷新）。[ref] 为作品标识 `源_id` */

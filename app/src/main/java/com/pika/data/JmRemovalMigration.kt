@@ -2,6 +2,7 @@ package com.pika.data
 
 import android.content.Context
 import android.util.Log
+import com.pika.core.download.DownloadManager
 import java.io.File
 import java.security.KeyStore
 import kotlinx.coroutines.runBlocking
@@ -41,7 +42,7 @@ object JmRemovalMigration {
             .onFailure { Log.e(TAG, "shared prefs purge failed: ${it.message}") }
         runCatching { purgeKeystore() }
             .onFailure { Log.e(TAG, "keystore purge failed: ${it.message}") }
-        runCatching { com.pika.core.download.DownloadManager.purgeJmDownloads(app) }
+        runCatching { DownloadManager.purgeJmDownloads(app) }
             .onFailure { Log.e(TAG, "downloads purge failed: ${it.message}") }
 
         flag.edit().putBoolean(FLAG_KEY, true).apply()

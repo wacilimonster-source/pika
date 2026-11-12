@@ -20,9 +20,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -49,13 +50,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pika.core.model.ComicSort
+import com.pika.data.GridSettings
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.browse.PaginationBar
+import com.pika.ui.browse.ReadFilter
 import com.pika.ui.browse.filterByRead
+import com.pika.ui.browse.loadedPageCount
+import com.pika.ui.browse.pageSlice
+import com.pika.ui.browse.readFilterOptions
+import com.pika.ui.common.ComicGridSkeleton
 import com.pika.ui.common.PikaFilterChip
 
 /** 搜索页：输入框（含返回/重置/标签筛选）+ 排序筛选 + 结果网格 + 底部页码分页 */
@@ -83,16 +98,16 @@ fun SearchScreen(
     // 输入框初值取 VM 当前关键词：从详情返回重组时恢复显示，避免与结果列表不一致
     var input by remember { mutableStateOf(viewModel.keyword.value) }
     var showTagSheet by remember { mutableStateOf(false) }
-    var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
-    val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
+    var readFilterName by rememberSaveable { mutableStateOf(ReadFilter.ALL.name) }
+    val readFilter = ReadFilter.valueOf(readFilterName)
     // 筛选模式下的客户端翻页（累积数据按 20 条一页切片，纯本地不请求）
     var filterPage by rememberSaveable { mutableStateOf(1) }
     val listState = rememberLazyGridState()
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val focusManager = LocalFocusManager.current
 
     // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
     LaunchedEffect(readFilter, comics, loading, endReached) {
-        if (readFilter != com.pika.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
+        if (readFilter != ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
             viewModel.loadMore()
         }
     }
@@ -142,9 +157,9 @@ fun SearchScreen(
                 // 设计稿页面右上 eyebrow（装饰性字距小标，不承载操作）
                 Text(
                     text = "DISCOVER",
-                    style = androidx.compose.ui.text.TextStyle(
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    style = TextStyle(
+                        fontFamily = FontFamily.SansSerif,
+                        fontWeight = FontWeight.Medium,
                         fontSize = 10.sp,
                         letterSpacing = 2.sp,
                     ),
@@ -208,7 +223,7 @@ fun SearchScreen(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 focusManager.clearFocus()
                                 beginSearch(input.trim())
@@ -217,12 +232,12 @@ fun SearchScreen(
                     )
                 }
             },
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -249,7 +264,7 @@ fun SearchScreen(
             }
 
             // 阅读状态筛选
-            com.pika.ui.browse.readFilterOptions.forEach { (filter, label) ->
+            readFilterOptions.forEach { (filter, label) ->
                 item {
                     PikaFilterChip(
                         selected = readFilter == filter,
@@ -267,14 +282,14 @@ fun SearchScreen(
         // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
         // 筛选模式：累积数据按服务端页（20 条）切片 + 过滤，页码可点（客户端翻页）
         val displayComics = remember(readFilter, comics, filterPage) {
-            if (readFilter == com.pika.ui.browse.ReadFilter.ALL) {
+            if (readFilter == ReadFilter.ALL) {
                 comics
             } else {
-                comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
+                comics.pageSlice(filterPage).filterByRead(readFilter)
             }
         }
         // 分页条回调（筛选模式=客户端切片换页；普通模式=服务端换页），正常/空态两个分支共用
-        val onBarPageChange: (Int) -> Unit = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+        val onBarPageChange: (Int) -> Unit = if (readFilter != ReadFilter.ALL) {
             { p ->
                 filterPage = p
                 // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
@@ -378,10 +393,10 @@ fun SearchScreen(
                                     ) {
                                         Text(
                                             text = "%02d".format(index + 1),
-                                            style = androidx.compose.ui.text.TextStyle(
-                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
-                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                            style = TextStyle(
+                                                fontFamily = FontFamily.Serif,
+                                                fontStyle = FontStyle.Italic,
+                                                fontWeight = FontWeight.SemiBold,
                                                 fontSize = 15.sp,
                                                 lineHeight = 18.sp,
                                             ),
@@ -397,7 +412,7 @@ fun SearchScreen(
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onSurface,
                                             maxLines = 1,
-                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                            overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f),
                                         )
                                         Icon(
@@ -413,8 +428,8 @@ fun SearchScreen(
                     }
                 } else if (loading) {
                     // A2 骨架屏：搜索首刷替代「搜索中...」文字，列数跟随网格设置
-                    com.pika.ui.common.ComicGridSkeleton(
-                        columns = com.pika.data.GridSettings.columnsFlow.collectAsState().value,
+                    ComicGridSkeleton(
+                        columns = GridSettings.columnsFlow.collectAsState().value,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -425,7 +440,7 @@ fun SearchScreen(
                         Text(
                             text = when {
                                 searchError != null -> "搜索失败：$searchError"
-                                readFilter != com.pika.ui.browse.ReadFilter.ALL -> "没有符合条件的作品"
+                                readFilter != ReadFilter.ALL -> "没有符合条件的作品"
                                 else -> "没有更多结果"
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -446,12 +461,12 @@ fun SearchScreen(
                 }
             }
             if (totalPages > 1) {
-                com.pika.ui.browse.PaginationBar(
+                PaginationBar(
                     currentPage = filterPage,
                     totalPages = totalPages,
-                    loadedPages = (comics.size + 19) / 20,
+                    loadedPages = comics.loadedPageCount(),
                     onPageChange = onBarPageChange,
-                    progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                    progressMode = readFilter != ReadFilter.ALL,
                 )
             }
         } else {
@@ -465,7 +480,7 @@ fun SearchScreen(
                     onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
-                    showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
+                    showTailLoading = readFilter == ReadFilter.ALL,
                 )
                 if (multiLoading) {
                     Text(
@@ -475,12 +490,12 @@ fun SearchScreen(
                         modifier = Modifier.padding(8.dp),
                     )
                 }
-                com.pika.ui.browse.PaginationBar(
+                PaginationBar(
                     currentPage = filterPage,
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
                     onPageChange = onBarPageChange,
-                    progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                    progressMode = readFilter != ReadFilter.ALL,
                 )
             }
         }

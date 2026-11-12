@@ -4,6 +4,10 @@ build/
 app/build/
 captures/
 build_log.txt
+*.log
+
+# Local verification artifacts (不要提交临时 APK/截图)
+/verify-pika.apk
 
 # Local configuration
 local.properties

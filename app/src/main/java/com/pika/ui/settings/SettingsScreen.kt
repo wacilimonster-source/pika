@@ -1,5 +1,8 @@
 package com.pika.ui.settings
 
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,12 +48,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.pika.core.download.DownloadManager
 import com.pika.core.source.SourceManager
 import com.pika.core.update.UpdateManager
+import com.pika.data.DownloadPrefs
 import com.pika.data.GridSettings
 import com.pika.data.ReaderPrefs
 import com.pika.ui.common.PikaSegmentedControl
+import com.pika.ui.download.formatBytes
+import com.pika.util.CacheCleaner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -202,23 +211,23 @@ fun SettingsScreen(
 
             // ── 下载 ────────────────────────────────────────────────
             SettingsGroup(header = "下载") {
-                val notifyEnabled by com.pika.data.DownloadPrefs.notifyEnabledFlow
-                    .collectAsState(initial = com.pika.data.DownloadPrefs.notifyEnabled)
-                val wifiOnly by com.pika.data.DownloadPrefs.wifiOnlyFlow
-                    .collectAsState(initial = com.pika.data.DownloadPrefs.wifiOnly)
-                val context = androidx.compose.ui.platform.LocalContext.current
+                val notifyEnabled by DownloadPrefs.notifyEnabledFlow
+                    .collectAsState(initial = DownloadPrefs.notifyEnabled)
+                val wifiOnly by DownloadPrefs.wifiOnlyFlow
+                    .collectAsState(initial = DownloadPrefs.wifiOnly)
+                val context = LocalContext.current
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { granted ->
                     // S4：开关状态必须跟随真实权限授予结果。此前回调为空体——用户在系统
                     // 弹窗点「拒绝」后 Switch 仍显示开启，实际一条通知都不会发，
                     // 且权限已拒绝后系统也不再弹申请，用户无从自救。
-                    scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(granted) }
+                    scope.launch { DownloadPrefs.setNotifyEnabled(granted) }
                     if (!granted) {
-                        android.widget.Toast.makeText(
+                        Toast.makeText(
                             context,
                             "未授予通知权限：下载完成将不会有系统通知，可在系统设置中开启",
-                            android.widget.Toast.LENGTH_LONG,
+                            Toast.LENGTH_LONG,
                         ).show()
                     }
                 }
@@ -229,13 +238,13 @@ fun SettingsScreen(
                         Switch(
                             checked = notifyEnabled,
                             onCheckedChange = { enabled ->
-                                if (enabled && android.os.Build.VERSION.SDK_INT >= 33) {
+                                if (enabled && Build.VERSION.SDK_INT >= 33) {
                                     // 授予结果由上方回调写入：不再无条件置 true
                                     notifPermissionLauncher.launch(
-                                        android.Manifest.permission.POST_NOTIFICATIONS,
+                                        Manifest.permission.POST_NOTIFICATIONS,
                                     )
                                 } else {
-                                    scope.launch { com.pika.data.DownloadPrefs.setNotifyEnabled(enabled) }
+                                    scope.launch { DownloadPrefs.setNotifyEnabled(enabled) }
                                 }
                             },
                         )
@@ -251,9 +260,9 @@ fun SettingsScreen(
                         Switch(
                             checked = wifiOnly,
                             onCheckedChange = {
-                                scope.launch { com.pika.data.DownloadPrefs.setWifiOnly(it) }
+                                scope.launch { DownloadPrefs.setWifiOnly(it) }
                                 // 开关变化即时重调度：关闭「仅 Wi-Fi」后流量网络下的排队任务立刻补位启动（S14-3）
-                                com.pika.core.download.DownloadManager.notifyWifiOnlyChanged()
+                                DownloadManager.notifyWifiOnlyChanged()
                             },
                         )
                     },
@@ -305,7 +314,7 @@ fun SettingsScreen(
 @Composable
 private fun UpdateSection() {
     val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     // 检查结果留在本地（检查很快，随页面销毁无所谓）；下载态以 UpdateManager 为准
     // （app 级作用域）：下载中关对话框/离开设置页都不再静默取消，回来进度仍可见、可重试
     var checkState by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Idle) }
@@ -418,20 +427,20 @@ private fun UpdateSection() {
                 when (state) {
                     is UpdateUiState.Found -> {
                         val info = (state as UpdateUiState.Found).info
-                        androidx.compose.material3.Button(onClick = {
+                        Button(onClick = {
                             // 下载跑在 UpdateManager 的 app 级作用域，页面销毁不影响
                             UpdateManager.startDownload(context, info)
                         }) { Text("下载") }
                     }
                     is UpdateUiState.DownloadFailed -> {
-                        androidx.compose.material3.Button(onClick = {
+                        Button(onClick = {
                             lastFound?.let { UpdateManager.startDownload(context, it) }
                         }) { Text("重试") }
                     }
                     UpdateUiState.Downloaded -> {
                         val apk = (dlState as? UpdateManager.DownloadUi.Done)?.apk
                         if (apk != null) {
-                            androidx.compose.material3.Button(onClick = {
+                            Button(onClick = {
                                 UpdateManager.install(context, apk)
                             }) { Text("安装") }
                         } else {
@@ -518,14 +527,14 @@ private sealed interface UpdateUiState {
 /** 通用组 · 清理缓存行（图片磁盘缓存 + 内存缓存；已下载内容不受影响） */
 @Composable
 private fun CacheClearRow() {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sizeText by remember { mutableStateOf("统计中…") }
     var clearing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        sizeText = com.pika.ui.download.formatBytes(
-            com.pika.util.CacheCleaner.imageCacheSize(context),
+        sizeText = formatBytes(
+            CacheCleaner.imageCacheSize(context),
         )
     }
 
@@ -540,15 +549,15 @@ private fun CacheClearRow() {
         modifier = Modifier.clickable(enabled = !clearing) {
             clearing = true
             scope.launch {
-                val cleared = com.pika.util.CacheCleaner.clearImageCache(context)
-                sizeText = com.pika.ui.download.formatBytes(
-                    com.pika.util.CacheCleaner.imageCacheSize(context),
+                val cleared = CacheCleaner.clearImageCache(context)
+                sizeText = formatBytes(
+                    CacheCleaner.imageCacheSize(context),
                 )
                 clearing = false
-                android.widget.Toast.makeText(
+                Toast.makeText(
                     context,
                     "已清理 ${com.pika.ui.download.formatBytes(cleared)}",
-                    android.widget.Toast.LENGTH_SHORT,
+                    Toast.LENGTH_SHORT,
                 ).show()
             }
         },

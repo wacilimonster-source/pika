@@ -6,21 +6,19 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -28,11 +26,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -56,9 +57,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,9 +75,17 @@ import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
 import com.pika.core.source.SourceManager
+import com.pika.data.CategorySettings
+import com.pika.data.GridSettings
 import com.pika.ui.browse.BrowseViewModel
 import com.pika.ui.browse.ComicGridView
+import com.pika.ui.browse.PaginationBar
+import com.pika.ui.browse.ReadFilter
 import com.pika.ui.browse.filterByRead
+import com.pika.ui.browse.loadedPageCount
+import com.pika.ui.browse.pageSlice
+import com.pika.ui.browse.readFilterOptions
+import com.pika.ui.common.ComicGridSkeleton
 import com.pika.ui.common.PikaFilterChip
 
 /**
@@ -90,14 +105,14 @@ fun CategoryScreen(
     val categoriesError by viewModel.categoriesError.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     // 组合期不做磁盘/SharedPreferences 读取：初值给空设置，在 LaunchedEffect 中加载
-    var settings by remember { mutableStateOf(com.pika.data.CategorySettings.Settings()) }
+    var settings by remember { mutableStateOf(CategorySettings.Settings()) }
 
     LaunchedEffect(activeSource) {
         viewModel.loadCategories()
     }
     LaunchedEffect(Unit) {
         settings = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.pika.data.CategorySettings.get()
+            CategorySettings.get()
         }
     }
 
@@ -181,7 +196,7 @@ fun CategoryScreen(
                 currentSettings = settings,
                 onSettingsChange = { newSettings ->
                     settings = newSettings
-                    com.pika.data.CategorySettings.save(newSettings)
+                    CategorySettings.save(newSettings)
                 },
                 onDismiss = { showSettings = false },
             )
@@ -267,13 +282,13 @@ fun CategoryComicsScreen(
                 .padding(innerPadding),
         ) {
             // 排序 + 阅读状态筛选
-            var readFilterName by rememberSaveable { mutableStateOf(com.pika.ui.browse.ReadFilter.ALL.name) }
-            val readFilter = com.pika.ui.browse.ReadFilter.valueOf(readFilterName)
+            var readFilterName by rememberSaveable { mutableStateOf(ReadFilter.ALL.name) }
+            val readFilter = ReadFilter.valueOf(readFilterName)
             // 筛选模式下的客户端翻页（累积数据按 20 条一页切片，纯本地不请求）
             var filterPage by rememberSaveable { mutableStateOf(1) }
             // 筛选激活时后台自动拉取剩余分页（每页加载完自动触发下一页，串行不并发）
             LaunchedEffect(readFilter, comics, loading, endReached) {
-                if (readFilter != com.pika.ui.browse.ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
+                if (readFilter != ReadFilter.ALL && !loading && !endReached && comics.isNotEmpty()) {
                     viewModel.loadMore()
                 }
             }
@@ -288,7 +303,7 @@ fun CategoryComicsScreen(
                         text = s.label,
                     )
                 }
-                com.pika.ui.browse.readFilterOptions.forEach { (filter, label) ->
+                readFilterOptions.forEach { (filter, label) ->
                     item {
                         PikaFilterChip(
                             selected = readFilter == filter,
@@ -306,14 +321,14 @@ fun CategoryComicsScreen(
             // 筛选结果（只随筛选切换/分页加载更新；阅读状态变化仅刷新角标，不实时过滤）
             // 筛选模式：累积数据按服务端页（20 条）切片 + 过滤，页码可点（客户端翻页）
             val displayComics = remember(readFilter, comics, filterPage) {
-                if (readFilter == com.pika.ui.browse.ReadFilter.ALL) {
+                if (readFilter == ReadFilter.ALL) {
                     comics
                 } else {
-                    comics.drop((filterPage - 1) * 20).take(20).filterByRead(readFilter)
+                    comics.pageSlice(filterPage).filterByRead(readFilter)
                 }
             }
             // 分页条回调（筛选模式=客户端切片换页；全部模式=服务端单页换页），正常/空态两个分支共用
-            val onBarPageChange: (Int) -> Unit = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+            val onBarPageChange: (Int) -> Unit = if (readFilter != ReadFilter.ALL) {
                 { p ->
                     filterPage = p
                     // 客户端切片换页：数据整体替换后网格会按索引保留位置，需显式回顶
@@ -356,7 +371,7 @@ fun CategoryComicsScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (readFilter != com.pika.ui.browse.ReadFilter.ALL) {
+                        text = if (readFilter != ReadFilter.ALL) {
                             "没有符合条件的作品"
                         } else {
                             "该分类下暂无符合条件的漫画"
@@ -366,19 +381,19 @@ fun CategoryComicsScreen(
                     )
                 }
                 if (totalPages > 1) {
-                    com.pika.ui.browse.PaginationBar(
+                    PaginationBar(
                         currentPage = filterPage,
                         totalPages = totalPages,
-                        loadedPages = (comics.size + 19) / 20,
+                        loadedPages = comics.loadedPageCount(),
                         onPageChange = onBarPageChange,
-                        progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                        progressMode = readFilter != ReadFilter.ALL,
                     )
                 }
             } else if (displayComics.isEmpty() && loading) {
                 // A2 骨架屏：分类首屏替代空白网格，列数跟随网格设置
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    com.pika.ui.common.ComicGridSkeleton(
-                        columns = com.pika.data.GridSettings.columnsFlow.collectAsState().value,
+                    ComicGridSkeleton(
+                        columns = GridSettings.columnsFlow.collectAsState().value,
                     )
                 }
             } else {
@@ -416,14 +431,14 @@ fun CategoryComicsScreen(
                     onLoadMore = {},
                     onComicClick = onComicClick,
                     modifier = Modifier.weight(1f),
-                    showTailLoading = readFilter == com.pika.ui.browse.ReadFilter.ALL,
+                    showTailLoading = readFilter == ReadFilter.ALL,
                 )
-                com.pika.ui.browse.PaginationBar(
+                PaginationBar(
                     currentPage = filterPage,
                     totalPages = totalPages,
                     loadedPages = (comics.size + 19) / 20,
                     onPageChange = onBarPageChange,
-                    progressMode = readFilter != com.pika.ui.browse.ReadFilter.ALL,
+                    progressMode = readFilter != ReadFilter.ALL,
                 )
             }
         }
@@ -437,7 +452,7 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(104.dp)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
     ) {
@@ -453,9 +468,9 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            0f to androidx.compose.ui.graphics.Color.Transparent,
-                            1f to androidx.compose.ui.graphics.Color(0xB3211A26),
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            1f to Color(0xB3211A26),
                         ),
                     ),
             )
@@ -470,8 +485,8 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            0f to androidx.compose.ui.graphics.Color.Transparent,
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
                             1f to MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
                         ),
                     ),
@@ -479,22 +494,22 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
         }
         Text(
             text = category.title,
-            style = androidx.compose.ui.text.TextStyle(
-                fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            style = TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 18.sp,
                 lineHeight = 24.sp,
                 // 封面加载失败/浅色封面时白字仍需可读：文字自身带投影
-                shadow = androidx.compose.ui.graphics.Shadow(
-                    color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f),
-                    offset = androidx.compose.ui.geometry.Offset(0f, 1.5f),
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.6f),
+                    offset = Offset(0f, 1.5f),
                     blurRadius = 6f,
                 ),
             ),
             color = if (category.coverUrl.isNullOrBlank()) {
                 MaterialTheme.colorScheme.onSurface
             } else {
-                androidx.compose.ui.graphics.Color.White
+                Color.White
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

@@ -1,13 +1,15 @@
 package com.pika.ui.reader
 
-import androidx.compose.animation.AnimatedVisibility
+import android.app.Activity
+import android.content.Intent
+import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -16,6 +18,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -84,22 +88,25 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -109,13 +116,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.pika.core.log.LogStore
 import com.pika.data.ReaderPrefs
+import com.pika.data.WebtoonSliceCache
+import com.pika.util.ImageSaver
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import com.pika.core.runCatchingCancellable
 
 /**
  * 阅读器（重构版）：
@@ -202,7 +213,7 @@ fun ReaderScreen(
     // ── 沉浸式全屏管理 ─────────────────────────────────────────────────────
     val view = LocalView.current
     val windowInsetsController = remember {
-        val activity = (context as? android.app.Activity) ?: return@remember null
+        val activity = (context as? Activity) ?: return@remember null
         WindowCompat.getInsetsController(activity.window, view)
     }
 
@@ -257,7 +268,7 @@ fun ReaderScreen(
         sliceBatch.clear()
         for ((batchOrder, counts) in batch) {
             if (counts.isNotEmpty()) {
-                com.pika.data.WebtoonSliceCache.putAll(context, ref, batchOrder, counts)
+                WebtoonSliceCache.putAll(context, ref, batchOrder, counts)
             }
         }
     }
@@ -269,7 +280,7 @@ fun ReaderScreen(
         flushSliceBatch()
         sliceCounts.clear()
         if (pages.isNotEmpty()) {
-            val cached = com.pika.data.WebtoonSliceCache.load(ref, vmOrder, context)
+            val cached = WebtoonSliceCache.load(ref, vmOrder, context)
             if (cached.isNotEmpty()) sliceCounts.putAll(cached)
         }
     }
@@ -582,8 +593,8 @@ fun ReaderScreen(
     fun saveCurrentPage(page: Int) {
         val url = viewModel.pageUrlAt(page) ?: return
         scope.launch {
-            val result = runCatching {
-                com.pika.util.ImageSaver.saveToGallery(
+            val result = runCatchingCancellable {
+                ImageSaver.saveToGallery(
                     context,
                     url,
                     title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
@@ -602,24 +613,24 @@ fun ReaderScreen(
     fun shareCurrentPage(page: Int) {
         val url = viewModel.pageUrlAt(page) ?: return
         scope.launch {
-            val result = runCatching {
-                val file = com.pika.util.ImageSaver.downloadToCache(
+            val result = runCatchingCancellable {
+                val file = ImageSaver.downloadToCache(
                     context,
                     url,
                     title.ifBlank { epTitle }.ifBlank { "第 $vmOrder 话" },
                     page + 1,
                 )
-                val uri = androidx.core.content.FileProvider.getUriForFile(
+                val uri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
                     file,
                 )
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                val send = Intent(Intent.ACTION_SEND).apply {
                     type = "image/jpeg"
-                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(android.content.Intent.createChooser(send, "分享第 ${page + 1} 页"))
+                context.startActivity(Intent.createChooser(send, "分享第 ${page + 1} 页"))
             }
             if (result.isFailure) {
                 Toast.makeText(
@@ -640,7 +651,7 @@ fun ReaderScreen(
     // 章节抽屉打开时加载章节已读标记（打勾用）
     LaunchedEffect(showChapterSheet, vmOrder) {
         if (showChapterSheet) {
-            readChapters = runCatching { ReaderPrefs.current().readChaptersAsync(ref) }
+            readChapters = runCatchingCancellable { ReaderPrefs.current().readChaptersAsync(ref) }
                 .getOrDefault(emptySet())
         }
     }
@@ -941,7 +952,7 @@ fun ReaderScreen(
                 Surface(
                     color = Color(0x99000000),
                     contentColor = Color.White,
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 12.dp),
@@ -1153,7 +1164,7 @@ private fun ReaderControlPanel(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .clickable(enabled = hasPrev, onClick = onPrevChapter)
                         .padding(horizontal = 6.dp, vertical = 6.dp),
                 ) {
@@ -1169,12 +1180,12 @@ private fun ReaderControlPanel(
                     color = panelMuted,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.weight(1f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    textAlign = TextAlign.Center,
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .clickable(enabled = hasNext, onClick = onNextChapter)
                         .padding(horizontal = 6.dp, vertical = 6.dp),
                 ) {
@@ -1214,7 +1225,7 @@ private fun ReaderControlPanel(
                         color = panelMuted,
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.width(56.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        textAlign = TextAlign.End,
                     )
                 }
             }
@@ -1238,7 +1249,7 @@ private fun ReaderControlPanel(
                     color = panelMuted,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.width(40.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    textAlign = TextAlign.End,
                 )
             }
             // 工具行：章节 | 本页 | 横滑 | 滚动流（设计稿四入口，均分触控区）
@@ -1282,7 +1293,7 @@ private fun ReaderControlPanel(
 /** 面板工具行单元：图标 + 文字（点击区 ≥48dp 由 minimumInteractiveComponentSize 保证） */
 @Composable
 private fun PanelToolRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     tint: Color,
     onClick: () -> Unit,
@@ -1292,7 +1303,7 @@ private fun PanelToolRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
         modifier = modifier
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 6.dp),
     ) {
@@ -1410,8 +1421,8 @@ private fun PagerPage(
         if (state is AsyncImagePainter.State.Error) {
             val t = state.result.throwable
             val msg = "渲染层失败(横滑第${pageIndex + 1}页): ${t.javaClass.simpleName}: ${t.message} <- $imageUrl"
-            android.util.Log.e("PainterErr", msg)
-            com.pika.core.log.LogStore.log("PainterErr", "E", msg)
+            Log.e("PainterErr", msg)
+            LogStore.log("PainterErr", "E", msg)
         }
     }
 

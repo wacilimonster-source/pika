@@ -1,11 +1,14 @@
 package com.pika.core.source
 
 import android.util.Log
+import com.pika.core.AppScope
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicSummary
 import com.pika.core.model.PageResult
+import com.pika.data.SecureAccountStore
 import com.pika.data.SourcePrefs
+import com.pika.network.PicaException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -35,7 +38,7 @@ object SourceManager {
         // 回填读取走 SourcePrefs getter 的 runBlocking 兜底（仅此处后台线程阻塞，可接受）；
         // StateFlow 本身在回填前的极小窗口内是默认源，消费方（UI collectAsState）
         // 都是响应式收集，回填落位后会带着新值自动重载。回填不覆盖窗口期内已做出的切换。
-        com.pika.core.AppScope.launch {
+        AppScope.launch {
             val persisted = SourcePrefs.current().activeSource
             if (_activeSource.value != persisted) {
                 _activeSource.value = persisted
@@ -86,7 +89,7 @@ object SourceManager {
                 if (type == _activeSource.value) _unauthorizedTick.update { it + 1 }
                 return
             }
-            val creds = com.pika.data.SecureAccountStore.load(type)
+            val creds = SecureAccountStore.load(type)
             if (creds != null) {
                 try {
                     sources.getValue(type).login(creds.first, creds.second)
@@ -100,7 +103,7 @@ object SourceManager {
                     Log.w("SourceManager", "silent re-login failed: $type, ${e.message}")
                     // 凭据被服务端判定无效（改密/封号）→ 删除保存的账号；网络问题则保留
                     if (isCredentialRejected(e)) {
-                        com.pika.data.SecureAccountStore.clear(type)
+                        SecureAccountStore.clear(type)
                     }
                 }
             }
@@ -121,7 +124,7 @@ object SourceManager {
      * 注意必须排除限流：【限流不是凭据无效】，误判会把好账号清掉。
      */
     private fun isCredentialRejected(e: Throwable): Boolean {
-        val pe = e as? com.pika.network.PicaException
+        val pe = e as? PicaException
         if (pe != null) {
             if (pe.isRateLimit) return false
             if (pe.httpCode == 401 || pe.httpCode == 403) return true
@@ -138,7 +141,7 @@ object SourceManager {
         // 先置登出标志再清 token：窗口期内任何在途 401 都不得用保留凭据复活会话（S2）
         loggingOut = true
         if (deleteSavedCredentials) {
-            com.pika.data.SecureAccountStore.clear(type)
+            SecureAccountStore.clear(type)
         }
         sources.getValue(type).logout()
         _unauthorizedTick.update { it + 1 }
@@ -146,7 +149,7 @@ object SourceManager {
 
     /** 已保存的账号邮箱（无则 null），登录页/设置页展示用 */
     fun savedAccountEmail(): String? =
-        com.pika.data.SecureAccountStore.savedEmail(_activeSource.value)
+        SecureAccountStore.savedEmail(_activeSource.value)
 }
 
 /**

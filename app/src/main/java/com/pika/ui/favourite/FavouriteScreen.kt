@@ -30,17 +30,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.compose.LifecycleEventEffect
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.SourceManager
+import com.pika.data.FavouriteSync
 import com.pika.ui.browse.ComicGridView
 import com.pika.ui.browse.PaginationBar
+import com.pika.ui.common.ErrorRetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.pika.core.runCatchingCancellable
 
 /** 收藏列表 VM（当前源） */
 class FavouriteViewModel : ViewModel() {
@@ -145,8 +149,8 @@ class FavouriteViewModel : ViewModel() {
         if (!needsRestore) return
         needsRestore = false
         _currentPage.value = _savedCurrentPage
-        if (com.pika.data.FavouriteSync.dirty) {
-            com.pika.data.FavouriteSync.dirty = false
+        if (FavouriteSync.dirty) {
+            FavouriteSync.dirty = false
             jumpToPage(_savedCurrentPage)
         }
     }
@@ -173,7 +177,7 @@ fun FavouriteScreen(
     val scope = rememberCoroutineScope()
 
     // 保存滚动位置（每次 Activity 暂停时都保存，覆盖所有导航场景）
-    LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
         viewModel.saveScrollState(listState.firstVisibleItemIndex, currentPage)
     }
     // 恢复滚动状态（导航返回后首次 recompose 时执行）
@@ -205,7 +209,7 @@ fun FavouriteScreen(
     ) { innerPadding ->
         if (error != null && comics.isEmpty()) {
             // 首屏失败可重试（BUG-23：此前只显示错误文字，只能退出重进）
-            com.pika.ui.common.ErrorRetry(
+            ErrorRetry(
                 message = error ?: "加载失败",
                 onRetry = { viewModel.load(page = 1) },
                 modifier = Modifier
@@ -255,7 +259,7 @@ fun FavouriteScreen(
                 TextButton(onClick = {
                     pendingUnfavourite = null
                     scope.launch {
-                        val result = runCatching {
+                        val result = runCatchingCancellable {
                             SourceManager.current().favourite(target.id, false)
                         }
                         result.fold(

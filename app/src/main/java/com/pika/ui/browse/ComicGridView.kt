@@ -36,9 +36,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.pika.core.model.ComicSummary
+import com.pika.data.GridSettings
+import com.pika.data.ReadStatus
+import com.pika.data.ReaderStatus
+import com.pika.ui.common.comicGridMetrics
 
 /** 卡片圆角（design-tokens layout.cardRadius） */
 internal val CardCoverShape = RoundedCornerShape(10.dp)
@@ -71,25 +79,20 @@ fun ComicGridView(
     /** 真实榜单位次展示：仅当列表本身是服务端榜单（顺序即名次）时开启 */
     showRankNumber: Boolean = false,
 ) {
-    val statusVersion by com.pika.data.ReaderStatus.version.collectAsState()
-    val columns by com.pika.data.GridSettings.columnsFlow.collectAsState()
-    // 列数自适应间距（美观性优化）：
-    // 2 列封面约占屏宽 41%（360dp 屏约 146dp），比旧版 158dp 更从容；
-    // 3 列收紧页边距与间距，封面约占 30%（约 107dp），比旧版 101dp 更饱满，
-    // 与设计稿两列≈43%、三列≈30% 的比例一致。
-    val horizontalPadding = if (columns == 2) 24.dp else 12.dp
-    val columnGap = if (columns == 2) 20.dp else 8.dp
-    val rowGap = if (columns == 2) 20.dp else 16.dp
+    val statusVersion by ReaderStatus.version.collectAsState()
+    val columns by GridSettings.columnsFlow.collectAsState()
+    // 列数自适应间距与骨架屏共用一份定义（ComicGridMetrics）
+    val metrics = comicGridMetrics(columns)
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(columnGap),
-        verticalArrangement = Arrangement.spacedBy(rowGap),
+        contentPadding = PaddingValues(horizontal = metrics.horizontalPadding, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(metrics.columnGap),
+        verticalArrangement = Arrangement.spacedBy(metrics.rowGap),
     ) {
         itemsIndexed(comics, key = { _, comic -> comic.ref }) { index, comic ->
-            val readStatus = remember(comic.ref, statusVersion) { com.pika.data.ReaderStatus.of(comic.ref) }
+            val readStatus = remember(comic.ref, statusVersion) { ReaderStatus.of(comic.ref) }
             val isNew = remember(comic.ref, newUntil) {
                 newUntil.isNotBlank() && comic.updatedAt.isNotBlank() && comic.updatedAt > newUntil
             }
@@ -147,7 +150,7 @@ fun ComicGridView(
 @Composable
 private fun ComicCard(
     comic: ComicSummary,
-    readStatus: com.pika.data.ReadStatus?,
+    readStatus: ReadStatus?,
     /** 2 列大卡片时标题用更大字号 */
     largeTitle: Boolean,
     onClick: () -> Unit,
@@ -191,14 +194,14 @@ private fun ComicCard(
                 Text(
                     text = "%02d".format(rankNumber),
                     style = TextStyle(
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        fontFamily = FontFamily.Serif,
+                        fontStyle = FontStyle.Italic,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 24.sp,
                         lineHeight = 26.sp,
-                        shadow = androidx.compose.ui.graphics.Shadow(
+                        shadow = Shadow(
                             color = Color.Black.copy(alpha = 0.55f),
-                            offset = androidx.compose.ui.geometry.Offset(0f, 2f),
+                            offset = Offset(0f, 2f),
                             blurRadius = 8f,
                         ),
                     ),
@@ -220,13 +223,13 @@ private fun ComicCard(
             }
             // 阅读状态角标：右下角独立分区（上方留给封面人物面部），读完优先显示
             when (readStatus) {
-                com.pika.data.ReadStatus.FINISHED -> ReadBadge(
+                ReadStatus.FINISHED -> ReadBadge(
                     text = "读完",
                     container = MaterialTheme.colorScheme.primary,
                     content = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.align(Alignment.BottomEnd),
                 )
-                com.pika.data.ReadStatus.READ -> ReadBadge(
+                ReadStatus.READ -> ReadBadge(
                     text = "已读",
                     container = Color(0x99000000),
                     content = Color.White,
@@ -242,7 +245,7 @@ private fun ComicCard(
                 MaterialTheme.typography.titleSmall
             } else {
                 TextStyle(
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+                    fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
@@ -308,7 +311,7 @@ private fun ReadBadge(
     Text(
         text = text,
         style = TextStyle(
-            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+            fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.Medium,
             fontSize = 10.sp,
             lineHeight = 14.sp,

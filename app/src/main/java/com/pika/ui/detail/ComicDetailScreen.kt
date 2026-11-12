@@ -1,5 +1,6 @@
 package com.pika.ui.detail
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,11 +22,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Comment
@@ -71,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -78,12 +81,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.pika.core.download.DownloadManager
 import com.pika.core.model.AuthorNameParser
 import com.pika.core.model.AuthorSegment
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
+import com.pika.core.source.ComicRef
+import com.pika.data.ReaderPrefs
 import com.pika.ui.author.AuthorPickerSheet
 import com.pika.ui.common.rememberClipboardCopier
 import kotlinx.coroutines.launch
@@ -123,18 +129,18 @@ fun ComicDetailScreen(
     var showCommentDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var authorPicker by remember { mutableStateOf<AuthorPickerState?>(null) }
-    val downloadTasks by com.pika.core.download.DownloadManager.tasks.collectAsState()
+    val downloadTasks by DownloadManager.tasks.collectAsState()
     val downloadedOrders by viewModel.downloadedOrders.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val copier = rememberClipboardCopier(snackbarHostState)
     // 章节列表倒序（与阅读器章节抽屉共用同一偏好）
-    val chapterDesc by com.pika.data.ReaderPrefs.current().chapterListDescending
+    val chapterDesc by ReaderPrefs.current().chapterListDescending
         .collectAsState(initial = false)
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     // 参数 ref 是作品标识 `源_id`；裸 id 只用于按 id 记账的场合（调源接口、匹配下载任务）
-    val comicId = com.pika.core.source.ComicRef.id(ref)
+    val comicId = ComicRef.id(ref)
 
     LaunchedEffect(ref) {
         viewModel.load(ref)
@@ -181,15 +187,15 @@ fun ComicDetailScreen(
                     // 分享作品（标题 + 作者）
                     comic?.let { c ->
                         IconButton(onClick = {
-                            val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(
-                                    android.content.Intent.EXTRA_TEXT,
+                                    Intent.EXTRA_TEXT,
                                     "《${c.title}》 ${c.author}\n（来自 PiKA 漫画阅读器）",
                                 )
                             }
                             context.startActivity(
-                                android.content.Intent.createChooser(sendIntent, "分享作品"),
+                                Intent.createChooser(sendIntent, "分享作品"),
                             )
                         }) {
                             Icon(
@@ -284,7 +290,7 @@ fun ComicDetailScreen(
                                     }
                                 },
                                 enabled = chapters.isNotEmpty(),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 48.dp),
@@ -293,7 +299,7 @@ fun ComicDetailScreen(
                             OutlinedButton(
                                 onClick = { viewModel.downloadAll(comicId, comic, chapters) },
                                 enabled = chapters.isNotEmpty(),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.heightIn(min = 48.dp),
                             )
                             {
@@ -421,7 +427,7 @@ fun ComicDetailScreen(
                             modifier = Modifier
                                 .clickable {
                                     scope.launch {
-                                        com.pika.data.ReaderPrefs.current()
+                                        ReaderPrefs.current()
                                             .setChapterListDescending(!chapterDesc)
                                     }
                                 }
@@ -712,7 +718,7 @@ private fun CommentItem(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable(onClick = onLike)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     ) {
@@ -783,7 +789,7 @@ private fun CommentItem(
 private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
     Card(
         modifier = Modifier.width(96.dp).clickable(onClick = onClick),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
@@ -841,7 +847,7 @@ private fun ComicHeader(
             Modifier
                 .width(110.dp)
                 .aspectRatio(3f / 4f)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             comic.coverUrl?.let {

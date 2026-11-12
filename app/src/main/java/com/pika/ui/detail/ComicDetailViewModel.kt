@@ -5,20 +5,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pika.core.download.DownloadManager
+import com.pika.core.log.LogStore
 import com.pika.core.model.ComicChapter
 import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
+import com.pika.core.source.ComicRef
 import com.pika.core.source.Source
 import com.pika.core.source.SourceManager
 import com.pika.core.source.SourceType
-import com.pika.core.log.LogStore
+import com.pika.data.FavouriteSync
+import com.pika.data.ReaderPrefs
+import com.pika.data.UpdatedAtCache
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import com.pika.core.runCatchingCancellable
 
 /** 漫画详情 VM：基本信息 + 章节列表 + 相关推荐 + 评论区（当前源） */
 class ComicDetailViewModel : ViewModel() {
@@ -151,12 +157,12 @@ class ComicDetailViewModel : ViewModel() {
         private set
 
     /** 本地历史进度（上次阅读到第几话第几页），无则 null */
-    private val _lastProgress = MutableStateFlow<com.pika.data.ReaderPrefs.Progress?>(null)
-    val lastProgress: StateFlow<com.pika.data.ReaderPrefs.Progress?> = _lastProgress
+    private val _lastProgress = MutableStateFlow<ReaderPrefs.Progress?>(null)
+    val lastProgress: StateFlow<ReaderPrefs.Progress?> = _lastProgress
 
     fun load(ref: String) {
         if (loadedRef == ref && _comic.value != null) return
-        val (src, comicId) = com.pika.core.source.ComicRef.parse(ref)
+        val (src, comicId) = ComicRef.parse(ref)
         source = src
         loadedRef = ref
         loadedComicId = comicId
@@ -183,8 +189,8 @@ class ComicDetailViewModel : ViewModel() {
         // 读取本地历史进度（不阻塞主线程）
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (gen != loadGeneration) return@launch
-            _lastProgress.value = runCatching {
-                com.pika.data.ReaderPrefs.current().lastProgressAsync(ref)
+            _lastProgress.value = runCatchingCancellable {
+                ReaderPrefs.current().lastProgressAsync(ref)
             }.getOrNull()
         }
         loadJob = viewModelScope.launch {
@@ -214,7 +220,7 @@ class ComicDetailViewModel : ViewModel() {
                 _comic.value = detail.also {
                     // 列表接口不返回更新时间，详情拉到就记录，供关注流回填展示
                     if (it.updatedAt.isNotBlank()) {
-                        com.pika.data.UpdatedAtCache.put(ref, it.updatedAt)
+                        UpdatedAtCache.put(ref, it.updatedAt)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -287,11 +293,11 @@ class ComicDetailViewModel : ViewModel() {
     fun observeDownloaded(comicId: String) {
         downloadedJob?.cancel()
         downloadedJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(_chapters, com.pika.core.download.DownloadManager.tasks) { chs, _ -> chs }
+            kotlinx.coroutines.flow.combine(_chapters, DownloadManager.tasks) { chs, _ -> chs }
                 .collectLatest { chs ->
                     val set = chs.asSequence()
                         .map { it.order }
-                        .filter { com.pika.core.download.DownloadManager.isDownloaded(comicId, it) }
+                        .filter { DownloadManager.isDownloaded(comicId, it) }
                         .toSet()
                     _downloadedOrders.value = set
                 }
@@ -300,7 +306,7 @@ class ComicDetailViewModel : ViewModel() {
 
     /** 下载指定章节（入队，由 DownloadManager 调度） */
     fun downloadChapter(comicId: String, comic: ComicDetail?, chapter: ComicChapter) {
-        com.pika.core.download.DownloadManager.enqueue(
+        DownloadManager.enqueue(
             comicId = comicId,
             comicTitle = comic?.title ?: comicId,
             coverUrl = comic?.coverUrl ?: "",
@@ -314,7 +320,7 @@ class ComicDetailViewModel : ViewModel() {
 
     /** 下载整本漫画（跳过已下载章节） */
     fun downloadAll(comicId: String, comic: ComicDetail?, chapters: List<ComicChapter>) {
-        com.pika.core.download.DownloadManager.enqueueAll(
+        DownloadManager.enqueueAll(
             comicId = comicId,
             comicTitle = comic?.title ?: comicId,
             coverUrl = comic?.coverUrl ?: "",
@@ -344,7 +350,7 @@ class ComicDetailViewModel : ViewModel() {
                 // 以源返回的真实状态回写，避免切换型接口本地失步
                 _favourited.value = now
                 // 通知收藏列表页返回时刷新（此前取消收藏后列表残留、新收藏不可见）
-                com.pika.data.FavouriteSync.dirty = true
+                FavouriteSync.dirty = true
                 LogStore.log("Detail", "I", "favourite toggled: comic=$comicId, favourited=$now")
             } catch (e: UnsupportedOperationException) {
                 favouriteSupported = false
