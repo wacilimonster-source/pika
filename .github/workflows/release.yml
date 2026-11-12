@@ -29,12 +29,18 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          # GitHub-hosted runner 已预装 Android SDK；setup-android v3 内部的
+          # `sdkmanager tools` 在新版 cmdline-tools 已不存在，会直接失败。
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          test -n "$SDK" || { echo "Android SDK not found"; exit 1; }
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || SDKMANAGER=$(command -v sdkmanager)
+          test -n "$SDKMANAGER" || { echo "sdkmanager not found"; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
 
       - name: Resolve version and notes
         id: version
