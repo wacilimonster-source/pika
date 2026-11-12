@@ -78,7 +78,7 @@ jobs:
           PIKA_KS_PW: ${{ secrets.PIKA_KS_PW }}
           PIKA_KEY_ALIAS: ${{ secrets.PIKA_KEY_ALIAS }}
           PIKA_KEY_PW: ${{ secrets.PIKA_KEY_PW }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: bash ./gradlew --no-daemon assembleRelease
 
       - name: Verify signing key continuity
         run: |
