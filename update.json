@@ -1,6 +1,6 @@
 {
-  "sha256": "5041919f8da7ffacade52648e5c628cc809f90336622196dca73febe9487cf27",
-  "version": "1.12.1",
-  "apkUrl": "https://raw.githubusercontent.com/wacilimonster-source/pika/main/pika-v1.12.1.apk",
-  "notes": "v1.12.1 更新（选中态统一，纯 UI 层调整，业务语义不变）：\n1. 首页排行榜日/周/月改为统一分段控件：选中为主色实心药丸 + 反色文字，去掉 Material 默认对勾，180ms 颜色过渡\n2. 新增统一选中态组件（PikaSegmentedControl / PikaFilterChip）：选中=主色实心，未选中=浅底 + outline 描边，深浅色同一套语言\n3. 筛选 chip 全量统一：分类/搜索的排序与阅读状态、搜索标签面板与历史、作者页片段/排序/状态、关注管理标签、注册页性别\n4. 设置页每行列数、默认阅读模式两处分段控件同步统一\n5. 修复审查发现的回归：深色下 chip 描边恢复 outline（对比 4.9:1）、作者片段角色后缀继承 chip 内容色（选中时不再低对比）、选中项触控高度恢复 40dp\n6. AVD(Android 14) release 包实测：榜单切换/排序互斥/标签筛选/历史点击/设置分段均正常，深浅色文本对比 4.77–6.61:1，零 FATAL/ANR"
+  "sha256": "79ca141e6ef749fb20be5b01da0b67db58a731d8df8d0c6130455bfcf95f601b",
+  "version": "1.12.2",
+  "apkUrl": "https://github.com/wacilimonster-source/pika/releases/download/v1.12.2/pika-v1.12.2.apk",
+  "notes": "v1.12.2 更新（稳定性与可维护性，界面视觉不变）：\n\n1. 修复多词搜索的死循环：服务端返回空页时游标不前进，会反复重拉同一页直到触发限流；现在成功即推进、本轮全失败即停止并提示。\n2. 修复章节并发拉取的乱序隐患：并发失败的页原先补拉到章节末尾，现在按页号还原顺序，阅读顺序不再可能错位。\n3. 取消安全：搜索历史、阅读进度/已读状态、缓存清理、更新检查等协程路径不再把取消当成失败继续写状态。\n4. 代码收敛：筛选/排序、分页口径、网格间距、搜索重试、章节分页 fan-out、网络计费判定各自收敛为单一实现；删除死代码与全限定名噪声。\n5. 工程门禁：新增 AGENTS.md、事故复盘文档和代码健康度检查脚本；新增 49 条纯 JVM 单测覆盖分页、筛选排序与章节 fan-out。\n6. 验证：compileReleaseKotlin、testReleaseUnitTest（49/49）、assembleRelease 通过；AVD(Android 14) release 冷启动无 FATAL/ANR。\n7. 签名与上一版一致（SHA-1 e7284370…aa7b），可直接覆盖安装，检查更新不受影响。"
 }
