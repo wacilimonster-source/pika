@@ -13,8 +13,8 @@ android {
         applicationId = "com.pika"
         minSdk = 26
         targetSdk = 35
-        versionCode = 104
-        versionName = "1.12.2"
+        versionCode = 105
+        versionName = "1.12.3"
     }
 
     signingConfigs {
@@ -49,6 +49,13 @@ android {
     }
     lint {
         checkReleaseBuilds = false
+    }
+    testOptions {
+        unitTests {
+            // 纯 JVM 单测会经过 main 代码里的 android.util.Log 调用（如 PicaClient 重试循环），
+            // 默认抛 "not mocked" 异常会让与 Android 无关的逻辑无法单测；桩默认值即可
+            isReturnDefaultValues = true
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

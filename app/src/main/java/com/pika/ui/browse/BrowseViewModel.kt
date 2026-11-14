@@ -96,8 +96,14 @@ class BrowseViewModel : ViewModel() {
         isScrollStateRestored = true
     }
 
+    // S-5.9：分类加载三态（加载中/失败/真实空）。此前「加载中」与「真实空」
+    // 都显示"当前源暂无分类"，请求完成的 1–2 秒内容易被误读
+    private val _categoriesLoading = MutableStateFlow(false)
+    val categoriesLoading: StateFlow<Boolean> = _categoriesLoading
+
     fun loadCategories() {
         viewModelScope.launch {
+            _categoriesLoading.value = true
             try {
                 _categories.value = SourceManager.current().categories()
                 _categoriesError.value = null
@@ -106,6 +112,8 @@ class BrowseViewModel : ViewModel() {
             } catch (e: Exception) {
                 // 分类失败不阻塞浏览，但必须可见、可重试（不能伪装成"暂无分类"）
                 _categoriesError.value = e.message?.takeIf { it.isNotBlank() } ?: "分类加载失败"
+            } finally {
+                _categoriesLoading.value = false
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.pika.ui.login
 
+import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,16 +34,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.pika.core.log.LogStore
 import com.pika.core.source.SourceManager
 import com.pika.core.source.SourceType
 import com.pika.data.SecureAccountStore
+import com.pika.network.PicaException
 import kotlinx.coroutines.launch
 
 /**
@@ -56,19 +62,27 @@ fun LoginScreen(
 ) {
     val scope = rememberCoroutineScope()
     val activeSource by SourceManager.activeSource.collectAsState()
-    var email by remember { mutableStateOf("") }
+    // 邮箱用 rememberSaveable：页面切换/配置变化（横竖屏、深浅色、字体缩放）后不丢（S-5.8）；
+    // 密码出于安全考虑不跨配置保留，重新从凭据库回填
+    var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     // 密码默认掩码显示，可点眼睛临时查看
-    var passwordVisible by remember { mutableStateOf(false) }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     // 是否保存账号密码（全局偏好，默认沿用既有行为 = 保存）
     var rememberPassword by remember { mutableStateOf(SecureAccountStore.saveEnabled) }
     // 已保存账号（邮箱仅用于展示，非敏感）
     var savedEmail by remember(activeSource) { mutableStateOf(SourceManager.savedAccountEmail()) }
-    // S8：用户已手动输入过任何字段则放弃自动回填——Keystore 解密在后台线程，
-    // 完成时用户可能已开始输入别的账号，无条件覆盖会冲掉用户已输入的内容
-    var userEdited by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val fontScale = LocalDensity.current.fontScale
+    // S-5.7：横屏或字体放大时首屏高度吃紧，压缩标题与间距，
+    // 保证「登录」主操作在首屏内可见（实测横屏 + 1.3 时按钮曾被折叠线挡住）
+    val compact = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE ||
+        fontScale >= 1.3f
+    // S-5.8：userEdited 也要跨配置保留——配置变化后若被复位为 false，
+    // 回填协程会把已保存的旧账号覆盖到用户刚输入一半的邮箱上
+    var userEdited by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(activeSource) {
         // 邮箱不涉及敏感信息，直接回填；密码仅在「保存账号密码」开启时回填
         val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -84,7 +98,7 @@ fun LoginScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .padding(if (compact) 16.dp else 24.dp)
             .imePadding()
             // 键盘弹出时内容可能超出可视高度（小屏/字体放大场景），必须可滚动，
             // 否则密码框/登录按钮被键盘裁掉且无法滚到（BUG-22）
@@ -94,7 +108,8 @@ fun LoginScreen(
     ) {
         Text(
             text = "登录 ${activeSource.displayName}",
-            style = MaterialTheme.typography.headlineSmall,
+            style = if (compact) MaterialTheme.typography.titleLarge
+            else MaterialTheme.typography.headlineSmall,
         )
         if (savedEmail != null) {
             Spacer(Modifier.height(4.dp))
@@ -104,7 +119,7 @@ fun LoginScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(if (compact) 8.dp else 24.dp))
 
         OutlinedTextField(
             value = email,
@@ -196,7 +211,9 @@ fun LoginScreen(
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        error = e.message ?: "登录失败"
+                        // S-5.1：只展示映射后的可读文案；原始异常（含服务端响应细节）进日志
+                        LogStore.log("Auth", "E", "登录失败：${e.javaClass.simpleName}: ${e.message}")
+                        error = (e as? PicaException)?.message ?: "登录失败，请稍后重试"
                     } finally {
                         loading = false
                     }

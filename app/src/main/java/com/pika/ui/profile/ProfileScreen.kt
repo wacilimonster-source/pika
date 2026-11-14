@@ -56,6 +56,7 @@ import coil.compose.AsyncImage
 import com.pika.core.model.ComicUser
 import com.pika.core.source.SourceManager
 import com.pika.data.SecureAccountStore
+import com.pika.util.DateText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -212,7 +213,7 @@ fun ProfileScreen(
                         "bot" -> "机器人"
                         else -> "--"
                     })
-                    ProfileRow("生日", u.birthday.ifBlank { "--" })
+                    ProfileRow("生日", DateText.datePart(u.birthday).ifBlank { "--" })
                     ProfileRow("称号", u.title.ifBlank { "--" }, onClick = { showTitleDialog = true })
                     ProfileRow("简介", u.slogan.ifBlank { "--" }, onClick = { showSloganDialog = true })
                     ProfileRow("修改密码", "点击修改", onClick = { showPasswordDialog = true })

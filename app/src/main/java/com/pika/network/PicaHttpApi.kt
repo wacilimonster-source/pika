@@ -34,7 +34,12 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
                 resp.bodyString
             )
         } catch (e: kotlinx.serialization.SerializationException) {
-            throw PicaException("数据解析失败：${e.message}", httpCode = resp.code)
+            // 解析失败细节（半截 JSON/整页 HTML）只进日志；用户只看可读文案（S-5.1）
+            LogStore.log(
+                "PicaHttpApi", "E",
+                "响应解析失败 HTTP ${resp.code}: ${e.message} <- ${resp.bodyString.take(200)}",
+            )
+            throw PicaException("数据解析失败，请稍后重试", httpCode = resp.code)
         }
     }
 
@@ -61,9 +66,18 @@ class PicaHttpApi(baseUrl: String) : PicaApi {
                     )
                     throw PicaException("哔咔服务端暂时不可用（HTTP ${resp.code}），请稍后重试", httpCode = resp.code)
                 }
-                // S14-5：响应体可能是 CDN 返回的整页 HTML，原文进错误提示/日志既刷屏又无用，
-                // 截断为摘要（保留头部，足够辨认网关错误类型）
-                throw PicaException("${resp.code}: ${resp.bodyString.take(200)}${if (resp.bodyString.length > 200) "…" else ""}", httpCode = resp.code)
+                // 4xx：解析错误体映射用户文案（登录 400/1004 → 「账号或密码错误」等）；
+                // 原始响应体只进日志，不再拼进 message 直达 UI（S-5.1）
+                LogStore.log(
+                    "PicaHttpApi", "E",
+                    "HTTP ${resp.code} $path: ${resp.bodyString.take(300)}",
+                )
+                val err = PicaErrorBody.parse(resp.bodyString)
+                throw PicaException(
+                    PicaException.userMessageFor(resp.code, err?.errorCode ?: 0, err?.message ?: ""),
+                    httpCode = resp.code,
+                    errorCode = err?.errorCode ?: 0,
+                )
             }
             return parseResponse(resp)
         } finally {

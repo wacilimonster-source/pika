@@ -18,13 +18,14 @@ import com.pika.core.source.SourceType
 import com.pika.data.FavouriteSync
 import com.pika.data.ReaderPrefs
 import com.pika.data.UpdatedAtCache
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import com.pika.core.runCatchingCancellable
 
 /** 漫画详情 VM：基本信息 + 章节列表 + 相关推荐 + 评论区（当前源） */
 class ComicDetailViewModel : ViewModel() {
@@ -160,6 +161,32 @@ class ComicDetailViewModel : ViewModel() {
     private val _lastProgress = MutableStateFlow<ReaderPrefs.Progress?>(null)
     val lastProgress: StateFlow<ReaderPrefs.Progress?> = _lastProgress
 
+    /**
+     * 重新读取本地进度（S-5.4）：从阅读器返回详情时 ON_RESUME 触发。
+     * 此前进度只在 load() 进入时读一次——阅读期间保存的进度在当前详情页
+     * 永远不可见（仍显示「开始阅读」），用户会以为进度丢了。
+     */
+    fun refreshLastProgress() {
+        val ref = loadedRef
+        if (ref.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _lastProgress.value = readLastProgress(ref)
+        }
+    }
+
+    /**
+     * 读取本地进度：失败一律视为无进度（进度读取不值得打扰用户），取消必须放行。
+     * load()（进页）与 refreshLastProgress()（ON_RESUME 刷新）共用，避免两份实现漂移。
+     */
+    private suspend fun readLastProgress(ref: String): ReaderPrefs.Progress? =
+        try {
+            ReaderPrefs.current().lastProgressAsync(ref)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
     fun load(ref: String) {
         if (loadedRef == ref && _comic.value != null) return
         val (src, comicId) = ComicRef.parse(ref)
@@ -187,11 +214,9 @@ class ComicDetailViewModel : ViewModel() {
         _recommendations.value = emptyList()
         commentPage = 1
         // 读取本地历史进度（不阻塞主线程）
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             if (gen != loadGeneration) return@launch
-            _lastProgress.value = runCatchingCancellable {
-                ReaderPrefs.current().lastProgressAsync(ref)
-            }.getOrNull()
+            _lastProgress.value = readLastProgress(ref)
         }
         loadJob = viewModelScope.launch {
             val chaptersJob = launch {

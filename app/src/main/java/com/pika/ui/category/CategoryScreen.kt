@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,7 +71,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.pika.core.model.ComicCategory
 import com.pika.core.model.ComicSort
 import com.pika.core.model.ComicStatus
@@ -86,6 +86,7 @@ import com.pika.ui.browse.loadedPageCount
 import com.pika.ui.browse.pageSlice
 import com.pika.ui.browse.readFilterOptions
 import com.pika.ui.common.ComicGridSkeleton
+import com.pika.ui.common.CoverImage
 import com.pika.ui.common.PikaFilterChip
 
 /**
@@ -103,6 +104,7 @@ fun CategoryScreen(
     val activeSource by SourceManager.activeSource.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val categoriesError by viewModel.categoriesError.collectAsState()
+    val categoriesLoading by viewModel.categoriesLoading.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     // 组合期不做磁盘/SharedPreferences 读取：初值给空设置，在 LaunchedEffect 中加载
     var settings by remember { mutableStateOf(CategorySettings.Settings()) }
@@ -154,25 +156,33 @@ fun CategoryScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center,
             ) {
-                if (categories.isEmpty() && categoriesError != null) {
-                    // 分类加载失败必须可见、可重试（此前静默显示"暂无分类"误导用户）
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "分类加载失败：$categoriesError",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                        )
-                        TextButton(onClick = { viewModel.retryCategories() }) {
-                            Text("重试")
+                when {
+                    // S-5.9：加载中必须可见——此前加载期间直接显示"当前源暂无分类"，
+                    // 请求完成的 1–2 秒内容易被误读
+                    categoriesLoading && categories.isEmpty() -> {
+                        CircularProgressIndicator()
+                    }
+                    categories.isEmpty() && categoriesError != null -> {
+                        // 分类加载失败必须可见、可重试（此前静默显示"暂无分类"误导用户）
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "分类加载失败：$categoriesError",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp),
+                            )
+                            TextButton(onClick = { viewModel.retryCategories() }) {
+                                Text("重试")
+                            }
                         }
                     }
-                } else {
-                    Text(
-                        text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    else -> {
+                        Text(
+                            text = if (categories.isEmpty()) "当前源暂无分类" else "所有分类已隐藏",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         } else {
@@ -457,8 +467,9 @@ private fun CategoryCard(category: ComicCategory, onClick: () -> Unit) {
             .clickable(onClick = onClick),
     ) {
         if (!category.coverUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = category.coverUrl,
+            // 失败显示「点击重试」提示层，不再长期空白（S-5.14）
+            CoverImage(
+                coverUrl = category.coverUrl,
                 contentDescription = category.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

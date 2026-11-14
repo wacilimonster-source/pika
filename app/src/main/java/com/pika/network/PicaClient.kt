@@ -71,6 +71,9 @@ object PicaClient {
 
     private const val RATE_LIMIT_COOLDOWN_MS = 20_000L
 
+    /** 网络重试耗尽后的统一对外文案（S-5.2）：细节只进 LogStore */
+    internal const val NETWORK_ERROR_USER_MESSAGE = "网络连接失败，请检查网络后重试"
+
     @Volatile
     private var rateLimitedUntil: Long = 0L
 
@@ -119,8 +122,10 @@ object PicaClient {
      * 统一的请求执行与容错循环：限流冷却 / 换域名重试 / IO 重试。
      * 两个公开入口（[safeCall] / [safeCallUnit]）只差 `requireData` 一个开关，
      * 收敛在此处避免复制那段重试代码。
+     *
+     * internal：纯 JVM 单测直驱该循环验证网络失败文案与重试语义（PicaClientRetryTest）。
      */
-    private suspend fun <T> withRetry(
+    internal suspend fun <T> withRetry(
         block: suspend () -> ApiResponse<T>,
         requireData: Boolean,
     ): T? {
@@ -135,7 +140,11 @@ object PicaClient {
                 val response = block()
                 if (response.code != 200) {
                     LogStore.log("PicaClient", "E", "HTTP ${response.code}: ${response.message}")
-                    throw PicaException(response.message, errorCode = response.code)
+                    // 业务错误体 message 可能为空串：兜底为可读文案，避免 UI 出现空白错误行
+                    throw PicaException(
+                        response.message.ifBlank { "请求失败（错误码 ${response.code}），请稍后重试" },
+                        errorCode = response.code,
+                    )
                 }
                 persistHostIfChanged(baseUrl)
                 // 纯确认型：只校验 code，不要求 data（返回 null 由调用方忽略）
@@ -174,7 +183,9 @@ object PicaClient {
                     continue
                 }
                 LogStore.log("PicaClient", "E", "network failed after $ioAttempt attempts: ${e.message}")
-                throw PicaException("网络连接失败：${e.message}")
+                // 统一对外文案：底层异常细节（Unable to resolve host / Failed to connect 等）
+                // 不再拼给用户（S-5.2），完整细节已在上方 LogStore 供诊断
+                throw PicaException(NETWORK_ERROR_USER_MESSAGE)
             }
         }
     }

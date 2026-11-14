@@ -154,8 +154,11 @@ fun MainScreen() {
         .collectAsState(initial = true)
 
     val route = currentDestination?.route
-    val hideBottomBar = hideBottomBarInReader &&
-        fullScreenRoutePrefixes.any { route?.startsWith(it) == true }
+    // S-5.6：登录/注册/忘记密码页不显示底部导航——未登录时内容 Tab 必然 401 回跳，
+    // 底栏只会诱导用户点进必失败的页面
+    val hideBottomBar = (hideBottomBarInReader &&
+        fullScreenRoutePrefixes.any { route?.startsWith(it) == true }) ||
+        route?.substringBefore('?') in nonRestorableRoutes
 
     // 登录失效前的现场路由：登录成功后回跳（null = 回首页）
     var pendingReturnRoute by remember {
@@ -198,12 +201,17 @@ fun MainScreen() {
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
+                                // S-5.5：点击任意 Tab（含重复点击当前 Tab）一律回到该 Tab 根页。
+                                // 此前 restoreState=true 会把上次在该 Tab 推入的子页面
+                                // （详情/下载/关注管理）一并恢复——「我的→历史→详情→切首页→
+                                // 再点我的」仍落在详情页，用户点 Tab 期望的是回到 Tab 首页。
+                                // 有意取舍：子页面返回栈不跨 Tab 切换保留。
                                 navController.navigate(tab.route) {
                                     popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                        saveState = false
                                     }
                                     launchSingleTop = true
-                                    restoreState = true
+                                    restoreState = false
                                 }
                             },
                             icon = {

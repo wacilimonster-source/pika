@@ -10,6 +10,7 @@ import com.pika.core.log.CrashReporter
 import com.pika.core.log.LogStore
 import com.pika.core.log.MainThreadWatchdog
 import com.pika.core.source.SourceManager
+import com.pika.core.update.UpdateManager
 import com.pika.core.update.UpdateState
 import com.pika.data.AuthorFavourites
 import com.pika.data.CategorySettings
@@ -92,6 +93,9 @@ class PiKAApp : Application() {
                 .build(),
         )
         PicaClient.init(this)
+        // S-5.13：日志页此前在无网络活动时永远"暂无日志"，无法判断进程是否刚重启/
+        // 排障无从下手。记一条启动基线，后续登录态变化、关键请求失败都会陆续进 LogStore
+        LogStore.log("App", "I", "应用启动 v${UpdateManager.currentVersionName}")
     }
 
     /**

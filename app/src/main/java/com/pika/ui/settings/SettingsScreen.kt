@@ -1,6 +1,7 @@
 package com.pika.ui.settings
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -216,9 +217,20 @@ fun SettingsScreen(
                 val wifiOnly by DownloadPrefs.wifiOnlyFlow
                     .collectAsState(initial = DownloadPrefs.wifiOnly)
                 val context = LocalContext.current
+                // S-5.3：开关显示必须跟随真实权限。偏好默认开，但 API 33+ 未授予
+                // POST_NOTIFICATIONS 时实际一条通知都发不出；此时开关显示为关，
+                // supportingContent 说明原因，点击开关走权限申请。
+                var notifGranted by remember {
+                    mutableStateOf(
+                        Build.VERSION.SDK_INT < 33 ||
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                            PackageManager.PERMISSION_GRANTED,
+                    )
+                }
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { granted ->
+                    notifGranted = granted
                     // S4：开关状态必须跟随真实权限授予结果。此前回调为空体——用户在系统
                     // 弹窗点「拒绝」后 Switch 仍显示开启，实际一条通知都不会发，
                     // 且权限已拒绝后系统也不再弹申请，用户无从自救。
@@ -231,12 +243,21 @@ fun SettingsScreen(
                         ).show()
                     }
                 }
+                val notifySwitchOn = notifyEnabled && notifGranted
                 ListItem(
                     headlineContent = { Text("下载完成通知") },
-                    supportingContent = { Text("整本下载完成后发送系统通知") },
+                    supportingContent = {
+                        Text(
+                            if (notifyEnabled && !notifGranted) {
+                                "需要通知权限：未授权时下载完成不会有任何通知，点击开关申请"
+                            } else {
+                                "整本下载完成后发送系统通知"
+                            }
+                        )
+                    },
                     trailingContent = {
                         Switch(
-                            checked = notifyEnabled,
+                            checked = notifySwitchOn,
                             onCheckedChange = { enabled ->
                                 if (enabled && Build.VERSION.SDK_INT >= 33) {
                                     // 授予结果由上方回调写入：不再无条件置 true

@@ -225,12 +225,15 @@ fun DownloadScreen(
                             text = "已占用 ${formatBytes(totalBytes)}",
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "${tasks.count { it.isFinished }}/${tasks.size} 个任务完成",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        // S-5.12：空列表时「0/0 个任务完成」读起来别扭，直接隐藏该行
+                        if (tasks.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "${tasks.count { it.isFinished }}/${tasks.size} 个任务完成",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     val speed = totalSpeed
                     if (speed > 0) {

@@ -76,6 +76,8 @@ class PicacgSource : Source {
         // 显式登录成功即恢复 401 静默重登能力（清除用户登出时置的标志，见 SourceManager.S2）
         SourceManager.onLoginSuccess()
         SourcePrefs.current().setPicaLogin(token = data.token, email = email)
+        // 登录态变化进调试日志（S-5.13）：日志页此前只有网络事件，排障时看不出登录是否发生过
+        LogStore.log("Auth", "I", "登录成功（哔咔源）")
         // 账号变化可能带来分类权限差异，清一次内存缓存
         categoriesMutex.withLock { categoriesCache = null; categoriesAt = 0L }
         // 保存账号凭据，供登出后会话失效时静默重登/一键填充
@@ -107,6 +109,8 @@ class PicacgSource : Source {
 
     override suspend fun logout() {
         SourcePrefs.current().clearPicaLogin()
+        // 登录态变化进调试日志（S-5.13，同登录成功）
+        LogStore.log("Auth", "I", "已退出登录（哔咔源）")
         // 分类可能随账号权限差异而不同，登出时清掉内存缓存，避免换账号后仍显示旧分类
         categoriesMutex.withLock { categoriesCache = null; categoriesAt = 0L }
     }

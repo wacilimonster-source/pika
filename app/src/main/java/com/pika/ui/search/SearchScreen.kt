@@ -441,7 +441,8 @@ fun SearchScreen(
                             text = when {
                                 searchError != null -> "搜索失败：$searchError"
                                 readFilter != ReadFilter.ALL -> "没有符合条件的作品"
-                                else -> "没有更多结果"
+                                // S-5.10：零结果是「无匹配」不是「分页耗尽」，文案要能引导用户换词
+                                else -> "没有找到相关作品，试试其他关键词"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

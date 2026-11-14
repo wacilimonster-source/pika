@@ -61,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,11 +75,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.pika.core.download.DownloadManager
@@ -89,9 +93,12 @@ import com.pika.core.model.ComicComment
 import com.pika.core.model.ComicDetail
 import com.pika.core.model.ComicSummary
 import com.pika.core.source.ComicRef
+import com.pika.data.DownloadPrefs
 import com.pika.data.ReaderPrefs
 import com.pika.ui.author.AuthorPickerSheet
+import com.pika.ui.common.CoverImage
 import com.pika.ui.common.rememberClipboardCopier
+import com.pika.ui.common.rememberNotificationPermissionRequester
 import kotlinx.coroutines.launch
 
 /** 漫画详情：封面 + 信息 + 简介 + 章节列表 + 相关推荐 + 评论区（评论通过 FAB 弹窗） */
@@ -139,11 +146,33 @@ fun ComicDetailScreen(
         .collectAsState(initial = false)
     val context = LocalContext.current
 
+    // S-5.3：下载入口统一包装——「下载完成通知」偏好默认开但权限默认未授予，
+    // 用户首次发起下载时顺带申请一次（授予与否都不阻塞下载本身）。
+    // 设置页开关已跟随真实权限显示，此处兜底覆盖不进设置页的用户
+    val ensureNotifPermission = rememberNotificationPermissionRequester { }
+    val withNotifPermission: (() -> Unit) -> Unit = { action ->
+        if (DownloadPrefs.notifyEnabled) ensureNotifPermission()
+        action()
+    }
+
     // 参数 ref 是作品标识 `源_id`；裸 id 只用于按 id 记账的场合（调源接口、匹配下载任务）
     val comicId = ComicRef.id(ref)
 
     LaunchedEffect(ref) {
         viewModel.load(ref)
+    }
+
+    // S-5.4：从阅读器返回时 ON_RESUME 重读本地进度，按钮/文案立即变「继续阅读」。
+    // 此前进度只在 load() 时读一次，阅读返回后仍显示「开始阅读」
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, ref) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshLastProgress()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(favouriteError) {
@@ -297,7 +326,7 @@ fun ComicDetailScreen(
                             )
                             { Text(if (lastProgress != null) "继续阅读" else "开始阅读") }
                             OutlinedButton(
-                                onClick = { viewModel.downloadAll(comicId, comic, chapters) },
+                                onClick = { withNotifPermission { viewModel.downloadAll(comicId, comic, chapters) } },
                                 enabled = chapters.isNotEmpty(),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.heightIn(min = 48.dp),
@@ -451,7 +480,9 @@ fun ComicDetailScreen(
                     ChapterRow(
                         chapter = chapter,
                         onClick = { onOpenReader(ref, chapter.order) },
-                        onDownload = { viewModel.downloadChapter(comicId, comic, chapter) },
+                        onDownload = {
+                            withNotifPermission { viewModel.downloadChapter(comicId, comic, chapter) }
+                        },
                         downloaded = chapter.order in downloadedOrders,
                     )
                 }
@@ -802,14 +833,13 @@ private fun RecommendCard(comic: ComicSummary, onClick: () -> Unit) {
                     .aspectRatio(3f / 4f)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
-                comic.coverUrl?.let {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = comic.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                // 失败显示「点击重试」提示层，不再长期空白（S-5.14）
+                CoverImage(
+                    coverUrl = comic.coverUrl,
+                    contentDescription = comic.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
             Text(
                 text = comic.title,
@@ -850,14 +880,13 @@ private fun ComicHeader(
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            comic.coverUrl?.let {
-                AsyncImage(
-                    model = it,
-                    contentDescription = comic.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            // 失败显示「点击重试」提示层，不再长期空白（S-5.14）
+            CoverImage(
+                coverUrl = comic.coverUrl,
+                contentDescription = comic.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.fillMaxWidth()) {

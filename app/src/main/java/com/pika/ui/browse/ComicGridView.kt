@@ -48,11 +48,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.pika.core.model.ComicSummary
 import com.pika.data.GridSettings
 import com.pika.data.ReadStatus
 import com.pika.data.ReaderStatus
+import com.pika.ui.common.CoverImage
 import com.pika.ui.common.comicGridMetrics
 
 /** 卡片圆角（design-tokens layout.cardRadius） */
@@ -173,8 +173,9 @@ private fun ComicCard(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             comic.coverUrl?.let { cover ->
-                AsyncImage(
-                    model = cover,
+                // 失败显示「点击重试」提示层，不再长期空白（S-5.14）
+                CoverImage(
+                    coverUrl = cover,
                     contentDescription = comic.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
