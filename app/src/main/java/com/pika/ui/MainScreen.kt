@@ -6,9 +6,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
@@ -189,11 +193,20 @@ fun MainScreen() {
     Scaffold(
         bottomBar = {
             // 阅读页整屏展示：直接移除标签栏，Scaffold 会把它的高度还给内容区。
-            // heightIn(min = 64dp)：总高度随系统手势条 inset 增长，内容不被遮挡
+            // 压缩底栏高度：M3 NavigationBar 内部 Row 自带 heightIn(min = 80dp)，min 约束
+            // 压不下去；若直接 height(64dp) 钳总高，内部 windowInsetsPadding 会先吃掉
+            // 手势条 inset（~24dp），图标+标签只剩 ~40dp 会被裁切。
+            // 因此把 inset 挪到外部 padding，windowInsets 置零，让 64dp 全部给内容：
+            // 64dp 恰好等于 NavigationBarItem（图标+标签）自身最小高度，字体缩放 1.3 时
+            // （标签 ~14.3sp）内容仍放得下。背景色提前铺，避免手势条区域露出 Scaffold 底色。
             if (!hideBottomBar) {
                 NavigationBar(
-                    modifier = Modifier.heightIn(min = 64.dp),
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surface)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .height(64.dp),
                     containerColor = MaterialTheme.colorScheme.surface,
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                 ) {
                     tabs.forEach { tab ->
                         val selected = currentDestination?.hierarchy
